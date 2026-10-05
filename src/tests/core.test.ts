@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { StudioApi } from '../api/client.js';
@@ -14,7 +14,7 @@ import {
 } from '../config/credentials.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
 import { withLock } from '../fs/lock.js';
-import { findRepoRoot } from '../repo/root.js';
+import { findRepoRoot, isHomeOrAbove } from '../repo/root.js';
 import { fakeFetch, ok, refused, tempDir } from './helpers.js';
 
 describe('the repo root', () => {
@@ -29,6 +29,25 @@ describe('the repo root', () => {
 
     const elsewhere = await tempDir();
     assert.equal(findRepoRoot(elsewhere), null);
+  });
+
+  it('never searches above the top of a git repo, nor into the home folder', async () => {
+    const outer = await tempDir();
+    await mkdir(path.join(outer, 'rough'), { recursive: true });
+    await writeFile(path.join(outer, 'rough', 'roughbook.json'), '{}\n');
+    const inner = path.join(outer, 'client', 'src');
+    await mkdir(path.join(outer, 'client', '.git'), { recursive: true });
+    await mkdir(inner, { recursive: true });
+    assert.equal(findRepoRoot(inner), null);
+
+    // With no .git between them, a link file in the home folder is still never found.
+    await rm(path.join(outer, 'client', '.git'), { recursive: true });
+    await rm(path.join(outer, '.git'), { recursive: true });
+    assert.equal(findRepoRoot(inner, outer), null);
+    assert.equal(findRepoRoot(inner, path.join(path.parse(outer).root, 'no-such-home')), outer);
+    assert.equal(isHomeOrAbove(outer, outer), true);
+    assert.equal(isHomeOrAbove(path.dirname(outer), outer), true);
+    assert.equal(isHomeOrAbove(inner, outer), false);
   });
 });
 

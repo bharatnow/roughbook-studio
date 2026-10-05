@@ -7,6 +7,32 @@ Your code stays on your machine: the server only ever sees ids, review decisions
 
 Runs on Windows, macOS and Linux, with Node 22 or later.
 
+## Commands
+
+| Command                                           | Does                                                                                |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `roughbook login [--server <url>] [--no-browser]` | Signs this machine in: shows a code to enter at the web's `/link` page and opens it |
+| `roughbook init`                                  | In an app's repo: links it to a project and prepares it, showing every change first |
+| `roughbook status`                                | The sign-in, the linked project, and what is waiting to be sent                     |
+| `roughbook logout`                                | Signs this machine out, here and on the server                                      |
+
+`init` asks which project the repo works on (or `--project <slug>`, `--new <name>`, with
+`--org <id>` when two organizations share a slug) and whether to commit `rough/` (`--commit`, the
+default, or `--no-commit`); `--yes` applies without asking. `--scratch <dir>` first makes a minimal
+Next.js 16 app with Tailwind v4 and a git repository there. It then:
+
+- writes `rough/` with `README.md`, `AGENTS.md` (the iteration rules every agent reads),
+  `CLAUDE.md` (pointing at them) and `roughbook.json` (the organization and project, no paths);
+- adds the development-only preview route under the App Router, `rough/preview.tsx` for the app's
+  providers, and the generated `rough/preview-registry.ts`;
+- excludes `rough/` and the route from TypeScript and ESLint, and adds an `@source` line so
+  Tailwind v4 sees the classes in `rough/`;
+- tells git what to keep: run state, screenshots, the registry and the route are never committed,
+  and `rough/` itself only when you choose not to commit it.
+
+A file the studio did not write is never replaced; it is listed for you to change by hand. Running
+`init` again changes nothing, and it adopts a repo prepared by Roughbook v2.
+
 ## Development
 
 ```bash
@@ -49,7 +75,8 @@ src/
   commands/     one file per command, and the registry
   api/          the typed client for /studio, its errors, and the outbox
   config/       sign-in, server address, the user config folder
-  repo/         the repo root and the rough/ folder
+  launch/       everything that differs by OS: opening a browser, naming the OS
+  repo/         the repo root, repo prep and the preview route, the link file, scratch apps
   fs/           whole-file JSON writes and the lock the CLI and local server share
   tests/
 ```

@@ -1,12 +1,16 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
 import type { Io } from '../io.js';
 
-/** A fresh folder under the OS temp folder, removed when the test file ends. */
+/**
+ * A fresh folder under the OS temp folder, removed when the test file ends. It holds an empty
+ * `.git` folder, so no search upwards for a repo or an app ever climbs out of it.
+ */
 export async function tempDir(prefix = 'roughbook-'): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+  await mkdir(path.join(dir, '.git'));
   after(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }

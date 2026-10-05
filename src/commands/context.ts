@@ -1,8 +1,8 @@
-import os from 'node:os';
 import { StudioApi } from '../api/client.js';
 import { readCredentials, type Credentials } from '../config/credentials.js';
 import { resolveServer } from '../config/server.js';
 import type { Io } from '../io.js';
+import { currentOs } from '../launch/platform.js';
 import { STUDIO_VERSION } from '../version.js';
 
 /** What every command is given. `repoRoot` is found once, by cli.ts, and passed down. */
@@ -15,8 +15,10 @@ export type CommandContext = {
   repoRoot: string | null;
   /** Where the install token is kept. */
   configDir: string;
-  /** Replaced in tests. */
+  /** Replaced in tests, so nothing reaches the network, waits or opens a browser. */
   fetch?: typeof fetch;
+  sleep: (ms: number) => Promise<void>;
+  openUrl: (url: string) => Promise<boolean>;
 };
 
 export type Command = {
@@ -28,9 +30,9 @@ export type Command = {
   run(args: string[], context: CommandContext): Promise<number>;
 };
 
-/** `roughbook-studio/0.1.0 (win32)`: the version and OS, nothing about the machine or repo. */
+/** `roughbook-studio/0.1.0 (windows)`: the version and OS, nothing about the machine or repo. */
 export function userAgent(): string {
-  return `roughbook-studio/${STUDIO_VERSION} (${os.type()})`;
+  return `roughbook-studio/${STUDIO_VERSION} (${currentOs()})`;
 }
 
 /** A client for the saved sign-in, or a signed-out one for the server to sign in to. */

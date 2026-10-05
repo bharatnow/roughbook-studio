@@ -1,4 +1,5 @@
 import { ApiError, OfflineError } from './errors.js';
+import type { DeviceLogin, IssuedInstall, LinkResult, Me, OrgProjects } from './types.js';
 
 /** Where the backend serves the studio's routes. */
 export const STUDIO_BASE = '/v1/api/studio';
@@ -38,6 +39,47 @@ export class StudioApi {
 
   get signedIn(): boolean {
     return this.config.token !== null;
+  }
+
+  /** The same server, without the token: for signing in. */
+  signedOut(): StudioApi {
+    return new StudioApi({ ...this.config, token: null });
+  }
+
+  /** The same server with a newly issued token. */
+  withToken(token: string): StudioApi {
+    return new StudioApi({ ...this.config, token });
+  }
+
+  startDeviceLogin(body: { studioVersion: string; os: string }): Promise<DeviceLogin> {
+    return this.request('POST', '/auth/device', body);
+  }
+
+  pollDeviceLogin(deviceCode: string): Promise<IssuedInstall> {
+    return this.request('POST', '/auth/token', { deviceCode });
+  }
+
+  me(): Promise<Me> {
+    return this.request('GET', '/me');
+  }
+
+  logout(): Promise<unknown> {
+    return this.request('POST', '/auth/logout', {});
+  }
+
+  projects(): Promise<OrgProjects[]> {
+    return this.request('GET', '/projects');
+  }
+
+  createProject(orgId: string, name: string): Promise<{ slug: string }> {
+    return this.request('POST', `/orgs/${encodeURIComponent(orgId)}/projects`, { name });
+  }
+
+  link(
+    orgId: string,
+    body: { project: string; framework: string | null; roughCommitted: boolean }
+  ): Promise<LinkResult> {
+    return this.request('POST', `/orgs/${encodeURIComponent(orgId)}/links`, body);
   }
 
   async request<T>(

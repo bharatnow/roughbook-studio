@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
+import { statePath } from '../repo/root.js';
 import { withLock } from '../fs/lock.js';
 import type { RequestBody, StudioApi } from './client.js';
 import { ApiError, OfflineError } from './errors.js';
@@ -135,4 +136,9 @@ export class Outbox {
     const state = await readJson<OutboxFile>(this.file);
     return { entries: state?.entries ?? [], dropped: state?.dropped ?? [] };
   }
+}
+
+/** The repo's outbox, in `rough/.roughbook/`. */
+export function outboxFor(repoRoot: string): Outbox {
+  return new Outbox(statePath(repoRoot, 'outbox.json'));
 }

@@ -1,12 +1,17 @@
 import { describeError } from '../api/errors.js';
 import { userConfigDir } from '../config/userDir.js';
 import type { Io } from '../io.js';
+import { openUrl } from '../launch/open.js';
 import { findRepoRoot } from '../repo/root.js';
 import { STUDIO_VERSION } from '../version.js';
 import type { Command, CommandContext } from './context.js';
+import { init } from './init.js';
+import { login } from './login.js';
+import { logout } from './logout.js';
+import { status } from './status.js';
 
 /** Every command, in the order `roughbook help` lists them. */
-export const COMMANDS: Command[] = [];
+export const COMMANDS: Command[] = [login, init, status, logout];
 
 function printHelp(io: Io): void {
   io.out(`Roughbook studio ${STUDIO_VERSION}`);
@@ -24,6 +29,8 @@ export type MainOptions = {
   env: NodeJS.ProcessEnv;
   io: Io;
   fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  openUrl?: (url: string) => Promise<boolean>;
 };
 
 /** Runs one command line and returns the exit code: 0 done, 1 failed, 2 not understood. */
@@ -50,7 +57,9 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     env: options.env,
     repoRoot: findRepoRoot(options.cwd),
     configDir: userConfigDir(options.env),
-    fetch: options.fetch
+    fetch: options.fetch,
+    sleep: options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))),
+    openUrl: options.openUrl ?? openUrl
   };
   if (command.needsRepo && !context.repoRoot) {
     io.err('This folder is not in a Roughbook repo. Run roughbook init in the repo first.');
