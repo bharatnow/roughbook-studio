@@ -1,0 +1,21 @@
+{
+  "name": "roughbook-pty-spike",
+  "private": true,
+  "description": "S1 step 5: the built-in terminal (node-pty + xterm.js) on Windows, macOS and Linux",
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs node-pty && node check.mjs node-pty-beta && node check.mjs @lydell/node-pty",
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/headless": "6.0.0",
+    "@xterm/xterm": "6.0.0",
+    "ws": "8.22.0"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15",
+    "node-pty": "1.1.0",
+    "node-pty-beta": "npm:node-pty@1.2.0-beta.15"
+  }
+}

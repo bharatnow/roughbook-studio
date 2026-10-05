@@ -1,0 +1,34 @@
+name: Terminal spike
+
+# S1 step 5: the built-in terminal's checks on every runner, with both node-pty packages.
+on:
+  push:
+    branches: ['spike/**']
+  workflow_dispatch:
+
+jobs:
+  pty:
+    name: ${{ matrix.os }}, Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: spikes/pty
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm install --no-audit --no-fund --foreground-scripts
+      - name: node-pty 1.1.0
+        run: node check.mjs node-pty
+        continue-on-error: true
+      - name: '@lydell/node-pty'
+        run: node check.mjs @lydell/node-pty
+        continue-on-error: true
+      - name: node-pty 1.2.0-beta.15
+        run: node check.mjs node-pty-beta
