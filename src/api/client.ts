@@ -1,4 +1,5 @@
 import { ApiError, OfflineError } from './errors.js';
+import type { StartRunRequest, StartedRun } from '../runs/types.js';
 import type { DeviceLogin, IssuedInstall, LinkResult, Me, OrgProjects } from './types.js';
 
 /** Where the backend serves the studio's routes. */
@@ -9,7 +10,7 @@ export const STUDIO_BASE = '/v1/api/studio';
  * no studio request carries code or file paths, and the outbound-request test checks it.
  */
 export type JsonValue =
-  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
 export type RequestBody = { [key: string]: JsonValue | undefined };
 
 export type ApiConfig = {
@@ -73,6 +74,15 @@ export class StudioApi {
 
   createProject(orgId: string, name: string): Promise<{ slug: string }> {
     return this.request('POST', `/orgs/${encodeURIComponent(orgId)}/projects`, { name });
+  }
+
+  /** Allocates the iterations and compiles their prompts for this repo. */
+  startRuns(orgId: string, project: string, request: StartRunRequest): Promise<StartedRun[]> {
+    return this.request(
+      'POST',
+      `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}/runs`,
+      request
+    );
   }
 
   link(
