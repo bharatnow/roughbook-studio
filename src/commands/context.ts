@@ -31,6 +31,8 @@ export type CommandContext = {
   launchTerminal: (plan: TerminalPlan) => Promise<void>;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
+  /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */
+  waitForStop: () => Promise<void>;
 };
 
 export type Command = {

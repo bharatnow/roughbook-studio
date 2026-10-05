@@ -1,10 +1,44 @@
 import { parseArgs } from 'node:util';
+import type { Detection, TerminalAdapter } from '../agents/types.js';
 import { manualCommand, planTerminal, sessionTitle, type Session } from '../launch/terminal.js';
 import { requireRepoLink } from '../repo/link.js';
-import { findComponent, iterationToPromote, preparePromotion } from '../runs/promote.js';
+import {
+  findComponent,
+  iterationToPromote,
+  preparePromotion,
+  type PreparedPromotion
+} from '../runs/promote.js';
 import { handoffLine } from '../runs/slots.js';
 import { requireApi, type Command } from './context.js';
 import { chooseAgent, parseComponent } from './shared.js';
+
+/** The agent's session that writes the real component from the promote prompt. */
+export function promoteSession(
+  adapter: TerminalAdapter,
+  detection: Detection,
+  repoRoot: string,
+  target: { page: string; component: string; componentName: string },
+  prepared: PreparedPromotion,
+  model: string | null
+): Session {
+  const title = sessionTitle(`Promote ${target.componentName}`);
+  return {
+    title,
+    command: detection.executable!.command,
+    args: [
+      ...detection.executable!.prefixArgs,
+      ...adapter.interactiveArgs({
+        repoRoot,
+        targetFolder: `rough/${target.page}/${target.component}`,
+        promptFile: prepared.promptFile,
+        instruction: handoffLine(prepared.promptFile),
+        sessionId: prepared.promotionId,
+        model,
+        title
+      })
+    ]
+  };
+}
 
 export const promote: Command = {
   name: 'promote',
@@ -53,23 +87,14 @@ export const promote: Command = {
     let session: Session | null = null;
     try {
       const { adapter, detection } = await chooseAgent(context, values.agent);
-      const title = sessionTitle(`Promote ${record.name}`);
-      session = {
-        title,
-        command: detection.executable!.command,
-        args: [
-          ...detection.executable!.prefixArgs,
-          ...adapter.interactiveArgs({
-            repoRoot,
-            targetFolder: `rough/${page}/${component}`,
-            promptFile: prepared.promptFile,
-            instruction,
-            sessionId: prepared.promotionId,
-            model: values.model ?? null,
-            title
-          })
-        ]
-      };
+      session = promoteSession(
+        adapter,
+        detection,
+        repoRoot,
+        { page, component, componentName: record.name },
+        prepared,
+        values.model ?? null
+      );
     } catch (error) {
       io.err((error as Error).message);
     }

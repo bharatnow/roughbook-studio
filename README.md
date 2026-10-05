@@ -13,6 +13,7 @@ Runs on Windows, macOS and Linux, with Node 22 or later.
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                        |
 | `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                        |
+| `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                    |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal, or `--headless` runs it unattended |
 | `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                        |
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`; saved on the server, so the next prompt remembers                                                               |
@@ -39,6 +40,30 @@ Next.js 16 app with Tailwind v4 and a git repository there. It then:
 A file the studio did not write is never replaced; it is listed for you to change by hand. Running
 `init` again changes nothing, and it adopts a repo prepared by Roughbook v2.
 
+## Local UI
+
+`roughbook start` serves the local UI on `127.0.0.1` (port 4848, or `--port`, which is kept
+for next time) and opens it. It shows each component's iterations rendered live by the app's own
+dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`), with the last
+screenshot when the dev server is not answering; Compare; the review drawer, notes, select, reject
+and refine; a run panel for new directions, forks and refinements with the agent of your choice;
+each run's Done, its report, and Put it back for files changed outside it; and Deliver. The brief
+is read-only here, with a link to edit it on the web. While it runs, it keeps
+`rough/preview-registry.ts` in step with the iteration folders and sends what waits in the
+outbox.
+
+Runs open in the **built-in terminal** in the page (xterm.js on `node-pty`), or in your own
+terminal if you choose. A session runs the agent itself, never a shell, and belongs to its run:
+closing or reloading the page leaves it running, and joining again replays what it printed. It is
+used on Windows, macOS and glibc Linux, where `node-pty` installs and starts; elsewhere, and with
+`ROUGHBOOK_TERMINAL=external`, runs open in your own terminal.
+
+The server answers only `127.0.0.1` and `localhost` as its Host, and its API and terminal only
+the page it opened: a token made at each start reaches the page in the link's fragment, and every
+call carries it. Iterations load the project's and library's asset files from
+`http://127.0.0.1:<port>/api/files/…`, which this server fetches from the backend with your
+sign-in; prompts name that address, so keep the port.
+
 ## Development
 
 ```bash
@@ -50,9 +75,10 @@ npm run dev -- --help
 | -------------------- | -------------------------------------------------------- |
 | `npm run dev -- <…>` | Runs the CLI from source through `tsx`                   |
 | `npm test`           | `node --test` over `src/**/*.test.ts`, never the network |
-| `npm run type-check` | `tsc --noEmit`                                           |
+| `npm run type-check` | `tsc --noEmit` for the CLI and the local UI              |
 | `npm run lint`       | ESLint, including the studio's own rules (`AGENTS.md`)   |
-| `npm run build`      | Compiles to `dist/`; `node dist/cli.js` is the CLI       |
+| `npm run build`      | Compiles to `dist/` and the UI to `dist/ui/`             |
+| `npm run build:ui`   | The local UI alone, with Vite                            |
 
 The backend is `roughbook-backend`. The studio talks to `http://localhost:4000` unless
 `ROUGHBOOK_SERVER` or `roughbook login --server` says otherwise; anything but this machine must be
@@ -64,7 +90,7 @@ https.
 | ------------------------------ | ---------------------------------------------------- |
 | Your sign-in (install token)   | The user config folder (below), readable only by you |
 | The repo's link to its project | `rough/roughbook.json`, committed with `rough/`      |
-| The default agent              | `settings.json` in the user config folder            |
+| The default agent, local port  | `settings.json` in the user config folder            |
 | Runs, snapshots, the outbox    | `rough/.roughbook/`, never committed                 |
 | Screenshots                    | `rough/.screenshots/`, never committed               |
 
@@ -122,5 +148,7 @@ src/
                 review decisions, and promotion
   repo/         the repo root, repo prep and the preview route, the link file, scratch apps
   fs/           whole-file JSON writes and the lock the CLI and local server share
+  server/       the local server: its API, the built-in terminal's sessions, who may ask
   tests/
+ui/             the local UI: Vite, React and @roughbook/ui, built into dist/ui
 ```

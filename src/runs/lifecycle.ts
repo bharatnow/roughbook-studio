@@ -5,6 +5,7 @@
 import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
+import { localOrigin } from '../config/settings.js';
 import type { RepoLink } from '../repo/link.js';
 import {
   REGISTRY_FILE,
@@ -43,13 +44,24 @@ function overlapped(a: RunRecord, b: RunRecord, now: Date): boolean {
   return a.startedAt <= end(b) && b.startedAt <= end(a);
 }
 
+/** The stand-in the backend writes where the asset files' origin belongs. */
+export const ASSET_ORIGIN_PLACEHOLDER = '{{roughbook:asset-origin}}';
+
+export type StartOptions = {
+  /** The local server's address, where iterations load the project's asset files. */
+  assetOrigin?: string;
+  now?: () => Date;
+};
+
 export async function startRuns(
   repoRoot: string,
   api: StudioApi,
   link: RepoLink,
   request: StartRunRequest,
-  now: () => Date = () => new Date()
+  options: StartOptions = {}
 ): Promise<RunRecord[]> {
+  const now = options.now ?? (() => new Date());
+  const assetOrigin = options.assetOrigin ?? localOrigin({ localPort: null });
   assertTarget(request.page, request.component, 'iteration-01');
   if (request.kind !== 'generate') {
     assertTarget(request.page, request.component, request.parent);
@@ -101,7 +113,12 @@ export async function startRuns(
       reported: null
     };
     createSlot(repoRoot, record);
-    writePrompt(repoRoot, record.promptFile, run.prompt);
+    const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
+    writePrompt(
+      repoRoot,
+      record.promptFile,
+      run.prompt.replaceAll(standIn, () => assetOrigin)
+    );
     await saveRun(repoRoot, record);
     records.push(record);
   }

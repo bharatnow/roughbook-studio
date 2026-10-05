@@ -110,6 +110,20 @@ export class StudioApi {
     return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
   }
 
+  /** A local iteration's reviews, oldest first. */
+  reviews(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string,
+    iteration: string
+  ): Promise<unknown[]> {
+    return this.request(
+      'GET',
+      `${iterationPath(orgId, project, page, component, iteration)}/reviews`
+    );
+  }
+
   heartbeat(body: Heartbeat): Promise<{ seenAt: string }> {
     return this.request('POST', '/heartbeat', body);
   }

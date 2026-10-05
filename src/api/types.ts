@@ -15,7 +15,11 @@ export type DeviceLogin = {
 
 export type IssuedInstall = { token: string; installId: string };
 
-export type Me = { user: { id: string; email: string; name: string | null } };
+export type Me = {
+  user: { id: string; email: string; name: string | null };
+  /** The web's address, for links to where the brief is edited. */
+  webUrl?: string;
+};
 
 export type OrgProjects = {
   id: string;

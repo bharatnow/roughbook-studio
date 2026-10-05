@@ -1,5 +1,5 @@
-// Review decisions on local iterations: select, reject with a reason, or a review with
-// observations. They go to the backend through the outbox, so they are kept while offline and
+// Review decisions on local iterations: select, reject with a reason, a review with
+// observations, notes, or a status. They go to the backend through the outbox, so they are kept while offline and
 // reach the server before the next run asks for a prompt, which is where rejection memory works.
 import { iterationPath, type RequestBody, type StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
@@ -18,7 +18,15 @@ export type Decision =
       decision?: 'explore' | 'refine' | 'select' | 'reject';
       reason?: string;
       observations?: string[];
-    };
+      /** The review's questions, by key, as on the web. */
+      fields?: Record<string, string>;
+      /** What the designer looked at, by key. */
+      checklist?: Record<string, boolean>;
+    }
+  /** Compare's likes and dislikes and the designer's notes; each replaces its own part. */
+  | { kind: 'notes'; likes?: string[]; dislikes?: string[]; designerNotes?: string }
+  /** Promising or archived, or back to exploring. Select and reject have their own kinds. */
+  | { kind: 'status'; status: 'draft' | 'exploring' | 'promising' | 'archived' };
 
 function request(decision: Decision): { route: string; body: RequestBody } {
   switch (decision.kind) {
@@ -33,6 +41,12 @@ function request(decision: Decision): { route: string; body: RequestBody } {
       const { kind: _kind, ...review } = decision;
       return { route: 'reviews', body: review };
     }
+    case 'notes': {
+      const { kind: _kind, ...notes } = decision;
+      return { route: 'feedback', body: notes };
+    }
+    case 'status':
+      return { route: 'status', body: { status: decision.status } };
   }
 }
 

@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import { outboxFor } from '../api/outbox.js';
 import { manualCommand, planTerminal } from '../launch/terminal.js';
+import { localOrigin, readSettings } from '../config/settings.js';
 import { requireRepoLink } from '../repo/link.js';
 import { startRuns } from '../runs/lifecycle.js';
 import type { StartRunRequest } from '../runs/types.js';
@@ -92,7 +93,9 @@ export const run: Command = {
       mode: values.headless ? 'headless' : 'interactive',
       ...kind
     } as StartRunRequest;
-    const runs = await startRuns(repoRoot, api, link, request);
+    const runs = await startRuns(repoRoot, api, link, request, {
+      assetOrigin: localOrigin(await readSettings(context.configDir))
+    });
     for (const item of runs) {
       io.out(`${item.page}/${item.component}/${item.iteration}: ${item.promptFile}`);
     }

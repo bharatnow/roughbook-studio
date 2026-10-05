@@ -4,6 +4,7 @@ import type { Outbox } from '../api/outbox.js';
 import { outboxFor } from '../api/outbox.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { finishRun, type FinishOptions } from '../runs/lifecycle.js';
+import type { Shots } from '../screenshot/iteration.js';
 import { listRuns } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
@@ -11,12 +12,36 @@ import { requireApi, type Command, type CommandContext } from './context.js';
 /** Where the app's dev server runs when nothing says otherwise. */
 export const DEFAULT_DEV_URL = 'http://localhost:3000';
 
-function devUrl(flag: string | undefined, env: NodeJS.ProcessEnv): string {
+export function devUrl(flag: string | undefined, env: NodeJS.ProcessEnv): string {
   const url = (flag ?? env.ROUGHBOOK_DEV_URL ?? DEFAULT_DEV_URL).replace(/\/+$/, '');
   if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{2,5})?$/.test(url)) {
     throw new Error(`The dev server must be on this machine, such as ${DEFAULT_DEV_URL}.`);
   }
   return url;
+}
+
+export type CompleteOptions = FinishOptions & { devUrl: string; screenshots: boolean };
+
+/** Finishes one run and, when it made something to look at, takes its screenshots. */
+export async function finishWithScreenshots(
+  context: CommandContext,
+  api: StudioApi,
+  outbox: Outbox,
+  link: RepoLink,
+  runId: string,
+  options: CompleteOptions
+): Promise<{ run: RunRecord; shots: Shots | null }> {
+  const repoRoot = context.repoRoot!;
+  const run = await finishRun(repoRoot, api, outbox, link, runId, options);
+  if (!options.screenshots || run.failure || run.outcome === 'cancelled')
+    return { run, shots: null };
+  const shots = await context.screenshot(
+    repoRoot,
+    options.devUrl,
+    { page: run.page, component: run.component, iteration: run.iteration },
+    context.env
+  );
+  return { run, shots };
 }
 
 /** Finishes one run, takes its screenshots, and says how it went. */
@@ -26,11 +51,17 @@ export async function completeRun(
   outbox: Outbox,
   link: RepoLink,
   run: RunRecord,
-  options: FinishOptions & { devUrl: string; screenshots: boolean }
+  options: CompleteOptions
 ): Promise<RunRecord> {
   const { io } = context;
-  const repoRoot = context.repoRoot!;
-  const finished = await finishRun(repoRoot, api, outbox, link, run.runId, options);
+  const { run: finished, shots } = await finishWithScreenshots(
+    context,
+    api,
+    outbox,
+    link,
+    run.runId,
+    options
+  );
   const label = `${finished.page}/${finished.component}/${finished.iteration}`;
   // The warnings are counted beside it, so completed_with_warnings reads as completed.
   const outcome = (finished.outcome ?? 'completed').replace('_with_warnings', '');
@@ -44,13 +75,7 @@ export async function completeRun(
       io.out(`    roughbook revert ${label} ${file}`);
     }
   }
-  if (options.screenshots && !finished.failure && finished.outcome !== 'cancelled') {
-    const shots = await context.screenshot(
-      repoRoot,
-      options.devUrl,
-      { page: finished.page, component: finished.component, iteration: finished.iteration },
-      context.env
-    );
+  if (shots) {
     const files = Object.values(shots.files);
     if (files.length) io.out(`  Screenshots: ${files.join(', ')}`);
     if (shots.warning) io.out(`  ${shots.warning}`);

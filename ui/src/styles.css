@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+@import '@roughbook/ui/theme.css';
+@import '@xterm/xterm/css/xterm.css';
+
+/* The theme reads these; the web sets them with next/font, the studio with its bundled fonts. */
+html.studio {
+  --font-sans: 'Inter';
+  --font-display: 'Space Grotesk';
+  --font-mono: 'IBM Plex Mono';
+}
+
+body {
+  margin: 0;
+}

@@ -44,7 +44,9 @@ export type StartedRun = {
   iteration: string;
   parent: string | null;
   targetFolder: string;
+  /** With a stand-in where the studio's own address belongs (placeholders.assetOrigin). */
   prompt: string;
+  placeholders?: { assetOrigin: string };
   checks: Check[];
 };
 

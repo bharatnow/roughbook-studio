@@ -19,12 +19,14 @@ import { promote } from './promote.js';
 import { revert } from './revert.js';
 import { review } from './review.js';
 import { run } from './run.js';
+import { start } from './start.js';
 import { status } from './status.js';
 
 /** Every command, in the order `roughbook help` lists them. */
 export const COMMANDS: Command[] = [
   login,
   init,
+  start,
   run,
   done,
   review,
@@ -61,8 +63,17 @@ export type MainOptions = {
     | 'launchTerminal'
     | 'runHeadless'
     | 'screenshot'
+    | 'waitForStop'
   >
 >;
+
+/** Until Ctrl+C, or the terminal closing. */
+function untilSignalled(): Promise<void> {
+  return new Promise(resolve => {
+    process.once('SIGINT', () => resolve());
+    process.once('SIGTERM', () => resolve());
+  });
+}
 
 /** Runs one command line and returns the exit code: 0 done, 1 failed, 2 not understood. */
 export async function main(argv: string[], options: MainOptions): Promise<number> {
@@ -95,7 +106,8 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     detect: options.detect ?? (adapter => adapter.detect(hostLookup(options.env))),
     launchTerminal: options.launchTerminal ?? launchTerminal,
     runHeadless: options.runHeadless ?? runHeadless,
-    screenshot: options.screenshot ?? screenshotIteration
+    screenshot: options.screenshot ?? screenshotIteration,
+    waitForStop: options.waitForStop ?? untilSignalled
   };
   if (command.needsRepo && !context.repoRoot) {
     io.err('This folder is not in a Roughbook repo. Run roughbook init in the repo first.');

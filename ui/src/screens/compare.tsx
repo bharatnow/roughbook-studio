@@ -1,0 +1,65 @@
+import { CompareView, latestHumanReview, reviewSummary, type Review } from '@roughbook/ui';
+import { useEffect, useState } from 'react';
+import { get, iterationPath } from '../api';
+import { findComponent, localIterations, useStudio } from '../data';
+
+/** Each candidate's latest review in one line, as the web's Compare shows it. */
+function useSummaries(page: string, component: string, ids: string[]) {
+  const [summaries, setSummaries] = useState<Record<string, string | null>>({});
+  const key = ids.join(',');
+  useEffect(() => {
+    let live = true;
+    void Promise.all(
+      key
+        .split(',')
+        .filter(Boolean)
+        .map(async id => {
+          const reviews = await get<Review[]>(
+            `${iterationPath(page, component, id)}/reviews`
+          ).catch(() => []);
+          return [id, reviewSummary(latestHumanReview(reviews))] as const;
+        })
+    ).then(entries => live && setSummaries(Object.fromEntries(entries)));
+    return () => {
+      live = false;
+    };
+  }, [page, component, key]);
+  return summaries;
+}
+
+export function CompareScreen({
+  page,
+  component,
+  ids
+}: {
+  page: string;
+  component: string;
+  ids: string[];
+}) {
+  const { project } = useStudio();
+  const summaries = useSummaries(page, component, ids);
+  const found = findComponent(project, page, component);
+  if (!project) return <p className="text-sm text-slate">Loading…</p>;
+  if (!found)
+    return (
+      <p className="text-sm text-slate">
+        There is no {page}/{component} in this project.
+      </p>
+    );
+  const here = localIterations(project, page, found.component);
+  const candidates = ids
+    .map(id => here.find(item => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => item !== undefined);
+
+  return (
+    <CompareView
+      project={project.tree.slug}
+      page={page}
+      component={component}
+      componentName={found.component.name}
+      base={`/${page}/${component}`}
+      candidates={candidates}
+      reviewSummaries={summaries}
+    />
+  );
+}

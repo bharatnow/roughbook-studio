@@ -6,13 +6,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import type { Detection, TerminalAdapter } from '../agents/types.js';
 import { main } from '../commands/index.js';
 import type { StartedRun } from '../runs/types.js';
-import { fakeFetch, ok, recordingIo, refused, tempDir, type RecordedRequest } from './helpers.js';
+import {
+  assertCarriesNoRepoContent,
+  fakeFetch,
+  ok,
+  recordingIo,
+  refused,
+  tempDir,
+  type RecordedRequest
+} from './helpers.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const TOKEN = 'rbi_outboundtoken';
@@ -35,44 +42,6 @@ export default function Hero() {
 }
 `;
 const STRAY_EDIT = "export const strayHelper = () => 'written outside rough by the agent';\n";
-
-/** Files whose text came from the server or are the studio's own state, not the designer's. */
-function fromServerOrState(file: string): boolean {
-  return (
-    /^rough\/.+\/prompts\/[^/]+\.md$/.test(file) ||
-    /^rough\/.+\/copy\.md$/.test(file) ||
-    file === 'rough/roughbook.json' ||
-    file.startsWith('rough/.roughbook/') ||
-    file.startsWith('rough/.screenshots/')
-  );
-}
-
-function filesIn(root: string, dir = root): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    if (entry.name === '.git' || entry.name === 'node_modules') return [];
-    const full = path.join(dir, entry.name);
-    return entry.isDirectory()
-      ? filesIn(root, full)
-      : [path.relative(root, full).split(path.sep).join('/')];
-  });
-}
-
-/** Every string a request carries: its URL, header values, and each key and value of its body. */
-function carried(request: RecordedRequest): string[] {
-  const strings: string[] = [decodeURIComponent(request.url), ...Object.values(request.headers)];
-  const walk = (value: unknown): void => {
-    if (typeof value === 'string') strings.push(value);
-    else if (Array.isArray(value)) value.forEach(walk);
-    else if (value && typeof value === 'object') {
-      for (const [key, item] of Object.entries(value)) {
-        strings.push(key);
-        walk(item);
-      }
-    }
-  };
-  walk(request.body);
-  return strings;
-}
 
 function detection(found: boolean): Detection {
   return {
@@ -314,36 +283,11 @@ describe('outbound requests (ground rule 2)', () => {
     assert.ok(fs.existsSync(path.join(repo, 'public/rough/home/hero/hero.png')));
     assert.ok(!fs.existsSync(path.join(repo, 'src/app/stray.ts')));
 
-    // Every line of every file the designer, the agent or the app wrote.
-    const lines = new Map<string, string>();
-    for (const file of filesIn(repo).filter(file => !fromServerOrState(file))) {
-      for (const line of fs.readFileSync(path.join(repo, ...file.split('/')), 'utf8').split('\n')) {
-        const text = line.trim();
-        if (text.length >= 12 && /[A-Za-z0-9]/.test(text)) lines.set(text, file);
-      }
-    }
-    for (const line of [...ITERATION_SOURCE.split('\n'), STRAY_EDIT].map(item => item.trim())) {
-      if (line.length >= 12) lines.set(line, 'the agent');
-    }
-    assert.ok(lines.size > 40, `only ${lines.size} lines to look for`);
-    const forbiddenPaths = [repo, root, os.homedir()].flatMap(item => [
-      item.toLowerCase(),
-      item.split(path.sep).join('/').toLowerCase()
-    ]);
-
-    for (const request of backend.requests) {
-      const label = `${request.method} ${request.url}`;
-      for (const text of carried(request)) {
-        for (const [line, file] of lines) {
-          assert.ok(!text.includes(line), `${label} carries a line of ${file}: ${line}`);
-        }
-        for (const forbidden of forbiddenPaths) {
-          assert.ok(
-            !text.toLowerCase().includes(forbidden),
-            `${label} carries the path ${forbidden}`
-          );
-        }
-      }
-    }
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 40
+    });
   });
 });

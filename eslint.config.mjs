@@ -12,7 +12,7 @@ export default [
   { ignores: ['dist/**', 'node_modules/**'] },
   js.configs.recommended,
   {
-    files: ['**/*.ts'],
+    files: ['src/**/*.ts'],
     languageOptions: {
       parser: typescriptParser,
       parserOptions: {
@@ -90,6 +90,33 @@ export default [
           message: 'Only src/cli.ts reads the working directory; take repoRoot as an argument.'
         }
       ]
+    }
+  },
+  // The local UI: a browser app, checked against its own tsconfig.
+  {
+    files: ['ui/**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        ecmaFeatures: { jsx: true },
+        project: './ui/tsconfig.json',
+        tsconfigRootDir: import.meta.dirname
+      }
+    },
+    plugins: { '@typescript-eslint': typescript },
+    rules: {
+      ...typescript.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      'prefer-const': 'error',
+      'no-var': 'error',
+      'no-undef': 'off',
+      'no-console': 'error'
     }
   },
   prettier
