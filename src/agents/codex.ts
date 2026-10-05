@@ -120,6 +120,7 @@ export const codex: TerminalAdapter = {
         found: false,
         executable: null,
         version: null,
+        signedIn: null,
         signIn: null,
         headless: { ready: false, reason: NOT_FOUND }
       };
@@ -132,6 +133,7 @@ export const codex: TerminalAdapter = {
       found: version.ok,
       executable,
       version: (version.stdout || version.stderr).trim().split(/\s+/).pop() || null,
+      signedIn: status.ok,
       signIn: status.ok ? said : 'not signed in',
       headless: !version.ok
         ? { ready: false, reason: 'Codex could not be run.' }

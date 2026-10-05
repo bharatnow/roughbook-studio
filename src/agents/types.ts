@@ -24,6 +24,8 @@ export type Detection = {
   found: boolean;
   executable: Executable | null;
   version: string | null;
+  /** Whether it is signed in, when it says. */
+  signedIn: boolean | null;
   /** How it is signed in, in the agent's own words, when it says. */
   signIn: string | null;
   /**

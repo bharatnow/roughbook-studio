@@ -33,7 +33,7 @@ export async function screenshotIteration(
     return {
       files: {},
       warning:
-        'No Edge, Chrome or Chromium was found for screenshots. Set ROUGHBOOK_BROWSER to one.'
+        'No Chrome, Chromium or Edge was found for screenshots. Set ROUGHBOOK_BROWSER to one.'
     };
   }
   const url = previewUrl(devUrl, target.page, target.component, target.iteration);

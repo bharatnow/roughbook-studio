@@ -1,6 +1,16 @@
 import { ApiError, OfflineError } from './errors.js';
 import type { StartRunRequest, StartedRun } from '../runs/types.js';
-import type { DeviceLogin, IssuedInstall, LinkResult, Me, OrgProjects } from './types.js';
+import type {
+  AssetScope,
+  DeviceLogin,
+  Heartbeat,
+  IssuedInstall,
+  LinkResult,
+  Me,
+  OrgProjects,
+  ProjectTree,
+  Promotion
+} from './types.js';
 
 /** Where the backend serves the studio's routes. */
 export const STUDIO_BASE = '/v1/api/studio';
@@ -78,11 +88,43 @@ export class StudioApi {
 
   /** Allocates the iterations and compiles their prompts for this repo. */
   startRuns(orgId: string, project: string, request: StartRunRequest): Promise<StartedRun[]> {
-    return this.request(
-      'POST',
-      `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}/runs`,
-      request
+    return this.request('POST', `${projectPath(orgId, project)}/runs`, request);
+  }
+
+  /** The project with its brief and the server's records of its iterations. */
+  project(orgId: string, project: string): Promise<ProjectTree> {
+    return this.request('GET', projectPath(orgId, project));
+  }
+
+  /** Renders the promote prompt; the assets are the server file names the iteration uses. */
+  promote(
+    orgId: string,
+    project: string,
+    body: {
+      page: string;
+      component: string;
+      iteration: string;
+      assets: { scope: AssetScope; file: string }[];
+    }
+  ): Promise<Promotion> {
+    return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
+  }
+
+  heartbeat(body: Heartbeat): Promise<{ seenAt: string }> {
+    return this.request('POST', '/heartbeat', body);
+  }
+
+  /** An asset file's bytes, to copy into the repo when promoting. */
+  async file(orgId: string, project: string, scope: AssetScope, file: string): Promise<Buffer> {
+    const response = await this.send(
+      'GET',
+      `${projectPath(orgId, project)}/files/${scope}/${encodeURIComponent(file)}`,
+      undefined,
+      {},
+      '*/*'
     );
+    if (response.ok) return Buffer.from(await response.arrayBuffer());
+    throw await readError(response);
   }
 
   link(
@@ -98,17 +140,29 @@ export class StudioApi {
     body?: RequestBody,
     options: RequestOptions = {}
   ): Promise<T> {
+    const response = await this.send(method, path, body, options);
+    const envelope = await readEnvelope(response);
+    if (envelope.success && response.ok) return envelope.data as T;
+    throw toApiError(response.status, envelope);
+  }
+
+  private async send(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: RequestBody | undefined,
+    options: RequestOptions,
+    accept = 'application/json'
+  ): Promise<Response> {
     const headers: Record<string, string> = {
-      accept: 'application/json',
+      accept,
       'user-agent': this.config.userAgent
     };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (this.config.token) headers.authorization = `Bearer ${this.config.token}`;
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
 
-    let response: Response;
     try {
-      response = await (this.config.fetch ?? fetch)(`${this.config.server}${STUDIO_BASE}${path}`, {
+      return await (this.config.fetch ?? fetch)(`${this.config.server}${STUDIO_BASE}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -117,18 +171,38 @@ export class StudioApi {
     } catch (error) {
       throw new OfflineError(this.config.server, error);
     }
-
-    const envelope = (await response.json().catch(() => null)) as Envelope | null;
-    if (!envelope || typeof envelope !== 'object' || typeof envelope.success !== 'boolean') {
-      throw new ApiError(
-        response.ok ? 'BAD_RESPONSE' : `HTTP_${response.status}`,
-        response.status,
-        `The server answered ${response.status} with something the studio cannot read.`
-      );
-    }
-    if (envelope.success && response.ok) return envelope.data as T;
-    throw toApiError(response.status, envelope);
   }
+}
+
+function projectPath(orgId: string, project: string): string {
+  return `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}`;
+}
+
+/** The path of one iteration's review routes. */
+export function iterationPath(
+  orgId: string,
+  project: string,
+  page: string,
+  component: string,
+  iteration: string
+): string {
+  return `${projectPath(orgId, project)}/pages/${encodeURIComponent(page)}/components/${encodeURIComponent(component)}/iterations/${encodeURIComponent(iteration)}`;
+}
+
+async function readEnvelope(response: Response): Promise<Envelope> {
+  const envelope = (await response.json().catch(() => null)) as Envelope | null;
+  if (!envelope || typeof envelope !== 'object' || typeof envelope.success !== 'boolean') {
+    throw new ApiError(
+      response.ok ? 'BAD_RESPONSE' : `HTTP_${response.status}`,
+      response.status,
+      `The server answered ${response.status} with something the studio cannot read.`
+    );
+  }
+  return envelope;
+}
+
+async function readError(response: Response): Promise<ApiError> {
+  return toApiError(response.status, await readEnvelope(response));
 }
 
 function toApiError(status: number, envelope: Envelope): ApiError {

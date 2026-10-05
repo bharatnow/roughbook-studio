@@ -153,15 +153,18 @@ export const claudeCode: TerminalAdapter = {
         found: false,
         executable: null,
         version: null,
+        signedIn: null,
         signIn: null,
         headless: { ready: false, reason: NOT_FOUND }
       };
     }
     const version = await runCommand(executable, ['--version']);
+    let signedIn: boolean | null = null;
     let signIn: string | null = null;
     const status = await runCommand(executable, ['auth', 'status', '--json']);
     try {
       const parsed = record(JSON.parse(status.stdout));
+      if (typeof parsed.loggedIn === 'boolean') signedIn = parsed.loggedIn;
       if (parsed.loggedIn === true)
         signIn = typeof parsed.authMethod === 'string' ? parsed.authMethod : 'signed in';
       else if (parsed.loggedIn === false) signIn = 'not signed in';
@@ -180,6 +183,7 @@ export const claudeCode: TerminalAdapter = {
       found: version.ok,
       executable,
       version: (version.stdout || version.stderr).trim().split(/\s+/)[0] || null,
+      signedIn,
       signIn,
       headless: version.ok ? headless : { ready: false, reason: 'Claude Code could not be run.' }
     };

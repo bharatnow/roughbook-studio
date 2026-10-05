@@ -1,8 +1,12 @@
+import type { runHeadless } from '../agents/process.js';
+import type { Detection, TerminalAdapter } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
 import { readCredentials, type Credentials } from '../config/credentials.js';
 import { resolveServer } from '../config/server.js';
 import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
+import type { TerminalPlan } from '../launch/terminal.js';
+import type { screenshotIteration } from '../screenshot/iteration.js';
 import { STUDIO_VERSION } from '../version.js';
 
 /** What every command is given. `repoRoot` is found once, by cli.ts, and passed down. */
@@ -19,6 +23,14 @@ export type CommandContext = {
   fetch?: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   openUrl: (url: string) => Promise<boolean>;
+  /** The OS, for terminal plans and the commands to paste. */
+  platform: NodeJS.Platform;
+  /** Finds one agent and asks its version and sign-in. */
+  detect: (adapter: TerminalAdapter) => Promise<Detection>;
+  /** Opens the terminals a plan names. */
+  launchTerminal: (plan: TerminalPlan) => Promise<void>;
+  runHeadless: typeof runHeadless;
+  screenshot: typeof screenshotIteration;
 };
 
 export type Command = {
