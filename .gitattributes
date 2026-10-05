@@ -1,2 +1,2 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Text files are stored and checked out with LF on every OS, so Prettier agrees everywhere.
+* text=auto eol=lf
