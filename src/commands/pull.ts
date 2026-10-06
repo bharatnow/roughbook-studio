@@ -7,7 +7,7 @@ import { parseComponent, parseIteration } from './shared.js';
 
 export const pull: Command = {
   name: 'pull',
-  summary: 'Brings a web sketch into rough/ as a new local iteration, or lists what there is',
+  summary: 'Bring a web sketch into rough/ as a new local iteration, or list what there is',
   usage: 'pull <page>/<component>[/<sketch>]',
   needsRepo: true,
   async run(args, context) {
