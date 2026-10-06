@@ -15,6 +15,7 @@ import { readSettings } from '../config/settings.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
+import { importedPackages } from '../runs/pull.js';
 import { listRuns } from '../runs/store.js';
 import type { StartedRun } from '../runs/types.js';
 import type { Shots } from '../screenshot/iteration.js';
@@ -478,6 +479,169 @@ describe('roughbook review', () => {
       1
     );
     assert.equal(await studio.run(['review', 'home/hero/iteration-05', '--reject', ' ']), 1);
+  });
+});
+
+describe('roughbook pull', () => {
+  const SKETCHES = `${PROJECT}/pages/home/components/hero/sketches`;
+  const SKETCH_FILES = [
+    {
+      path: 'index.tsx',
+      encoding: 'utf8',
+      content:
+        'import { motion } from "motion/react";\nimport { ArrowRight } from "lucide-react";\nimport "./styles.css";\n\nexport default function Hero() {\n  return (\n    <motion.section className="min-h-[100dvh]">\n      <img src="/api/files/project/site/hero.png" alt="" />\n      <ArrowRight />\n    </motion.section>\n  );\n}\n'
+    },
+    {
+      path: 'styles.css',
+      encoding: 'utf8',
+      content: '.mark { background: url(/api/files/library/mark.svg); }\n'
+    },
+    {
+      path: 'parts/badge.png',
+      encoding: 'base64',
+      content: Buffer.from([137, 80, 78, 71]).toString('base64')
+    }
+  ];
+  const pulled = (iteration: string, files: unknown[] = SKETCH_FILES) =>
+    ok({ iteration, parent: 'iteration-03', files }, 201);
+
+  it('names the packages code imports, each once', () => {
+    assert.deepEqual(
+      importedPackages([
+        'import { motion } from "motion/react";\nimport "./a.css";\nimport x from "@google/model-viewer/lib/x";',
+        "const Three = await import('three');\nimport clsx from 'clsx';\nimport y from '/abs';\nimport { motion as m } from 'motion';"
+      ]),
+      ['motion', '@google/model-viewer', 'clsx', 'three']
+    );
+  });
+
+  it('lists the sketches, pulls one as the next iteration, and says what the app lacks', async () => {
+    const studio = await setup({
+      [`GET ${SKETCHES}`]: () =>
+        ok([
+          {
+            id: 'iteration-03',
+            number: 3,
+            name: 'Quiet editorial',
+            direction: 'Quiet editorial',
+            status: 'exploring',
+            parent: null,
+            created: null
+          },
+          {
+            id: 'iteration-01',
+            number: 1,
+            name: 'Loud poster',
+            direction: 'Loud poster',
+            status: 'rejected',
+            parent: null,
+            created: null
+          }
+        ]),
+      [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08')
+    });
+    write(
+      studio.repo,
+      'package.json',
+      JSON.stringify({
+        dependencies: { next: '16.0.0', react: '19.2.0', 'lucide-react': '1.0.0' }
+      })
+    );
+    write(studio.repo, 'pnpm-lock.yaml', '');
+
+    assert.equal(await studio.run(['pull', 'home/hero']), 0, studio.io.errors.join('\n'));
+    assert.deepEqual(studio.io.lines, [
+      'Web sketches of home/hero, newest first:',
+      '  iteration-03  Quiet editorial',
+      '  iteration-01  Loud poster (rejected)',
+      'Pull one with roughbook pull home/hero/<sketch>.'
+    ]);
+
+    assert.equal(
+      await studio.run(['pull', 'home/hero/iteration-03']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    // The request names the sketch, and carries nothing of the repo.
+    const asked = studio.requests.at(-1)!;
+    assert.equal(asked.method, 'POST');
+    assert.deepEqual(asked.body, {});
+    const folder = 'rough/home/hero/iteration-08';
+    assert.ok(
+      read(studio.repo, `${folder}/index.tsx`).includes(
+        'src="http://127.0.0.1:4848/api/files/project/site/hero.png"'
+      )
+    );
+    assert.equal(
+      read(studio.repo, `${folder}/styles.css`),
+      '.mark { background: url(http://127.0.0.1:4848/api/files/library/mark.svg); }\n'
+    );
+    assert.deepEqual(
+      [...fs.readFileSync(path.join(studio.repo, folder, 'parts', 'badge.png'))],
+      [137, 80, 78, 71]
+    );
+    assert.match(read(studio.repo, 'rough/preview-registry.ts'), /iteration-08/);
+    assert.deepEqual(studio.io.lines.slice(4), [
+      `home/hero/iteration-08: ${folder}, from the web sketch iteration-03 (3 files)`,
+      'It imports motion, which this app does not list. Add it with: pnpm add motion',
+      'It is styled with Tailwind classes, and this app does not list tailwindcss, so it will render unstyled here.',
+      'Review it in roughbook start, or refine it: roughbook run home/hero --refine iteration-08 --intent "<what to change>"'
+    ]);
+  });
+
+  it('writes nothing outside the new folder, never over an iteration, and says why it cannot', async () => {
+    let files: unknown[] = [];
+    const studio = await setup({
+      [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08', files),
+      [`POST ${SKETCHES}/iteration-04/pull`]: () => refused('SKETCH_RUNNING', 409)
+    });
+    const page = read(studio.repo, 'src/app/page.tsx');
+    for (const name of [
+      '../../../src/app/page.tsx',
+      'C:/evil.tsx',
+      'parts\\evil.tsx',
+      '.env.js',
+      'index.html',
+      'a/b/c/d/e.tsx'
+    ]) {
+      files = [SKETCH_FILES[0], { path: name, encoding: 'utf8', content: 'export default 1;\n' }];
+      assert.equal(await studio.run(['pull', 'home/hero/iteration-03']), 1, name);
+      assert.match(studio.io.errors.at(-1)!, /will not write/);
+    }
+    assert.equal(read(studio.repo, 'src/app/page.tsx'), page);
+    assert.ok(!fs.existsSync(path.join(studio.repo, 'rough/home/hero/iteration-08')));
+
+    files = SKETCH_FILES;
+    write(studio.repo, 'rough/home/hero/iteration-08/index.tsx', 'export default () => null;\n');
+    assert.equal(await studio.run(['pull', 'home/hero/iteration-03']), 1);
+    assert.match(studio.io.errors.at(-1)!, /already exists/);
+    assert.equal(
+      read(studio.repo, 'rough/home/hero/iteration-08/index.tsx'),
+      'export default () => null;\n'
+    );
+
+    assert.equal(await studio.run(['pull', 'home/hero/iteration-04']), 1);
+    assert.match(studio.io.errors.at(-1)!, /still being made on the web/);
+  });
+
+  it('is not counted against a run that was going while it was pulled', async () => {
+    const studio = await setup({
+      [`POST ${PROJECT}/runs`]: () => ok([started('iteration-07', RUN_A)], 201),
+      [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08'),
+      [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: request =>
+        ok({ status: (request.body as { outcome: string }).outcome })
+    });
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    assert.equal(await studio.run(['pull', 'home/hero/iteration-03']), 0);
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    assert.equal(await studio.run(['done']), 0, studio.io.errors.join('\n'));
+    const finish = studio.requests.at(-1)!.body as { outcome: string; outOfScopeWrites: number };
+    assert.equal(finish.outcome, 'completed');
+    assert.equal(finish.outOfScopeWrites, 0);
   });
 });
 

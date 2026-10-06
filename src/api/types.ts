@@ -62,6 +62,23 @@ export type ProjectTree = {
 
 export type AssetScope = 'project' | 'library';
 
+/** A web sketch the component has, to pull: what it is, never its code. */
+export type PullableSketch = {
+  id: string;
+  number: number;
+  name: string;
+  direction: string;
+  status: string;
+  parent: string | null;
+  created: string | null;
+};
+
+/** One file of a sketch, relative to its folder. Images are base64. */
+export type SketchFile = { path: string; encoding: 'utf8' | 'base64'; content: string };
+
+/** `POST …/sketches/:iteration/pull`: the new local iteration, and the sketch's files. */
+export type PulledSketch = { iteration: string; parent: string; files: SketchFile[] };
+
 /** `POST /orgs/:orgId/projects/:project/promotions`. */
 export type Promotion = {
   promotionId: string;

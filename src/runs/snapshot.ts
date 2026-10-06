@@ -217,6 +217,31 @@ export async function takeSnapshot(repoRoot: string, runIds: string[]): Promise<
   return snapshot;
 }
 
+/**
+ * Files the studio itself wrote while runs were going, such as a pulled sketch: recorded in those
+ * runs' snapshots as they are now, so their Done does not count them as the agent's.
+ */
+export async function recordOwnWrites(
+  repoRoot: string,
+  runIds: string[],
+  files: string[]
+): Promise<void> {
+  if (!runIds.length || !files.length) return;
+  const hashes: Record<string, string> = {};
+  for (const file of files) {
+    const hash = await hashFile(path.join(repoRoot, ...file.split('/')));
+    if (hash) hashes[file] = hash;
+  }
+  for (const runId of runIds) {
+    const snapshot = await readSnapshot(repoRoot, runId);
+    if (!snapshot) continue;
+    await writeJsonAtomic(path.join(snapshotDir(repoRoot, runId), 'snapshot.json'), {
+      ...snapshot,
+      files: { ...snapshot.files, ...hashes }
+    });
+  }
+}
+
 export async function readSnapshot(repoRoot: string, runId: string): Promise<Snapshot | null> {
   return readJson<Snapshot>(path.join(snapshotDir(repoRoot, runId), 'snapshot.json'));
 }

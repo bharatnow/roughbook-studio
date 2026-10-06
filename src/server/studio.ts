@@ -21,6 +21,7 @@ import type { RepoLink } from '../repo/link.js';
 import { ITERATION, SLUG, listIterations, writePreviewRegistry } from '../repo/preview.js';
 import { startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
+import { pullAdvice, pullSketch } from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
 import { assertTarget } from '../runs/slots.js';
 import { revertFile } from '../runs/snapshot.js';
@@ -561,6 +562,27 @@ export class LocalStudio {
     const { api, link } = this.options;
     const result = await sendDecision(api, this.outbox, link, target, decision);
     return { status: result.status };
+  }
+
+  /** The component's web sketches that can be pulled, from the backend. */
+  async sketches(page: string, component: string) {
+    if (!SLUG.test(page) || !SLUG.test(component)) throw new BadRequest('Not a component.');
+    const { api, link } = this.options;
+    return api.sketches(link.orgId, link.project, page, component);
+  }
+
+  /** Pulls a web sketch into rough/ as a new local iteration, and says what the app still needs. */
+  async pull(target: ReviewTarget) {
+    this.assertIteration(target);
+    const { api, link } = this.options;
+    const pulled = await pullSketch(
+      this.repoRoot,
+      api,
+      link,
+      { page: target.page, component: target.component, sketch: target.iteration },
+      { assetOrigin: localOrigin({ localPort: this.options.port }) }
+    );
+    return { ...pulled, advice: pullAdvice(pulled) };
   }
 
   async promote(body: {

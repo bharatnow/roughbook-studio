@@ -35,6 +35,14 @@ const LOCAL_TOKEN = 'local-token-for-the-tests-only';
 const DEV_URL = 'http://localhost:3100';
 const AGENT = 'C:/tools/claude.exe';
 
+/** A web sketch's entry file, as the backend sends it to pull. */
+const SKETCH_INDEX = {
+  path: 'index.tsx',
+  encoding: 'utf8',
+  content:
+    'import { motion } from "motion/react";\n\nexport default function Hero() {\n  return <motion.img className="w-full" src="/api/files/project/site/hero.png" alt="" />;\n}\n'
+};
+
 const ITERATION_SOURCE = `export default function Hero() {
   const lockup = 'server-test lockup 41b7, only in this repo';
   return <section className="grid min-h-[90vh] place-items-center">{lockup}</section>;
@@ -287,6 +295,36 @@ describe('the local server', () => {
             },
             201
           )
+      ],
+      [
+        'GET',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/sketches$`),
+        () =>
+          ok([
+            {
+              id: 'iteration-40',
+              number: 40,
+              name: 'Quiet editorial',
+              direction: 'Quiet editorial',
+              status: 'exploring',
+              parent: null,
+              created: null
+            }
+          ])
+      ],
+      [
+        'POST',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/sketches/iteration-40/pull$`),
+        () => {
+          const iteration = `iteration-${String(next).padStart(2, '0')}`;
+          next += 1;
+          return ok({ iteration, parent: 'iteration-40', files: [SKETCH_INDEX] }, 201);
+        }
+      ],
+      [
+        'POST',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/sketches/iteration-41/pull$`),
+        () => refused('SKETCH_RUNNING', 409)
       ],
       [
         'GET',
@@ -585,6 +623,43 @@ describe('the local server', () => {
       ).status,
       400
     );
+  });
+
+  it('lists the web sketches and pulls one into rough/, its asset URLs on this server', async () => {
+    const listed = await api('GET', '/api/sketches/home/hero');
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    assert.deepEqual(
+      (listed.json.data as { id: string }[]).map(item => item.id),
+      ['iteration-40']
+    );
+
+    const pulled = await api('POST', '/api/sketches/home/hero/iteration-40/pull');
+    assert.equal(pulled.status, 200, JSON.stringify(pulled.json));
+    const { iteration, folder, advice } = pulled.json.data as {
+      iteration: string;
+      folder: string;
+      advice: string[];
+    };
+    assert.equal(folder, `rough/home/hero/${iteration}`);
+    assert.ok(
+      fs
+        .readFileSync(path.join(repo, ...folder.split('/'), 'index.tsx'), 'utf8')
+        .includes(`src="${origin}/api/files/project/site/hero.png"`)
+    );
+    assert.deepEqual(advice, [
+      'It imports motion, which this app does not list. Add it with: npm install motion',
+      'It is styled with Tailwind classes, and this app does not list tailwindcss, so it will render unstyled here.'
+    ]);
+    assert.deepEqual(
+      backend.requests.filter(request => request.url.endsWith('/pull')).map(item => item.body),
+      [{}]
+    );
+
+    const running = await api('POST', '/api/sketches/home/hero/iteration-41/pull');
+    assert.equal(running.status, 400);
+    assert.match(running.json.message, /still being made on the web/);
+    assert.equal((await api('GET', '/api/sketches/Home/hero')).status, 400);
+    assert.equal((await api('POST', '/api/sketches/home/hero/latest/pull')).status, 400);
   });
 
   it('promotes in the built-in terminal, and no request carries code or a path', async () => {

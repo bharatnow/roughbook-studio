@@ -18,6 +18,7 @@ Runs on Windows, macOS and Linux, with Node 22 or later.
 | `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                        |
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`; saved on the server, so the next prompt remembers                                                               |
 | `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                     |
+| `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                |
 | `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                 |
 | `roughbook agents [--default <agent>]`                   | Lists the coding agents found here, their sign-in and whether they can run unattended; sets the default                                                                                    |
 | `roughbook status`                                       | The sign-in, the linked project, and what is waiting to be sent                                                                                                                            |
@@ -47,8 +48,8 @@ for next time) and opens it. It shows each component's iterations rendered live 
 dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`), with the last
 screenshot when the dev server is not answering; Compare; the review drawer, notes, select, reject
 and refine; a run panel for new directions, forks and refinements with the agent of your choice;
-each run's Done, its report, and Put it back for files changed outside it; and Deliver. The brief
-is read-only here, with a link to edit it on the web. While it runs, it keeps
+each run's Done, its report, and Put it back for files changed outside it; the component's web
+sketches, each with Pull; and Deliver. The brief is read-only here, with a link to edit it on the web. While it runs, it keeps
 `rough/preview-registry.ts` in step with the iteration folders and sends what waits in the
 outbox.
 
@@ -123,6 +124,18 @@ to the run's folder, and reports its token counts. `done` takes desktop and phon
 through the app's dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`) with
 Chrome, Chromium or Edge (`ROUGHBOOK_BROWSER` names another), into `rough/.screenshots/`.
 
+## Pull
+
+`pull` brings a web sketch into the repo as the starting point of a local iteration: a fork whose
+parent is the sketch. The backend allocates the next number and sends the sketch's files; the
+studio checks every path before writing (its own folder only, known file types, a few folders
+deep), never writes over an iteration, points the sketch's `/api/files/…` URLs at the local server,
+and regenerates the preview registry. The iteration is generated already, so it can be reviewed,
+refined (`run --refine`) and promoted like any other. Sketches use React, Tailwind and a few allowed
+packages (motion, lucide-react, clsx, three, model-viewer); `pull` names any the app's
+`package.json` does not list, with the command that adds them. A run going at the time does not
+count the pulled files as its own writes. Nothing local goes up.
+
 ## Promote
 
 `promote` takes the component's selected iteration (or `--iteration`). The backend writes the
@@ -145,7 +158,7 @@ src/
   launch/       everything that differs by OS: terminals, opening a browser, naming the OS
   screenshot/   headless Chrome, Chromium or Edge, at desktop and phone widths
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
-                review decisions, and promotion
+                review decisions, sketch pulls, and promotion
   repo/         the repo root, repo prep and the preview route, the link file, scratch apps
   fs/           whole-file JSON writes and the lock the CLI and local server share
   server/       the local server: its API, the built-in terminal's sessions, who may ask

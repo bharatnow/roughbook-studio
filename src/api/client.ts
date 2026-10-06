@@ -9,7 +9,9 @@ import type {
   Me,
   OrgProjects,
   ProjectTree,
-  Promotion
+  Promotion,
+  PullableSketch,
+  PulledSketch
 } from './types.js';
 
 /** Where the backend serves the studio's routes. */
@@ -124,6 +126,31 @@ export class StudioApi {
     );
   }
 
+  /** The component's web sketches that can be pulled, newest first. */
+  sketches(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string
+  ): Promise<PullableSketch[]> {
+    return this.request('GET', `${componentPath(orgId, project, page, component)}/sketches`);
+  }
+
+  /** Allocates the next local iteration as a fork of the sketch, with the sketch's files. */
+  pullSketch(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string,
+    sketch: string
+  ): Promise<PulledSketch> {
+    return this.request(
+      'POST',
+      `${componentPath(orgId, project, page, component)}/sketches/${encodeURIComponent(sketch)}/pull`,
+      {}
+    );
+  }
+
   heartbeat(body: Heartbeat): Promise<{ seenAt: string }> {
     return this.request('POST', '/heartbeat', body);
   }
@@ -192,6 +219,10 @@ function projectPath(orgId: string, project: string): string {
   return `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}`;
 }
 
+function componentPath(orgId: string, project: string, page: string, component: string): string {
+  return `${projectPath(orgId, project)}/pages/${encodeURIComponent(page)}/components/${encodeURIComponent(component)}`;
+}
+
 /** The path of one iteration's review routes. */
 export function iterationPath(
   orgId: string,
@@ -200,7 +231,7 @@ export function iterationPath(
   component: string,
   iteration: string
 ): string {
-  return `${projectPath(orgId, project)}/pages/${encodeURIComponent(page)}/components/${encodeURIComponent(component)}/iterations/${encodeURIComponent(iteration)}`;
+  return `${componentPath(orgId, project, page, component)}/iterations/${encodeURIComponent(iteration)}`;
 }
 
 async function readEnvelope(response: Response): Promise<Envelope> {

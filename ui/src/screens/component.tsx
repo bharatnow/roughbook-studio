@@ -11,6 +11,7 @@ import { RefineDrawer } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
 import { RunPanel } from '../parts/run-panel';
 import { BriefSummary, Sessions } from '../parts/shell';
+import { WebSketches } from '../parts/sketches';
 import { navigate } from '../router';
 
 const NO_SOURCE = {
@@ -54,9 +55,13 @@ export function ComponentScreen({ page, component }: { page: string; component: 
   const recent = mine.filter(run => run.status === 'finished').slice(0, 4);
   const selected = record.iterations.find(item => item.number === record.selectedIteration) ?? null;
   const promoting = terminals.filter(item => item.runId === null);
-  const webHref = state.webUrl
-    ? `${state.webUrl}/projects/${project.tree.slug}/${page}/${component}/brief`
+  const webBase = state.webUrl
+    ? `${state.webUrl}/projects/${project.tree.slug}/${page}/${component}`
     : null;
+  // A local iteration whose parent is a web sketch was pulled from it.
+  const pulledAs = new Map(
+    here.flatMap(item => (item.parent ? [[item.parent, item.id] as const] : []))
+  );
 
   return (
     <div>
@@ -84,7 +89,8 @@ export function ComponentScreen({ page, component }: { page: string; component: 
           ) : null}
         </div>
         <aside className="flex flex-col gap-6">
-          <BriefSummary component={record} webHref={webHref} />
+          <BriefSummary component={record} webHref={webBase ? `${webBase}/brief` : null} />
+          <WebSketches page={page} component={component} pulledAs={pulledAs} webBase={webBase} />
           <Sessions sessions={promoting} />
         </aside>
       </div>

@@ -16,6 +16,7 @@ import { init } from './init.js';
 import { login } from './login.js';
 import { logout } from './logout.js';
 import { promote } from './promote.js';
+import { pull } from './pull.js';
 import { revert } from './revert.js';
 import { review } from './review.js';
 import { run } from './run.js';
@@ -31,6 +32,7 @@ export const COMMANDS: Command[] = [
   done,
   review,
   revert,
+  pull,
   promote,
   agents,
   status,
