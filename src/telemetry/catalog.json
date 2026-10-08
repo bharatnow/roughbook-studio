@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "events": {
+    "studio.started": {
+      "description": "The studio's local UI started, with the agents and editors it found.",
+      "sentBy": "studio",
+      "props": {
+        "studioVersion": {
+          "kind": "token"
+        },
+        "os": {
+          "kind": "enum",
+          "values": [
+            "windows",
+            "macos",
+            "linux",
+            "other"
+          ]
+        },
+        "agents": {
+          "kind": "list",
+          "max": 20,
+          "of": {
+            "kind": "record",
+            "props": {
+              "id": {
+                "kind": "enum",
+                "values": [
+                  "claude-code",
+                  "codex",
+                  "gemini-cli",
+                  "cursor",
+                  "vscode",
+                  "antigravity",
+                  "windsurf",
+                  "other"
+                ]
+              },
+              "version": {
+                "kind": "token",
+                "nullable": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "project.created": {
+      "description": "A project was created.",
+      "sentBy": "server",
+      "props": {
+        "projectId": {
+          "kind": "id"
+        }
+      }
+    },
+    "component.created": {
+      "description": "A component was added to a page.",
+      "sentBy": "server",
+      "props": {
+        "projectId": {
+          "kind": "id"
+        },
+        "componentId": {
+          "kind": "id"
+        }
+      }
+    },
+    "copy.drafted": {
+      "description": "Copy versions were drafted, and by what.",
+      "sentBy": "server",
+      "props": {
+        "path": {
+          "kind": "enum",
+          "values": [
+            "assistant",
+            "coding-agent"
+          ]
+        },
+        "versions": {
+          "kind": "int",
+          "min": 1,
+          "max": 50
+        }
+      }
+    },
+    "copy.approved": {
+      "description": "A component's copy got a newly approved version, out of how many.",
+      "sentBy": "server",
+      "props": {
+        "versions": {
+          "kind": "int",
+          "min": 1,
+          "max": 999
+        }
+      }
+    },
+    "run.started": {
+      "description": "A generation, fork or refinement started: where, with which agent and how many.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "kind": {
+          "kind": "enum",
+          "values": [
+            "generate",
+            "refine",
+            "fork",
+            "critique",
+            "promote",
+            "pull"
+          ]
+        },
+        "agent": {
+          "kind": "enum",
+          "values": [
+            "claude-code",
+            "codex",
+            "gemini-cli",
+            "cursor",
+            "vscode",
+            "antigravity",
+            "windsurf",
+            "other",
+            "api"
+          ]
+        },
+        "mode": {
+          "kind": "enum",
+          "values": [
+            "server",
+            "interactive",
+            "headless",
+            "editor"
+          ]
+        },
+        "model": {
+          "kind": "token",
+          "nullable": true
+        },
+        "directions": {
+          "kind": "int",
+          "min": 1,
+          "max": 8
+        }
+      }
+    },
+    "run.finished": {
+      "description": "A run ended: its setup, how long it took, how it went, its warnings and its writes outside its folder, by count.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "kind": {
+          "kind": "enum",
+          "values": [
+            "generate",
+            "refine",
+            "fork",
+            "critique",
+            "promote",
+            "pull"
+          ]
+        },
+        "agent": {
+          "kind": "enum",
+          "values": [
+            "claude-code",
+            "codex",
+            "gemini-cli",
+            "cursor",
+            "vscode",
+            "antigravity",
+            "windsurf",
+            "other",
+            "api"
+          ]
+        },
+        "mode": {
+          "kind": "enum",
+          "values": [
+            "server",
+            "interactive",
+            "headless",
+            "editor"
+          ]
+        },
+        "model": {
+          "kind": "token",
+          "nullable": true
+        },
+        "directions": {
+          "kind": "int",
+          "min": 1,
+          "max": 8
+        },
+        "durationSeconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 86400,
+          "nullable": true
+        },
+        "outcome": {
+          "kind": "enum",
+          "values": [
+            "completed",
+            "completed_with_warnings",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "warnings": {
+          "kind": "int",
+          "min": 0,
+          "max": 100
+        },
+        "outOfScopeWrites": {
+          "kind": "int",
+          "min": 0,
+          "max": 10000
+        }
+      }
+    },
+    "iteration.rated": {
+      "description": "An iteration was rated, from 1 to 5, and how long after it was made.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "rating": {
+          "kind": "int",
+          "min": 1,
+          "max": 5
+        },
+        "ageSeconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 315360000
+        }
+      }
+    },
+    "iteration.selected": {
+      "description": "An iteration was selected, and how long after it was made.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "ageSeconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 315360000
+        }
+      }
+    },
+    "iteration.rejected": {
+      "description": "An iteration was rejected: the preset reason's code, never the words, and how long after it was made.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "reason": {
+          "kind": "enum",
+          "values": [
+            "too-generic",
+            "weak-hierarchy",
+            "wrong-media",
+            "too-dense",
+            "too-conventional",
+            "poor-brand-fit",
+            "custom"
+          ]
+        },
+        "ageSeconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 315360000
+        }
+      }
+    },
+    "sketch.pulled": {
+      "description": "A web sketch was pulled into a repo as a local iteration.",
+      "sentBy": "server",
+      "props": {
+        "sketchId": {
+          "kind": "id"
+        },
+        "iterationId": {
+          "kind": "id"
+        }
+      }
+    },
+    "repo.prepared": {
+      "description": "A repo was linked to a project: its framework and whether rough/ is committed.",
+      "sentBy": "server",
+      "props": {
+        "framework": {
+          "kind": "token",
+          "nullable": true
+        },
+        "roughCommitted": {
+          "kind": "boolean"
+        }
+      }
+    },
+    "iteration.promoted": {
+      "description": "An iteration was handed to an agent to write the real component, with the repo's framework.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "framework": {
+          "kind": "token",
+          "nullable": true
+        },
+        "roughCommitted": {
+          "kind": "boolean",
+          "nullable": true
+        }
+      }
+    },
+    "media.generated": {
+      "description": "An image, video or 3D model was generated: which kind, provider, model and outcome.",
+      "sentBy": "server",
+      "props": {
+        "kind": {
+          "kind": "enum",
+          "values": [
+            "image",
+            "video",
+            "model3d"
+          ]
+        },
+        "provider": {
+          "kind": "token",
+          "nullable": true
+        },
+        "model": {
+          "kind": "token",
+          "nullable": true
+        },
+        "outcome": {
+          "kind": "enum",
+          "values": [
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        }
+      }
+    },
+    "error.reported": {
+      "description": "Something failed in the studio: the error code and where, never the message.",
+      "sentBy": "studio",
+      "props": {
+        "code": {
+          "kind": "code"
+        },
+        "area": {
+          "kind": "enum",
+          "values": [
+            "cli",
+            "local-ui"
+          ]
+        }
+      }
+    }
+  }
+}

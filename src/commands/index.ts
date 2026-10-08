@@ -1,6 +1,6 @@
 import { hostLookup } from '../agents/index.js';
 import { runHeadless } from '../agents/process.js';
-import { describeError } from '../api/errors.js';
+import { OfflineError, describeError } from '../api/errors.js';
 import { userConfigDir } from '../config/userDir.js';
 import type { Io } from '../io.js';
 import { openUrl } from '../launch/open.js';
@@ -8,8 +8,9 @@ import { hostPlatform } from '../launch/platform.js';
 import { launchTerminal } from '../launch/terminal.js';
 import { screenshotIteration } from '../screenshot/iteration.js';
 import { findRepoRoot } from '../repo/root.js';
+import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
-import type { Command, CommandContext } from './context.js';
+import { openApi, type Command, type CommandContext } from './context.js';
 import { agents } from './agents.js';
 import { done } from './done.js';
 import { init } from './init.js';
@@ -22,6 +23,7 @@ import { review } from './review.js';
 import { run } from './run.js';
 import { start } from './start.js';
 import { status } from './status.js';
+import { telemetry } from './telemetry.js';
 
 /** Every command, in the order `roughbook help` lists them. */
 export const COMMANDS: Command[] = [
@@ -36,6 +38,7 @@ export const COMMANDS: Command[] = [
   promote,
   agents,
   status,
+  telemetry,
   logout
 ];
 
@@ -48,6 +51,22 @@ function printHelp(io: Io): void {
   for (const command of COMMANDS) io.out(`  ${command.usage.padEnd(width)}  ${command.summary}`);
   io.out(`  ${'help'.padEnd(width)}  Show this list`);
   io.out(`  ${'--version'.padEnd(width)}  Show the studio's version`);
+}
+
+/**
+ * A command that failed becomes `error.reported`, by its code only, when the designer agreed;
+ * it goes now if the server answers quickly, else with the next one. Never in the way.
+ */
+async function reportFailure(context: CommandContext, error: unknown): Promise<void> {
+  try {
+    const code = errorCode(error);
+    if (!code || !(await recordEvent(context, 'error.reported', { code, area: 'cli' }))) return;
+    if (error instanceof OfflineError) return;
+    const { api } = await openApi(context);
+    await flushEvents(context, api.withTimeout(3000));
+  } catch {
+    // Analytics never hide the error itself.
+  }
 }
 
 export type MainOptions = {
@@ -119,6 +138,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     return await command.run(args, context);
   } catch (error) {
     io.err(describeError(error));
+    await reportFailure(context, error);
     return 1;
   }
 }

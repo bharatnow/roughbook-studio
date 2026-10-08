@@ -34,6 +34,8 @@ export type ApiConfig = {
   userAgent: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** ROUGHBOOK_TELEMETRY=off: every request asks the backend to record nothing of it. */
+  telemetryOff?: boolean;
 };
 
 export type RequestOptions = {
@@ -63,6 +65,11 @@ export class StudioApi {
   /** The same server with a newly issued token. */
   withToken(token: string): StudioApi {
     return new StudioApi({ ...this.config, token });
+  }
+
+  /** The same client, giving up sooner: for what must not hold a command up. */
+  withTimeout(timeoutMs: number): StudioApi {
+    return new StudioApi({ ...this.config, timeoutMs });
   }
 
   startDeviceLogin(body: { studioVersion: string; os: string }): Promise<DeviceLogin> {
@@ -212,6 +219,7 @@ export class StudioApi {
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (this.config.token) headers.authorization = `Bearer ${this.config.token}`;
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
+    if (this.config.telemetryOff) headers['x-roughbook-telemetry'] = 'off';
 
     try {
       return await (this.config.fetch ?? fetch)(`${this.config.server}${STUDIO_BASE}${path}`, {

@@ -5,6 +5,7 @@ import { readCredentials, type Credentials } from '../config/credentials.js';
 import { resolveServer } from '../config/server.js';
 import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
+import { telemetryDisabled } from '../telemetry/events.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { screenshotIteration } from '../screenshot/iteration.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -58,7 +59,13 @@ export async function openApi(
   const server = resolveServer(serverFlag, context.env, credentials?.server);
   const token = credentials && credentials.server === server ? credentials.token : null;
   return {
-    api: new StudioApi({ server, token, userAgent: userAgent(), fetch: context.fetch }),
+    api: new StudioApi({
+      server,
+      token,
+      userAgent: userAgent(),
+      fetch: context.fetch,
+      telemetryOff: telemetryDisabled(context.env)
+    }),
     credentials: token ? credentials : null
   };
 }

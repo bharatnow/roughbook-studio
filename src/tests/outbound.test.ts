@@ -191,7 +191,9 @@ describe('outbound requests (ground rule 2)', () => {
         new RegExp(`^${PROJECT}/files/project/hero\\.png$`),
         () => ({ status: 200, text: 'PNG' })
       ],
-      ['POST', /^\/auth\/logout$/, () => ok({ signedOut: true })]
+      ['POST', /^\/auth\/logout$/, () => ok({ signedOut: true })],
+      ['POST', /^\/events$/, () => ok({ accepted: 1, duplicates: 0 })],
+      ['PUT', /^\/telemetry$/, () => ok({ analyticsConsent: true })]
     ];
     const backend = fakeFetch(request => {
       const route = new URL(request.url).pathname.replace('/v1/api/studio', '');
@@ -201,9 +203,10 @@ describe('outbound requests (ground rule 2)', () => {
       return found ? found[2](request) : refused('NOT_FOUND', 404);
     });
 
-    const io = recordingIo(['', '']);
+    // Yes to analytics at login, so the events go through the same check; then init's two.
+    const io = recordingIo(['y', '', '']);
     const env = { ROUGHBOOK_CONFIG_DIR: configDir, ANTHROPIC_API_KEY: 'test-key' };
-    const roughbook = async (argv: string[]) => {
+    const roughbook = async (argv: string[], expected = 0) => {
       const code = await main(argv, {
         cwd: repo,
         env,
@@ -226,7 +229,7 @@ describe('outbound requests (ground rule 2)', () => {
         },
         screenshot: async () => ({ files: {}, warning: null })
       });
-      assert.equal(code, 0, `roughbook ${argv.join(' ')}: ${io.errors.join('\n')}`);
+      assert.equal(code, expected, `roughbook ${argv.join(' ')}: ${io.errors.join('\n')}`);
     };
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=T', ...args], {
@@ -258,6 +261,8 @@ describe('outbound requests (ground rule 2)', () => {
       '--headless'
     ]);
     await roughbook(['review', 'home/hero/iteration-02', '--select']);
+    // A command the backend refuses: reported, with analytics on, as its code.
+    await roughbook(['pull', 'home/hero'], 1);
     await roughbook(['promote', 'home/hero']);
     await roughbook(['status']);
     await roughbook(['logout']);
@@ -273,7 +278,8 @@ describe('outbound requests (ground rule 2)', () => {
       '/reviews',
       '/select',
       '/promotions',
-      '/files/'
+      '/files/',
+      '/events'
     ]) {
       assert.ok(
         sent.some(item => item.includes(route)),

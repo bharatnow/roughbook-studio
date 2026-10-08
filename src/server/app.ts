@@ -213,6 +213,8 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
         return sendJson(response, 200, { ok: true, data: await item.handler(request, params) });
       } catch (error) {
         const { status, body } = failure(error);
+        // A request the page made wrong is not a failure worth counting.
+        if (!(error instanceof BadRequest)) await studio.reportError(error);
         return sendJson(response, status, { ok: false, ...body });
       }
     }

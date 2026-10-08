@@ -13,12 +13,14 @@ import type { Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
 import type { CommandContext } from '../commands/context.js';
 import { saveCredentials } from '../config/credentials.js';
+import { saveSettings } from '../config/settings.js';
 import type { PtyModule } from '../launch/pty.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
 import type { StartedRun } from '../runs/types.js';
 import { createLocalServer } from '../server/app.js';
 import { LocalStudio } from '../server/studio.js';
 import { Terminals } from '../server/terminals.js';
+import { STUDIO_VERSION } from '../version.js';
 import {
   assertCarriesNoRepoContent,
   fakeFetch,
@@ -248,6 +250,7 @@ describe('the local server', () => {
           })
       ],
       ['POST', /^\/heartbeat$/, () => ok({ seenAt: 'now' })],
+      ['POST', /^\/events$/, () => ok({ accepted: 1, duplicates: 0 })],
       ['POST', new RegExp(`^${PROJECT}/runs$`), startRuns],
       ['POST', new RegExp(`^/orgs/${ORG}/runs/[0-9a-f-]+/finish$`), () => ok({ ok: true })],
       [
@@ -647,6 +650,48 @@ describe('the local server', () => {
       ).status,
       400
     );
+  });
+
+  it('says it started and counts a failed request by its code, once the designer agreed', async () => {
+    const configDir = path.join(root, 'config');
+    const events = () =>
+      backend.requests
+        .filter(request => request.url.endsWith('/events'))
+        .flatMap(
+          request => (request.body as { events: { type: string; props: unknown }[] }).events
+        );
+    await studio.reportStarted();
+    assert.deepEqual(events(), [], 'not without a yes');
+
+    await saveSettings(configDir, { analyticsConsent: true });
+    try {
+      await studio.reportStarted();
+      // A request the backend refuses: the code goes up, not the words.
+      assert.equal((await api('GET', '/api/sketches/home/missing')).status, 404);
+      // One the page made wrong is the page's own mistake, not counted.
+      assert.equal(
+        (await api('POST', '/api/iterations/home/hero/iteration-01/decisions', { kind: 'delete' }))
+          .status,
+        400
+      );
+      await studio.flushEvents();
+      assert.deepEqual(
+        events().map(event => [event.type, event.props]),
+        [
+          [
+            'studio.started',
+            {
+              studioVersion: STUDIO_VERSION,
+              os: 'windows',
+              agents: [{ id: 'claude-code', version: '2.1.286' }]
+            }
+          ],
+          ['error.reported', { code: 'NOT_FOUND', area: 'local-ui' }]
+        ]
+      );
+    } finally {
+      await saveSettings(configDir, { analyticsConsent: null });
+    }
   });
 
   it('lists the web sketches and pulls one into rough/, its asset URLs on this server', async () => {

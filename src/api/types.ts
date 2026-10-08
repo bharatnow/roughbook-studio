@@ -19,6 +19,8 @@ export type Me = {
   user: { id: string; email: string; name: string | null };
   /** The web's address, for links to where the brief is edited. */
   webUrl?: string;
+  /** This install's analytics answer, null until asked. */
+  analyticsConsent?: boolean | null;
 };
 
 export type OrgProjects = {

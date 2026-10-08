@@ -14,9 +14,14 @@ export type Settings = {
    * chosen once with `roughbook start --port` stays the one prompts name.
    */
   localPort: number | null;
+  /**
+   * The analytics answer given at `roughbook login` or with `roughbook telemetry`, mirrored from
+   * the backend so the studio knows whether to keep events. Null until asked.
+   */
+  analyticsConsent: boolean | null;
 };
 
-const DEFAULTS: Settings = { defaultAgent: null, localPort: null };
+const DEFAULTS: Settings = { defaultAgent: null, localPort: null, analyticsConsent: null };
 
 /** The local server's address, which prompts give agents for the asset files. */
 export function localOrigin(settings: Pick<Settings, 'localPort'>): string {

@@ -112,9 +112,11 @@ export const start: Command = {
     studio.keepRegistry();
     void studio.flushOutbox();
     void studio.heartbeat();
+    void studio.reportStarted();
     const timers = [
       setInterval(() => studio.keepRegistry(), REGISTRY_EVERY_MS),
-      setInterval(() => void studio.flushOutbox(), OUTBOX_EVERY_MS)
+      setInterval(() => void studio.flushOutbox(), OUTBOX_EVERY_MS),
+      setInterval(() => void studio.flushEvents(), OUTBOX_EVERY_MS)
     ];
 
     await context.waitForStop();

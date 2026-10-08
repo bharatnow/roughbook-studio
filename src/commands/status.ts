@@ -1,6 +1,8 @@
 import { parseArgs } from 'node:util';
 import { ApiError, OfflineError } from '../api/errors.js';
 import { outboxFor } from '../api/outbox.js';
+import { readSettings } from '../config/settings.js';
+import { telemetryDisabled } from '../telemetry/events.js';
 import { readLocalLink, readRepoLink } from '../repo/link.js';
 import { openApi, type Command } from './context.js';
 
@@ -33,6 +35,19 @@ export const status: Command = {
         }
       }
     }
+
+    const consent = (await readSettings(context.configDir)).analyticsConsent;
+    io.out(
+      `Analytics:  ${
+        telemetryDisabled(context.env)
+          ? 'off on this machine (ROUGHBOOK_TELEMETRY)'
+          : consent === true
+            ? 'shared'
+            : consent === false
+              ? 'not shared'
+              : 'not answered, so not shared'
+      }`
+    );
 
     if (!context.repoRoot) {
       io.out('Repo:       not in a linked repo');

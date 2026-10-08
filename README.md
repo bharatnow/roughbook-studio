@@ -21,7 +21,8 @@ Runs on Windows, macOS and Linux, with Node 22 or later.
 | `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                |
 | `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                 |
 | `roughbook agents [--default <agent>]`                   | Lists the coding agents found here, their sign-in and whether they can run unattended; sets the default                                                                                    |
-| `roughbook status`                                       | The sign-in, the linked project, and what is waiting to be sent                                                                                                                            |
+| `roughbook status`                                       | The sign-in, the analytics answer, the linked project, and what is waiting to be sent                                                                                                      |
+| `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                            |
 | `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                             |
 
 `init` asks which project the repo works on (or `--project <slug>`, `--new <name>`, with
@@ -92,12 +93,21 @@ https.
 | Your sign-in (install token)   | The user config folder (below), readable only by you |
 | The repo's link to its project | `rough/roughbook.json`, committed with `rough/`      |
 | The default agent, local port  | `settings.json` in the user config folder            |
+| Your analytics answer          | `settings.json` too; the backend keeps it as well    |
+| Analytics events not yet sent  | `events.json` in the user config folder              |
 | Runs, snapshots, the outbox    | `rough/.roughbook/`, never committed                 |
 | Screenshots                    | `rough/.screenshots/`, never committed               |
 
 The user config folder is `%APPDATA%\Roughbook` on Windows, `~/Library/Application Support/Roughbook`
 on macOS, and `$XDG_CONFIG_HOME/roughbook` (or `~/.config/roughbook`) on Linux.
 `ROUGHBOOK_CONFIG_DIR` overrides it.
+
+Usage analytics are opt-in: `roughbook login` asks, and `roughbook telemetry on` or `off` changes
+the answer. With a yes, the backend records what this studio asks it to do (runs, ratings,
+selections, pulls, promotions) as ids, counts and codes, and the studio sends the two events only it
+sees: that the local UI started, with the agents it found, and a failure's error code. Never code,
+prompts, names, paths or anything you type; the web's `/analytics` page lists every event.
+`ROUGHBOOK_TELEMETRY=off` turns it all off on this machine, whatever the answer.
 
 ## Runs
 

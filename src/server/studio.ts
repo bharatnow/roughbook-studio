@@ -15,6 +15,7 @@ import type { CommandContext } from '../commands/context.js';
 import { promoteSession } from '../commands/promote.js';
 import { chooseAgent, sendHeartbeat } from '../commands/shared.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
+import { currentOs } from '../launch/platform.js';
 import type { PtySupport } from '../launch/pty.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
@@ -29,6 +30,8 @@ import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
 import { SIZES } from '../screenshot/browser.js';
 import { screenshotPath } from '../screenshot/iteration.js';
+import { EVENT_CATALOG } from '../telemetry/catalog.js';
+import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
 import { Terminals, type TerminalInfo } from './terminals.js';
 
@@ -124,6 +127,16 @@ export function assetType(file: string): string {
   return ASSET_TYPES[file.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
 }
 const DETECTION_FRESH_MS = 60_000;
+
+/** The agents `studio.started` names by id; any other is `other`. */
+const STARTED_AGENT_IDS: string[] = (() => {
+  const agents = EVENT_CATALOG.events['studio.started']?.props.agents;
+  return agents?.kind === 'list' &&
+    agents.of.kind === 'record' &&
+    agents.of.props.id?.kind === 'enum'
+    ? agents.of.props.id.values
+    : [];
+})();
 
 function describeEvent(event: AgentEvent): string | null {
   switch (event.kind) {
@@ -729,6 +742,53 @@ export class LocalStudio {
 
   async heartbeat(): Promise<void> {
     await sendHeartbeat(this.context, await this.agents());
+  }
+
+  /**
+   * `studio.started`, with the agents found by id and version, when the designer agreed; then
+   * whatever events wait. Analytics never stop the studio.
+   */
+  async reportStarted(): Promise<void> {
+    try {
+      const known = new Set(STARTED_AGENT_IDS);
+      const found = (await this.agents()).filter(item => item.found);
+      // One entry per agent, however many adapters found it.
+      const agents = found
+        .filter((item, index) => found.findIndex(other => other.id === item.id) === index)
+        .map(item => ({
+          id: known.has(item.id) ? item.id : 'other',
+          version:
+            item.version && /^[0-9A-Za-z._:/+-]{1,100}$/.test(item.version) ? item.version : null
+        }));
+      await recordEvent(this.context, 'studio.started', {
+        studioVersion: STUDIO_VERSION,
+        os: currentOs(this.context.platform),
+        agents
+      });
+      await this.flushEvents();
+    } catch {
+      // Nothing to tell the designer: analytics are optional.
+    }
+  }
+
+  /** Sends the events waiting in the user config folder. */
+  async flushEvents(): Promise<void> {
+    try {
+      await flushEvents(this.context, this.options.api);
+    } catch {
+      // They wait for the next try.
+    }
+  }
+
+  /** A request of the local UI that failed: `error.reported` by its code, kept for the next send. */
+  async reportError(error: unknown): Promise<void> {
+    const code = errorCode(error);
+    if (!code) return;
+    try {
+      await recordEvent(this.context, 'error.reported', { code, area: 'local-ui' });
+    } catch {
+      // As above.
+    }
   }
 
   close(): void {

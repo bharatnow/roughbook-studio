@@ -1,12 +1,53 @@
 import { parseArgs } from 'node:util';
 import { ApiError, OfflineError } from '../api/errors.js';
 import { saveCredentials } from '../config/credentials.js';
+import type { Io } from '../io.js';
+import { saveConsent, telemetryDisabled } from '../telemetry/events.js';
 import { currentOs } from '../launch/platform.js';
 import { STUDIO_VERSION } from '../version.js';
 import { openApi, type Command } from './context.js';
 
 /** Consecutive unreachable polls before giving up. */
 const OFFLINE_TRIES = 5;
+
+/**
+ * The analytics question, once per sign-in. Nobody there to answer (a script) leaves it
+ * unanswered, so nothing is shared; ROUGHBOOK_TELEMETRY=off is not asked at all.
+ */
+async function askAnalytics(
+  io: Io,
+  context: Parameters<typeof saveConsent>[0],
+  api: Parameters<typeof saveConsent>[1],
+  webUrl: string | undefined
+): Promise<void> {
+  if (telemetryDisabled(context.env)) {
+    io.out('Usage analytics are off on this machine (ROUGHBOOK_TELEMETRY).');
+    return;
+  }
+  io.out('');
+  io.out(
+    'Roughbook can record usage analytics from this studio: which agents run, how runs end, ratings and error codes.'
+  );
+  io.out(
+    `Never your code, prompts, names, file paths or anything you type.${webUrl ? ` What is collected: ${webUrl}/analytics` : ''}`
+  );
+  const answer = await io.ask('Share usage analytics from this studio? [y/N] ');
+  if (answer === null) {
+    io.out('Not answered, so nothing is shared. Run roughbook telemetry on to share.');
+    return;
+  }
+  const consent = /^y(es)?$/i.test(answer);
+  try {
+    await saveConsent(context, api, consent);
+    io.out(
+      consent
+        ? 'Thank you. Turn it off any time with roughbook telemetry off.'
+        : 'Nothing is shared. Turn it on with roughbook telemetry on.'
+    );
+  } catch {
+    io.out('Your answer could not be saved; run roughbook telemetry on or off later.');
+  }
+}
 
 export const login: Command = {
   name: 'login',
@@ -54,7 +95,8 @@ export const login: Command = {
       await context.sleep(interval);
       try {
         const issued = await anonymous.pollDeviceLogin(login.deviceCode);
-        const me = await anonymous.withToken(issued.token).me();
+        const signedIn = anonymous.withToken(issued.token);
+        const me = await signedIn.me();
         await saveCredentials(context.configDir, {
           server: api.server,
           installId: issued.installId,
@@ -63,6 +105,7 @@ export const login: Command = {
           savedAt: new Date().toISOString()
         });
         io.out(`Signed in to ${api.server} as ${me.user.email}.`);
+        await askAnalytics(io, context, signedIn, me.webUrl);
         io.out('Next, run roughbook init in the repo you want to design in.');
         return 0;
       } catch (error) {
