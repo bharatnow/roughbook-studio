@@ -8,6 +8,7 @@ import { openerFor } from '../launch/open.js';
 import { currentOs } from '../launch/platform.js';
 import { readLocalLink } from '../repo/link.js';
 import { scratchFiles } from '../repo/scratch.js';
+import { STUDIO_VERSION } from '../version.js';
 import { fakeFetch, ok, recordingIo, refused, tempDir, type RecordedRequest } from './helpers.js';
 
 const SERVER = 'http://localhost:4000';
@@ -86,7 +87,7 @@ describe('roughbook login', () => {
     assert.deepEqual(opened, [DEVICE.verificationUriComplete]);
 
     const start = api.requests.find(request => request.url.endsWith('/auth/device'))!;
-    assert.deepEqual(start.body, { studioVersion: '0.1.0', os: currentOs() });
+    assert.deepEqual(start.body, { studioVersion: STUDIO_VERSION, os: currentOs() });
     assert.equal(start.headers.authorization, undefined);
     const me = api.requests.find(request => request.url.endsWith('/me'))!;
     assert.equal(me.headers.authorization, `Bearer ${TOKEN}`);
