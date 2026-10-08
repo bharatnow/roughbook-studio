@@ -173,6 +173,16 @@ function record<T>(value: unknown, what: string, valid: (item: unknown) => item 
   return Object.fromEntries(entries) as Record<string, T>;
 }
 
+/** A rating from the local UI: 1 to 5, null or empty for none, undefined when not given. */
+function rating(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) {
+    throw new BadRequest('A rating is a whole number from 1 to 5.');
+  }
+  return value;
+}
+
 const STATUSES = ['draft', 'exploring', 'promising', 'archived'] as const;
 const REVIEW_DECISIONS = ['explore', 'refine', 'select', 'reject'] as const;
 
@@ -180,13 +190,23 @@ const REVIEW_DECISIONS = ['explore', 'refine', 'select', 'reject'] as const;
 export function parseDecision(body: Record<string, unknown>): Decision {
   switch (body.kind as Decision['kind']) {
     case 'select':
-      return { kind: 'select', reason: optionalText(body.reason, 'The reason') };
+      return {
+        kind: 'select',
+        reason: optionalText(body.reason, 'The reason'),
+        rating: rating(body.rating)
+      };
     case 'reject':
       return {
         kind: 'reject',
         reason: text(body.reason, 'The reason', 500),
-        why: optionalText(body.why, 'Why')
+        why: optionalText(body.why, 'Why'),
+        rating: rating(body.rating)
       };
+    case 'rate': {
+      const given = rating(body.rating);
+      if (given === undefined) throw new BadRequest('The rating is missing.');
+      return { kind: 'rate', rating: given };
+    }
     case 'review': {
       const decision = body.decision;
       if (
@@ -562,6 +582,13 @@ export class LocalStudio {
     const { api, link } = this.options;
     const result = await sendDecision(api, this.outbox, link, target, decision);
     return { status: result.status };
+  }
+
+  /** The component's rated iterations, from the backend: this user's rating and the team's. */
+  async ratings(page: string, component: string) {
+    if (!SLUG.test(page) || !SLUG.test(component)) throw new BadRequest('Not a component.');
+    const { api, link } = this.options;
+    return api.ratings(link.orgId, link.project, page, component);
   }
 
   /** The component's web sketches that can be pulled, from the backend. */

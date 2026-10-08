@@ -79,6 +79,9 @@ export type SketchFile = { path: string; encoding: 'utf8' | 'base64'; content: s
 /** `POST …/sketches/:iteration/pull`: the new local iteration, and the sketch's files. */
 export type PulledSketch = { iteration: string; parent: string; files: SketchFile[] };
 
+/** One iteration's ratings as this user sees them: their own, the average and how many rated. */
+export type RatingSummary = { mine: number | null; average: number | null; count: number };
+
 /** `POST /orgs/:orgId/projects/:project/promotions`. */
 export type Promotion = {
   promotionId: string;

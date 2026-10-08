@@ -17,7 +17,7 @@ function Notice() {
       <button
         type="button"
         onClick={() => say(null)}
-        className="text-xs text-steel hover:text-graphite"
+        className="-my-1 inline-flex min-h-6 items-center text-xs text-steel hover:text-graphite"
       >
         Dismiss
       </button>

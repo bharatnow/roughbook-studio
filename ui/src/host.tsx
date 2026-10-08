@@ -28,6 +28,16 @@ function lines(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * The rating a form gives: 1 to 5, null for none (which takes the designer's back), or nothing
+ * when the form has no rating field, as when deselecting.
+ */
+function rated(form: FormData): { rating?: number | null } {
+  if (!form.has('rating')) return {};
+  const value = Number(field(form, 'rating'));
+  return { rating: Number.isInteger(value) && value >= 1 && value <= 5 ? value : null };
+}
+
 /** The iteration a form names in its hidden fields. */
 function targetOf(form: FormData) {
   return {
@@ -77,16 +87,26 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         `${devUrl}/rough-preview/${page}/${component}/${iteration}`,
       actions: {
         selectIteration: form =>
-          decide(targetOf(form), { kind: 'select', reason: field(form, 'reason') }, 'Saved.'),
+          decide(
+            targetOf(form),
+            { kind: 'select', reason: field(form, 'reason'), ...rated(form) },
+            'Saved.'
+          ),
         rejectIteration: form => {
           const preset = field(form, 'reasonPreset');
           const reason = preset === 'Custom' ? field(form, 'reasonCustom') : preset;
           return decide(
             targetOf(form),
-            { kind: 'reject', reason, why: field(form, 'why') },
+            { kind: 'reject', reason, why: field(form, 'why'), ...rated(form) },
             'Rejected. The next prompt for this project remembers why.'
           );
         },
+        rateIteration: form =>
+          decide(
+            targetOf(form),
+            { kind: 'rate', rating: rated(form).rating ?? null },
+            'Rating saved.'
+          ),
         markPromising: target =>
           decide(target, { kind: 'status', status: 'promising' }, 'Marked promising.'),
         archiveIteration: target =>

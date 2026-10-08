@@ -163,6 +163,9 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       async (request, params) =>
         studio.decide(target(params), parseDecision(await readBody(request)))
     ),
+    route('GET', '/api/ratings/:page/:component', (_request, params) =>
+      studio.ratings(params.page!, params.component!)
+    ),
     route('GET', '/api/sketches/:page/:component', (_request, params) =>
       studio.sketches(params.page!, params.component!)
     ),

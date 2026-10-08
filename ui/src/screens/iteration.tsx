@@ -1,17 +1,20 @@
 import {
   AppPreview,
   IterationNotesForm,
+  RatingForm,
   RejectDrawer,
   ReviewButton,
   SelectConfirmDrawer,
   Stage,
   describeIterationState,
+  describeRating,
   latestHumanReview,
   reviewSummary
 } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { screenshotUrl } from '../api';
 import { findComponent, useStudio } from '../data';
+import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
 
@@ -55,6 +58,7 @@ export function IterationScreen({
   const key = `${page}/${component}/${id}`;
   const shot = useScreenshot(page, component, id, Boolean(project?.local.screenshots[key]?.length));
   const reviews = useReviews(page, component, id);
+  const rating = useRatings(page, component)[id] ?? null;
   useEffect(() => setRefineOpen(refine), [refine]);
 
   const found = findComponent(project, page, component);
@@ -91,6 +95,13 @@ export function IterationScreen({
         selected={selected}
         extraActions={
           <>
+            <RatingForm
+              project={project.tree.slug}
+              page={page}
+              component={component}
+              iterationId={id}
+              rating={rating}
+            />
             <button type="button" className={action} onClick={() => setSelectOpen(true)}>
               {selected ? 'Selected' : 'Select'}
             </button>
@@ -119,6 +130,12 @@ export function IterationScreen({
                 <p className="mt-1 text-graphite">{iteration.hypothesis}</p>
               </div>
             ) : null}
+            <div>
+              <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">Rating</p>
+              <p className="mt-1 text-xs text-slate">
+                {describeRating(rating) ?? 'Not rated yet.'}
+              </p>
+            </div>
             {run ? (
               <div>
                 <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">Run</p>
@@ -168,6 +185,7 @@ export function IterationScreen({
         componentName={record.name}
         selected={selected}
         latestReviewSummary={reviewSummary(latestHumanReview(reviews))}
+        rating={rating?.mine ?? null}
       />
       <RejectDrawer
         open={rejectOpen}
@@ -176,6 +194,7 @@ export function IterationScreen({
         page={page}
         component={component}
         iterationId={id}
+        rating={rating?.mine ?? null}
       />
       <RefineDrawer
         open={refineOpen}

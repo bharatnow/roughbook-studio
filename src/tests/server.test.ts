@@ -252,7 +252,7 @@ describe('the local server', () => {
       ['POST', new RegExp(`^/orgs/${ORG}/runs/[0-9a-f-]+/finish$`), () => ok({ ok: true })],
       [
         'POST',
-        /\/iterations\/iteration-\d+\/(select|reject|feedback|status)$/,
+        /\/iterations\/iteration-\d+\/(select|reject|rating|feedback|status)$/,
         () => ok({ ok: true })
       ],
       ['POST', /\/iterations\/iteration-\d+\/reviews$/, () => ok({ id: 'review-01' }, 201)],
@@ -295,6 +295,11 @@ describe('the local server', () => {
             },
             201
           )
+      ],
+      [
+        'GET',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/ratings$`),
+        () => ok({ 'iteration-01': { mine: 4, average: 3.5, count: 2 } })
       ],
       [
         'GET',
@@ -607,7 +612,26 @@ describe('the local server', () => {
     await decide({ kind: 'select', reason: 'Calmest' });
     assert.deepEqual(sentTo('/iteration-01/select'), { reason: 'Calmest' });
 
+    // Ratings: on their own, or with a selection or a rejection; null takes one back.
+    await decide({ kind: 'rate', rating: 4 });
+    assert.deepEqual(sentTo('/iteration-01/rating'), { rating: 4 });
+    await decide({ kind: 'rate', rating: null });
+    assert.deepEqual(sentTo('/iteration-01/rating'), { rating: null });
+    await decide({ kind: 'select', reason: 'Calmest', rating: 5 });
+    assert.deepEqual(sentTo('/iteration-01/select'), { reason: 'Calmest', rating: 5 });
+    await decide({ kind: 'reject', reason: 'Too quiet', rating: '' });
+    assert.deepEqual(sentTo('/iteration-01/reject'), { reason: 'Too quiet', rating: null });
+    const ratings = await api('GET', '/api/ratings/home/hero');
+    assert.deepEqual(ratings.json.data, {
+      'iteration-01': { mine: 4, average: 3.5, count: 2 }
+    });
+    assert.equal((await api('GET', '/api/ratings/home/..%2Fsecrets')).status, 400);
+
     for (const bad of [
+      { kind: 'rate' },
+      { kind: 'rate', rating: 0 },
+      { kind: 'rate', rating: 2.5 },
+      { kind: 'select', rating: '4' },
       { kind: 'reject', reason: '' },
       { kind: 'status', status: 'selected' },
       { kind: 'notes' },

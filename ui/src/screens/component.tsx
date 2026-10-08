@@ -7,6 +7,7 @@ import {
 } from '@roughbook/ui';
 import { useState } from 'react';
 import { findComponent, localIterations, useStudio } from '../data';
+import { useRatings } from '../parts/ratings';
 import { RefineDrawer } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
 import { RunPanel } from '../parts/run-panel';
@@ -34,6 +35,7 @@ export function ComponentScreen({ page, component }: { page: string; component: 
   const { state, project, runs, terminals } = useStudio();
   const [compare, setCompare] = useState<string[]>([]);
   const [showRejected, setShowRejected] = useState(false);
+  const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
   if (!project || !state) return <p className="text-sm text-slate">Loading…</p>;
   if (!found)
@@ -162,6 +164,7 @@ export function ComponentScreen({ page, component }: { page: string; component: 
                       relativePath: `rough/${page}/${component}/${iteration.id}`
                     }}
                     selected={iteration.number === record.selectedIteration}
+                    rating={ratings[iteration.id] ?? null}
                     source={NO_SOURCE}
                     footer={
                       run?.status === 'started' ? (

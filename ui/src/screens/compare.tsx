@@ -2,6 +2,7 @@ import { CompareView, latestHumanReview, reviewSummary, type Review } from '@rou
 import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
 import { findComponent, localIterations, useStudio } from '../data';
+import { useRatings } from '../parts/ratings';
 
 /** Each candidate's latest review in one line, as the web's Compare shows it. */
 function useSummaries(page: string, component: string, ids: string[]) {
@@ -38,6 +39,7 @@ export function CompareScreen({
 }) {
   const { project } = useStudio();
   const summaries = useSummaries(page, component, ids);
+  const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
   if (!project) return <p className="text-sm text-slate">Loading…</p>;
   if (!found)
@@ -60,6 +62,7 @@ export function CompareScreen({
       base={`/${page}/${component}`}
       candidates={candidates}
       reviewSummaries={summaries}
+      ratings={ratings}
     />
   );
 }

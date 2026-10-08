@@ -427,7 +427,8 @@ describe('roughbook review', () => {
           { id: 'iteration-03', status: 'promising' }
         ]),
       [`POST ${HERO}/iteration-04/reject`]: () => ok({ id: 'iteration-04', status: 'rejected' }),
-      [`POST ${HERO}/iteration-05/reviews`]: () => ok({ id: 'review-01' }, 201)
+      [`POST ${HERO}/iteration-05/reviews`]: () => ok({ id: 'review-01' }, 201),
+      [`POST ${HERO}/iteration-03/rating`]: () => ok({ mine: 4, average: 3.5, count: 2 })
     });
     assert.equal(
       await studio.run(['review', 'home/hero/iteration-02', '--select', '--reason', 'Calm']),
@@ -452,6 +453,36 @@ describe('roughbook review', () => {
       reason: 'Too busy',
       why: 'The grid fights the headline.'
     });
+
+    // A rating on its own, or with a decision; none takes it back.
+    assert.equal(await studio.run(['review', 'home/hero/iteration-03', '--rating', '4']), 0);
+    assert.equal(studio.io.lines.at(-1), "Rated 4. The team's average is 3.5 from 2.");
+    assert.deepEqual(studio.requests.at(-1)!.body, { rating: 4 });
+    assert.equal(await studio.run(['review', 'home/hero/iteration-03', '--rating', 'none']), 0);
+    assert.deepEqual(studio.requests.at(-1)!.body, { rating: null });
+    assert.equal(
+      await studio.run([
+        'review',
+        'home/hero/iteration-04',
+        '--reject',
+        'Too busy',
+        '--rating',
+        '2'
+      ]),
+      0
+    );
+    assert.deepEqual(studio.requests.at(-1)!.body, { reason: 'Too busy', rating: 2 });
+    for (const bad of [
+      ['--rating', '6'],
+      ['--rating', '2.5'],
+      ['--note', 'x', '--rating', '3']
+    ]) {
+      assert.equal(
+        await studio.run(['review', 'home/hero/iteration-03', ...bad]),
+        1,
+        bad.join(' ')
+      );
+    }
 
     assert.equal(
       await studio.run([
