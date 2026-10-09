@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import type { HeadlessResult } from '../agents/process.js';
-import type { Detection, HeadlessInvocation, TerminalAdapter } from '../agents/types.js';
+import { ownEditor } from '../agents/editors.js';
+import { hostLookup } from '../agents/index.js';
+import type { Detection, HeadlessInvocation } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
 import type { Promotion } from '../api/types.js';
 import { outboxFor } from '../api/outbox.js';
@@ -12,6 +14,7 @@ import { main, type MainOptions } from '../commands/index.js';
 import { parseComponent, parseIteration } from '../commands/shared.js';
 import { saveCredentials } from '../config/credentials.js';
 import { readSettings } from '../config/settings.js';
+import type { Launch } from '../launch/open.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
@@ -19,7 +22,15 @@ import { importedPackages } from '../runs/pull.js';
 import { listRuns } from '../runs/store.js';
 import type { StartedRun } from '../runs/types.js';
 import type { Shots } from '../screenshot/iteration.js';
-import { fakeFetch, ok, recordingIo, refused, tempDir, type RecordedRequest } from './helpers.js';
+import {
+  fakeFetch,
+  notFound,
+  ok,
+  recordingIo,
+  refused,
+  tempDir,
+  type RecordedRequest
+} from './helpers.js';
 
 const SERVER = 'http://localhost:4000';
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -118,6 +129,10 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
     'claude-code': detection('claude-code', true, options.headless),
     codex: detection('codex', false)
   };
+  /** What editors and the OS's opener were started with; a command in `failing` cannot start. */
+  const editorLaunches: Launch[] = [];
+  const failing = new Set<string>();
+  const copied: string[] = [];
   let agentWrites: (invocation: HeadlessInvocation) => void = () => {};
   const env = {
     ROUGHBOOK_CONFIG_DIR: configDir,
@@ -126,8 +141,16 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
   const overrides: Partial<MainOptions> = {
     fetch: fake.fetch,
     platform: 'win32',
-    detect: async (adapter: TerminalAdapter) => detections[adapter.id]!,
+    detect: async adapter => detections[adapter.id] ?? notFound(adapter),
     launchTerminal: async plan => void plans.push(plan),
+    launchEditor: async launch => {
+      if (failing.has(launch.command)) throw new Error(`spawn ${launch.command} ENOENT`);
+      editorLaunches.push(launch);
+    },
+    copyText: async text => {
+      copied.push(text);
+      return true;
+    },
     runHeadless: async (_adapter, invocation, runOptions): Promise<HeadlessResult> => {
       headless.push(invocation);
       agentWrites(invocation);
@@ -162,6 +185,10 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
     plans,
     shots,
     headless,
+    detections,
+    editorLaunches,
+    failing,
+    copied,
     configDir,
     requests: fake.requests,
     setOnline: (value: boolean) => (online = value),
@@ -504,6 +531,159 @@ describe('roughbook screenshot', () => {
     assert.match(studio.io.errors.at(-1)!, /home\/hero\/iteration-09 is not in this repo/);
     assert.equal(await studio.run(['screenshot', 'x', '--dev-url', 'http://example.com']), 1);
     assert.equal(studio.shots.length, 3);
+  });
+});
+
+describe('roughbook run in an editor', () => {
+  const CURSOR = 'C:/cursor/Cursor.exe';
+  const CURSOR_CLI = 'C:/cursor/resources/app/out/cli.js';
+  const cursorFound = (): Detection => ({
+    id: 'cursor',
+    name: 'Cursor',
+    kind: 'editor',
+    found: true,
+    executable: {
+      command: CURSOR,
+      prefixArgs: [CURSOR_CLI],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      source: 'PATH'
+    },
+    version: '3.24.9',
+    signedIn: null,
+    signIn: null,
+    headless: { ready: false, reason: 'Cursor runs with you in it, never unattended.' },
+    capabilities: { interactive: true, headless: false, permissions: false, usage: false }
+  });
+  /** A backend handing out a new iteration for each run asked for. */
+  const handingOut = () => {
+    let next = 7;
+    return {
+      [`POST ${PROJECT}/runs`]: (request: RecordedRequest) => {
+        const body = request.body as { directions: unknown[] };
+        return ok(
+          body.directions.map(() => {
+            const number = next++;
+            return started(
+              `iteration-${String(number).padStart(2, '0')}`,
+              `aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, '0')}`
+            );
+          }),
+          201
+        );
+      },
+      [`POST /orgs/${ORG}/runs/aaaaaaaa-aaaa-4aaa-8aaa-000000000007/finish`]: (
+        request: RecordedRequest
+      ) => ok({ status: (request.body as { outcome: string }).outcome })
+    };
+  };
+  const prompt = (number: number) =>
+    `rough/home/hero/prompts/aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, '0')}.md`;
+  const lookupHere = () => hostLookup({});
+
+  it('opens the repo and the prompts in the editor, copies the first instruction, and finishes with done', async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    const code = await studio.run([
+      'run',
+      'home/hero',
+      '--direction',
+      'Quiet',
+      '--direction',
+      'Loud',
+      '--agent',
+      'cursor'
+    ]);
+    assert.equal(code, 0, studio.io.errors.join('\n'));
+    const body = studio.requests.at(-1)!.body as { agent: string; mode: string };
+    assert.deepEqual([body.agent, body.mode], ['cursor', 'editor']);
+    const prompts = [prompt(7), prompt(8)];
+    assert.deepEqual(studio.editorLaunches, [
+      {
+        command: CURSOR,
+        args: [
+          CURSOR_CLI,
+          studio.repo,
+          ...prompts.map(file => path.join(studio.repo, ...file.split('/')))
+        ],
+        env: { ELECTRON_RUN_AS_NODE: '1' }
+      }
+    ]);
+    assert.deepEqual(studio.copied, [`Follow the instructions in ${prompts[0]}`]);
+    assert.equal(studio.plans.length, 0, 'no terminal is opened for an editor');
+    const said = studio.io.lines.join('\n');
+    assert.match(said, /Opened the repo and the prompts in Cursor\./);
+    assert.match(said, /On the clipboard, to paste into a new chat with Cursor's agent:/);
+    assert.ok(studio.io.lines.includes(`  Follow the instructions in ${prompts[1]}`));
+
+    // Done is the same as after a terminal run.
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    assert.equal(await studio.run(['done', 'iteration-07']), 0, studio.io.errors.join('\n'));
+    assert.ok(studio.io.lines.includes('home/hero/iteration-07: completed'));
+  });
+
+  it('opens the prompt in the default app when the editor cannot start, and is never unattended', async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    studio.failing.add(CURSOR);
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Quiet', '--agent', 'cursor']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.deepEqual(studio.editorLaunches, [
+      {
+        command: 'rundll32',
+        args: ['url.dll,FileProtocolHandler', path.join(studio.repo, ...prompt(7).split('/'))]
+      }
+    ]);
+    assert.ok(studio.io.lines.includes(`Opened ${prompt(7)} with your default app.`));
+
+    const asked = studio.requests.length;
+    assert.equal(
+      await studio.run([
+        'run',
+        'home/hero',
+        '--direction',
+        'Loud',
+        '--agent',
+        'cursor',
+        '--headless'
+      ]),
+      1
+    );
+    assert.match(studio.io.errors.at(-1)!, /never unattended/);
+    assert.equal(studio.requests.length, asked, 'no run was started');
+  });
+
+  it('uses an editor when no terminal agent is here, and your own editor through the default app', async () => {
+    const studio = await setup(handingOut());
+    studio.detections['claude-code'] = detection('claude-code', false);
+    studio.detections.cursor = cursorFound();
+    studio.detections.other = await ownEditor.detect(lookupHere());
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    const first = studio.requests.at(-1)!.body as { agent: string; mode: string };
+    assert.deepEqual([first.agent, first.mode], ['cursor', 'editor']);
+
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Loud', '--agent', 'other']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    const second = studio.requests.at(-1)!.body as { agent: string; mode: string };
+    assert.deepEqual([second.agent, second.mode], ['other', 'editor']);
+    assert.deepEqual(studio.editorLaunches.at(-1), {
+      command: 'rundll32',
+      args: ['url.dll,FileProtocolHandler', path.join(studio.repo, ...prompt(8).split('/'))]
+    });
+    assert.match(studio.io.lines.join('\n'), /a new chat with your agent/);
+
+    delete studio.detections.cursor;
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Third']), 1);
+    assert.match(studio.io.errors.at(-1)!, /No coding agent or editor was found/);
   });
 });
 

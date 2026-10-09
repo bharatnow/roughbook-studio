@@ -22,22 +22,22 @@ its own copy and asks before fetching each new one.
 
 ## Commands
 
-| Command                                                  | Does                                                                                                                                                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                        |
-| `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                        |
-| `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                    |
-| `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal, or `--headless` runs it unattended |
-| `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                        |
-| `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                       |
-| `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers              |
-| `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                     |
-| `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                |
-| `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                 |
-| `roughbook agents [--default <agent>]`                   | Lists the coding agents found here, their sign-in and whether they can run unattended; sets the default                                                                                    |
-| `roughbook status`                                       | The sign-in, the analytics answer, the linked project, and what is waiting to be sent                                                                                                      |
-| `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                            |
-| `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                             |
+| Command                                                  | Does                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                                                                                                                             |
+| `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                                                                                                                             |
+| `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                                                                                                                         |
+| `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal, `--headless` runs it unattended, and `--agent cursor` (or `vscode`, `antigravity`, `windsurf`, `other`) opens the prompt in that editor |
+| `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                                                                                                                             |
+| `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                                                                                                                            |
+| `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers                                                                                                                   |
+| `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                                                                                                                          |
+| `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                                                                                                                     |
+| `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                                                                                                                      |
+| `roughbook agents [--default <agent>]`                   | Lists the coding agents and editors found here, their sign-in and whether they can run unattended; sets the default                                                                                                                                                                             |
+| `roughbook status`                                       | The sign-in, the analytics answer, the linked project, and what is waiting to be sent                                                                                                                                                                                                           |
+| `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                                                                                                                                 |
+| `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                                                                                                                                  |
 
 `init` asks which project the repo works on (or `--project <slug>`, `--new <name>`, with
 `--org <id>` when two organizations share a slug) and whether to commit `rough/` (`--commit`, the
@@ -145,8 +145,20 @@ Claude Code and Codex are supported, found without any setup: on PATH, then wher
 them when PATH misses it (the native installers' `~/.local/bin`, npm's global folder, WinGet,
 Scoop, Homebrew, Volta, Bun), then, for Claude Code, its older `~/.claude/local` install and the
 copy the Claude desktop app keeps, including the Windows package's own folder.
-`ROUGHBOOK_CLAUDE_BIN` or `ROUGHBOOK_CODEX_BIN` names one anywhere else. A run opens the agent in a
-terminal: Windows Terminal or a
+`ROUGHBOOK_CLAUDE_BIN` or `ROUGHBOOK_CODEX_BIN` names one anywhere else.
+
+Cursor, VS Code (with Copilot), Antigravity and Windsurf run iterations with their own agents, with
+you driving: `run --agent cursor` (or the local UI's Agent list) opens the repo and the run's prompt
+in the editor, through its own launcher (`cursor`, `code`, `antigravity`, `windsurf`; on Windows the
+editor's exe and `cli.js` that its `.cmd` launcher runs, with no shell), and puts the one-line
+instruction on the clipboard for a new chat with the editor's agent. Each is found on PATH, in its
+install folder (Windows), app bundle (macOS) or package folder (Linux), or through
+`ROUGHBOOK_<EDITOR>_BIN`. `--agent other` opens the prompt with the OS's default app instead, and the
+default app takes over when an editor cannot start. Editors never run unattended; Done, the checks
+and the snapshot are the same as for a terminal agent. With no default set, `run` uses the first
+terminal agent found, then the first editor.
+
+A terminal agent's run opens it in a terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and
 `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole or xterm on Linux; otherwise it prints
 the command to paste. `--headless` runs the agent unattended, only with your own API key

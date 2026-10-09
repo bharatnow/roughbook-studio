@@ -8,7 +8,7 @@ import { startRuns } from '../runs/lifecycle.js';
 import type { StartRunRequest } from '../runs/types.js';
 import { requireApi, type Command } from './context.js';
 import { DEFAULT_DEV_URL, completeRun } from './done.js';
-import { chooseAgent, parseComponent } from './shared.js';
+import { chooseAgent, openInEditor, parseComponent, sayEditorLaunch } from './shared.js';
 
 /** What the designer asked for: new directions, a fork, or a refinement. */
 function runKind(values: {
@@ -49,7 +49,7 @@ function runKind(values: {
 
 export const run: Command = {
   name: 'run',
-  summary: 'Start iterations with a coding agent, in a terminal or unattended',
+  summary: 'Start iterations with a coding agent, in a terminal, unattended or in your editor',
   usage:
     'run <page>/<component> (--direction <idea>... | --fork <iteration> | --refine <iteration> --intent <text>) [--agent <id>] [--headless]',
   needsRepo: true,
@@ -79,7 +79,6 @@ export const run: Command = {
     const link = await requireRepoLink(repoRoot);
     const { adapter, detection } = await chooseAgent(context, values.agent);
     const model = values.model ?? null;
-    const executable = detection.executable!;
     if (values.headless && !detection.headless.ready) throw new Error(detection.headless.reason);
 
     const api = await requireApi(context);
@@ -90,7 +89,7 @@ export const run: Command = {
       page,
       component,
       agent: adapter.id,
-      mode: values.headless ? 'headless' : 'interactive',
+      mode: adapter.kind === 'editor' ? 'editor' : values.headless ? 'headless' : 'interactive',
       ...kind
     } as StartRunRequest;
     const runs = await startRuns(repoRoot, api, link, request, {
@@ -99,6 +98,18 @@ export const run: Command = {
     for (const item of runs) {
       io.out(`${item.page}/${item.component}/${item.iteration}: ${item.promptFile}`);
     }
+
+    if (adapter.kind === 'editor') {
+      const prompts = runs.map(item => item.promptFile);
+      sayEditorLaunch(
+        io,
+        await openInEditor(context, adapter, detection, repoRoot, prompts),
+        prompts
+      );
+      io.out('When the agent has finished, run roughbook done.');
+      return 0;
+    }
+    const executable = detection.executable!;
 
     if (values.headless) {
       io.out(`Running ${adapter.name} unattended. Its output is summarized here.`);

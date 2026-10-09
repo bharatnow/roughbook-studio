@@ -15,7 +15,8 @@ export function runCommand(
     let stderr = '';
     const child = spawn(executable.command, [...executable.prefixArgs, ...args], {
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(executable.env ? { env: { ...process.env, ...executable.env } } : {})
     });
     const timer = setTimeout(() => {
       if (settled) return;

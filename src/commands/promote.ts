@@ -10,7 +10,7 @@ import {
 } from '../runs/promote.js';
 import { handoffLine } from '../runs/slots.js';
 import { requireApi, type Command } from './context.js';
-import { chooseAgent, parseComponent } from './shared.js';
+import { chooseAgent, openInEditor, parseComponent, sayEditorLaunch } from './shared.js';
 
 /** The agent's session that writes the real component from the promote prompt. */
 export function promoteSession(
@@ -87,6 +87,16 @@ export const promote: Command = {
     let session: Session | null = null;
     try {
       const { adapter, detection } = await chooseAgent(context, values.agent);
+      if (adapter.kind === 'editor') {
+        const prompts = [prepared.promptFile];
+        sayEditorLaunch(
+          io,
+          await openInEditor(context, adapter, detection, repoRoot, prompts),
+          prompts
+        );
+        io.out('Review the diff when it is done; nothing is committed.');
+        return 0;
+      }
       session = promoteSession(
         adapter,
         detection,

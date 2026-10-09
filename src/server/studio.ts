@@ -3,9 +3,9 @@
 // checks who is asking and turns these into JSON.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ADAPTERS } from '../agents/index.js';
+import { ALL_AGENTS } from '../agents/index.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
-import type { AgentEvent, Detection, TerminalAdapter } from '../agents/types.js';
+import type { AgentAdapter, AgentEvent, Detection, TerminalAdapter } from '../agents/types.js';
 import type { StudioApi } from '../api/client.js';
 import type { AssetScope } from '../api/types.js';
 import { describeError } from '../api/errors.js';
@@ -13,7 +13,12 @@ import { outboxFor, type Outbox } from '../api/outbox.js';
 import { finishWithScreenshots } from '../commands/done.js';
 import type { CommandContext } from '../commands/context.js';
 import { promoteSession } from '../commands/promote.js';
-import { chooseAgent, sendHeartbeat } from '../commands/shared.js';
+import {
+  chooseAgent,
+  openInEditor,
+  sendHeartbeat,
+  type EditorLaunched
+} from '../commands/shared.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
 import { currentOs } from '../launch/platform.js';
 import type { PtySupport } from '../launch/pty.js';
@@ -47,7 +52,7 @@ export type LocalStudioOptions = {
 /** An agent as the local UI lists it: no paths. */
 export type AgentView = Pick<
   Detection,
-  'id' | 'name' | 'found' | 'version' | 'signedIn' | 'signIn' | 'headless' | 'capabilities'
+  'id' | 'name' | 'kind' | 'found' | 'version' | 'signedIn' | 'signIn' | 'headless' | 'capabilities'
 >;
 
 /** How a run's sessions were started. */
@@ -55,7 +60,8 @@ export type Launched =
   | { kind: 'builtin'; terminals: TerminalInfo[] }
   | { kind: 'external'; terminal: string }
   | { kind: 'manual'; reason: string; commands: string[] }
-  | { kind: 'headless' };
+  | { kind: 'headless' }
+  | EditorLaunched;
 
 /** An unattended run while it goes, and what it said. */
 type HeadlessJob = {
@@ -87,7 +93,8 @@ export type RunBody = {
   component: string;
   agent?: string;
   model?: string;
-  mode: 'interactive' | 'headless';
+  /** Ignored for an editor, whose runs are always the designer's in the editor. */
+  mode: 'interactive' | 'headless' | 'editor';
   /** Where an interactive session opens: here, or the designer's own terminal. */
   terminal?: 'builtin' | 'external';
   cols?: number;
@@ -293,14 +300,14 @@ export class LocalStudio {
   /** Every agent, found or not; asked again after a minute, or when `fresh`. */
   agents(fresh = false): Promise<Detection[]> {
     if (fresh || !this.detections || Date.now() - this.detections.at > DETECTION_FRESH_MS) {
-      const list = Promise.all(ADAPTERS.map(adapter => this.options.context.detect(adapter)));
+      const list = Promise.all(ALL_AGENTS.map(adapter => this.options.context.detect(adapter)));
       this.detections = { at: Date.now(), list };
       list.catch(() => (this.detections = null));
     }
     return this.detections.list;
   }
 
-  private async detection(adapter: TerminalAdapter): Promise<Detection> {
+  private async detection(adapter: AgentAdapter): Promise<Detection> {
     const found = (await this.agents()).find(item => item.id === adapter.id);
     return found ?? this.options.context.detect(adapter);
   }
@@ -334,6 +341,7 @@ export class LocalStudio {
       agents: agents.map((item): AgentView => ({
         id: item.id,
         name: item.name,
+        kind: item.kind,
         found: item.found,
         version: item.version,
         signedIn: item.signedIn,
@@ -347,7 +355,7 @@ export class LocalStudio {
   }
 
   async setDefaultAgent(agent: unknown): Promise<void> {
-    if (agent !== null && !ADAPTERS.some(item => item.id === agent)) {
+    if (agent !== null && !ALL_AGENTS.some(item => item.id === agent)) {
       throw new BadRequest('Choose one of the agents this studio supports.');
     }
     await saveSettings(this.options.context.configDir, {
@@ -388,7 +396,6 @@ export class LocalStudio {
     const { api, link } = this.options;
     const kind = this.runKind(body);
     const { adapter, detection } = await chooseAgent(context, body.agent);
-    const executable = detection.executable!;
     if (body.mode === 'headless' && !detection.headless.ready) {
       throw new BadRequest(detection.headless.reason);
     }
@@ -398,7 +405,7 @@ export class LocalStudio {
       page: body.page,
       component: body.component,
       agent: adapter.id,
-      mode: body.mode,
+      mode: adapter.kind === 'editor' ? 'editor' : body.mode,
       ...kind
     } as StartRunRequest;
     // Iterations load the project's asset files from this server.
@@ -407,6 +414,17 @@ export class LocalStudio {
     });
     const model = typeof body.model === 'string' && body.model ? body.model : null;
 
+    if (adapter.kind === 'editor') {
+      const launched = await openInEditor(
+        context,
+        adapter,
+        detection,
+        this.repoRoot,
+        runs.map(run => run.promptFile)
+      );
+      return { runs, launched };
+    }
+    const executable = detection.executable!;
     if (body.mode === 'headless') {
       for (const run of runs) this.runHeadless(adapter, detection, run, model);
       return { runs, launched: { kind: 'headless' } };
@@ -652,6 +670,21 @@ export class LocalStudio {
     let session: Session;
     try {
       const { adapter, detection } = await chooseAgent(this.context, body.agent);
+      if (adapter.kind === 'editor') {
+        const opened = await openInEditor(this.context, adapter, detection, this.repoRoot, [
+          prepared.promptFile
+        ]);
+        const where = adapter.id === 'other' ? 'your editor' : adapter.name;
+        return {
+          ok: true,
+          launched: opened.opened !== null,
+          message: `Wrote ${prepared.promptFile}${opened.opened === 'editor' ? ` and opened it in ${where}` : opened.opened === 'default-app' ? ' and opened it with your default app' : ''}. ${opened.copied ? 'The instruction is on the clipboard' : 'Paste this instruction'} for a new chat with ${where === 'your editor' ? 'your agent' : `${where}'s agent`}: ${instruction} Review the diff when it is done; nothing is committed.`,
+          commands: [],
+          assets,
+          missingAssets,
+          terminal: null
+        };
+      }
       session = promoteSession(
         adapter,
         detection,
@@ -763,7 +796,8 @@ export class LocalStudio {
   async reportStarted(): Promise<void> {
     try {
       const known = new Set(STARTED_AGENT_IDS);
-      const found = (await this.agents()).filter(item => item.found);
+      // "Your own editor" is always there; it says nothing about this machine.
+      const found = (await this.agents()).filter(item => item.found && item.id !== 'other');
       // One entry per agent, however many adapters found it.
       const agents = found
         .filter((item, index) => found.findIndex(other => other.id === item.id) === index)
@@ -812,8 +846,8 @@ export class LocalStudio {
     if (!SLUG.test(String(body.page)) || !SLUG.test(String(body.component))) {
       throw new BadRequest('Name the page and component.');
     }
-    if (body.mode !== 'interactive' && body.mode !== 'headless') {
-      throw new BadRequest('A run is interactive or headless.');
+    if (body.mode !== 'interactive' && body.mode !== 'headless' && body.mode !== 'editor') {
+      throw new BadRequest('A run is interactive, headless or in an editor.');
     }
     switch (body.kind) {
       case 'generate': {

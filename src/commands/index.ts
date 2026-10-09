@@ -3,7 +3,8 @@ import { runHeadless } from '../agents/process.js';
 import { OfflineError, describeError } from '../api/errors.js';
 import { userConfigDir } from '../config/userDir.js';
 import type { Io } from '../io.js';
-import { openUrl } from '../launch/open.js';
+import { copyText } from '../launch/clipboard.js';
+import { launchDetached, openUrl } from '../launch/open.js';
 import { hostPlatform } from '../launch/platform.js';
 import { launchTerminal } from '../launch/terminal.js';
 import { screenshotIteration } from '../screenshot/iteration.js';
@@ -84,6 +85,8 @@ export type MainOptions = {
     | 'platform'
     | 'detect'
     | 'launchTerminal'
+    | 'launchEditor'
+    | 'copyText'
     | 'runHeadless'
     | 'screenshot'
     | 'waitForStop'
@@ -128,6 +131,9 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     platform: options.platform ?? hostPlatform(),
     detect: options.detect ?? (adapter => adapter.detect(hostLookup(options.env))),
     launchTerminal: options.launchTerminal ?? launchTerminal,
+    launchEditor: options.launchEditor ?? (launch => launchDetached(launch, options.env)),
+    copyText:
+      options.copyText ?? (text => copyText(text, options.platform ?? hostPlatform(), options.env)),
     runHeadless: options.runHeadless ?? runHeadless,
     screenshot: options.screenshot ?? screenshotIteration,
     waitForStop: options.waitForStop ?? untilSignalled

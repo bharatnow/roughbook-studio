@@ -1,11 +1,12 @@
 import type { runHeadless } from '../agents/process.js';
-import type { Detection, TerminalAdapter } from '../agents/types.js';
+import type { AgentAdapter, Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
 import { readCredentials, type Credentials } from '../config/credentials.js';
 import { resolveServer } from '../config/server.js';
 import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
 import { telemetryDisabled } from '../telemetry/events.js';
+import type { Launch } from '../launch/open.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { screenshotIteration } from '../screenshot/iteration.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -26,10 +27,14 @@ export type CommandContext = {
   openUrl: (url: string) => Promise<boolean>;
   /** The OS, for terminal plans and the commands to paste. */
   platform: NodeJS.Platform;
-  /** Finds one agent and asks its version and sign-in. */
-  detect: (adapter: TerminalAdapter) => Promise<Detection>;
+  /** Finds one agent or editor and asks its version and sign-in. */
+  detect: (adapter: AgentAdapter) => Promise<Detection>;
   /** Opens the terminals a plan names. */
   launchTerminal: (plan: TerminalPlan) => Promise<void>;
+  /** Starts an editor, or the OS's opener, and leaves it running. */
+  launchEditor: (launch: Launch) => Promise<void>;
+  /** Puts text on the clipboard; false when no clipboard command worked. */
+  copyText: (text: string) => Promise<boolean>;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */

@@ -24,6 +24,7 @@ import { STUDIO_VERSION } from '../version.js';
 import {
   assertCarriesNoRepoContent,
   fakeFetch,
+  notFound,
   ok,
   recordingIo,
   refused,
@@ -162,6 +163,9 @@ describe('the local server', () => {
   let next = 1;
   /** Screenshots asked for, as "<dev url> <page>/<component>/<iteration>". */
   const shots: string[] = [];
+  /** What editors were started with, and what went on the clipboard. */
+  const editorLaunches: { command: string; args: string[]; env?: Record<string, string> }[] = [];
+  const copied: string[] = [];
 
   /** A call as the local UI makes it: this server's Host and Origin, and the token. */
   const api = async (method: 'GET' | 'POST', pathname: string, body?: unknown) => {
@@ -368,8 +372,28 @@ describe('the local server', () => {
       sleep: async () => {},
       openUrl: async () => true,
       platform: 'win32',
-      detect: async () => detection(),
+      detect: async adapter =>
+        adapter.id === 'claude-code'
+          ? detection()
+          : adapter.id === 'cursor'
+            ? {
+                ...notFound(adapter),
+                found: true,
+                version: '3.24.9',
+                executable: {
+                  command: 'C:/cursor/Cursor.exe',
+                  prefixArgs: ['C:/cursor/resources/app/out/cli.js'],
+                  env: { ELECTRON_RUN_AS_NODE: '1' },
+                  source: 'PATH'
+                }
+              }
+            : notFound(adapter),
       launchTerminal: async () => {},
+      launchEditor: async launch => void editorLaunches.push(launch),
+      copyText: async text => {
+        copied.push(text);
+        return true;
+      },
       runHeadless: async () => ({
         ok: true,
         exitCode: 0,
@@ -700,7 +724,10 @@ describe('the local server', () => {
             {
               studioVersion: STUDIO_VERSION,
               os: 'windows',
-              agents: [{ id: 'claude-code', version: '2.1.286' }]
+              agents: [
+                { id: 'claude-code', version: '2.1.286' },
+                { id: 'cursor', version: '3.24.9' }
+              ]
             }
           ],
           ['error.reported', { code: 'NOT_FOUND', area: 'local-ui' }]
@@ -770,6 +797,65 @@ describe('the local server', () => {
       // A small repo: its page, its package and one iteration.
       minimumLines: 8
     });
+  });
+
+  it('lists editors, and starts an editor run by opening the prompt and copying the instruction', async () => {
+    const state = (await api('GET', '/api/state')).json.data;
+    const kinds = Object.fromEntries(
+      state.agents.map((item: { id: string; kind: string }) => [item.id, item.kind])
+    );
+    assert.equal(kinds['claude-code'], 'terminal');
+    assert.equal(kinds.cursor, 'editor');
+    assert.equal(kinds.other, 'editor');
+
+    const before = { launches: editorLaunches.length, copied: copied.length };
+    const unattended = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      agent: 'cursor',
+      mode: 'headless',
+      kind: 'generate',
+      directions: [{ direction: 'Quiet editorial' }]
+    });
+    assert.equal(unattended.status, 400, 'an editor is never unattended');
+    assert.equal(editorLaunches.length, before.launches);
+    const opened = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      agent: 'cursor',
+      mode: 'editor',
+      kind: 'generate',
+      directions: [{ direction: 'Quiet editorial' }, { direction: 'Loud poster' }]
+    });
+    assert.equal(opened.status, 200, JSON.stringify(opened.json));
+    const runs = opened.json.data.runs as { promptFile: string; mode: string }[];
+    assert.deepEqual(
+      runs.map(run => run.mode),
+      ['editor', 'editor']
+    );
+    const startBody = backend.requests.filter(request => request.url.endsWith('/runs')).at(-1)!
+      .body as { agent: string; mode: string };
+    assert.deepEqual([startBody.agent, startBody.mode], ['cursor', 'editor']);
+
+    const launched = opened.json.data.launched;
+    assert.equal(launched.kind, 'editor');
+    assert.equal(launched.opened, 'editor');
+    assert.equal(launched.copied, true);
+    assert.deepEqual(
+      launched.instructions,
+      runs.map(run => `Follow the instructions in ${run.promptFile}`)
+    );
+    // Cursor's exe as Node with its cli.js, the repo, then each prompt; no shell.
+    const launch = editorLaunches.slice(before.launches);
+    assert.equal(launch.length, 1);
+    assert.equal(launch[0]!.command, 'C:/cursor/Cursor.exe');
+    assert.deepEqual(launch[0]!.args, [
+      'C:/cursor/resources/app/out/cli.js',
+      repo,
+      ...runs.map(run => path.join(repo, ...run.promptFile.split('/')))
+    ]);
+    assert.deepEqual(launch[0]!.env, { ELECTRON_RUN_AS_NODE: '1' });
+    assert.deepEqual(copied.slice(before.copied), [launched.instructions[0]]);
   });
 });
 

@@ -8,12 +8,13 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import type { Detection, TerminalAdapter } from '../agents/types.js';
+import type { AgentAdapter, Detection } from '../agents/types.js';
 import { main } from '../commands/index.js';
 import type { StartedRun } from '../runs/types.js';
 import {
   assertCarriesNoRepoContent,
   fakeFetch,
+  notFound,
   ok,
   recordingIo,
   refused,
@@ -215,8 +216,11 @@ describe('outbound requests (ground rule 2)', () => {
         platform: 'win32',
         sleep: async () => {},
         openUrl: async () => true,
-        detect: async (_adapter: TerminalAdapter) => detection(true),
+        detect: async (adapter: AgentAdapter) =>
+          adapter.id === 'claude-code' ? detection(true) : notFound(adapter),
         launchTerminal: async () => {},
+        launchEditor: async () => {},
+        copyText: async () => true,
         runHeadless: async (_adapter, invocation) => {
           // The unattended agent changes the refinement it was given.
           const folder = invocation.args.find(arg => arg.includes('rough/home/hero/iteration-'));

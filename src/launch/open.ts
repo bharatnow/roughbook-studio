@@ -1,8 +1,38 @@
 import { spawn } from 'node:child_process';
 
+/** A program to start and leave running, such as an editor, without a shell. */
+export type Launch = { command: string; args: string[]; env?: Record<string, string> };
+
 /**
- * How each OS opens a URL in the default browser, as an argument array: no shell, so nothing in
- * the URL is ever interpreted. Null where the studio knows no opener.
+ * Starts a program that outlives the studio, such as an editor, and resolves once it has started;
+ * rejects when it could not be started at all.
+ */
+export function launchDetached(
+  launch: Launch,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const child = spawn(launch.command, launch.args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: launch.env ? { ...env, ...launch.env } : env
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    } catch (error) {
+      reject(error as Error);
+    }
+  });
+}
+
+/**
+ * How each OS opens a URL in the default browser, or a file in its default app, as an argument
+ * array: no shell, so nothing in it is ever interpreted. Null where the studio knows no opener.
  */
 export function openerFor(
   url: string,

@@ -96,3 +96,22 @@ export type TerminalAdapter = {
   /** One line of the headless output. Never throws. */
   parseLine(line: string): ParsedLine;
 };
+
+/**
+ * An editor whose own agent the designer drives: the studio opens the repo and the run's prompt
+ * in it and puts the one-line instruction on the clipboard. It never runs unattended.
+ */
+export type EditorAdapter = {
+  id: RunAgent;
+  name: string;
+  kind: 'editor';
+  capabilities: Capabilities;
+  notFound: string;
+  find(lookup: Lookup): Executable | null;
+  /** Found or not, and its version when it says without opening a window. */
+  detect(lookup: Lookup): Promise<Detection>;
+  /** Arguments that open the repo and these files in one window, after the executable's prefix. */
+  openArgs(repoRoot: string, files: string[]): string[];
+};
+
+export type AgentAdapter = TerminalAdapter | EditorAdapter;

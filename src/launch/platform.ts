@@ -20,6 +20,8 @@ export type Probe = {
   exists(file: string): boolean;
   /** Folder names directly inside `dir`; empty when it cannot be read. */
   dirs(dir: string): string[];
+  /** A small text file's content, such as an editor's launcher script; null when unreadable. */
+  read?(file: string): string | null;
 };
 
 export const diskProbe: Probe = {
@@ -40,6 +42,13 @@ export const diskProbe: Probe = {
         .map(entry => entry.name);
     } catch {
       return [];
+    }
+  },
+  read(file) {
+    try {
+      return fs.readFileSync(file, 'utf8');
+    } catch {
+      return null;
     }
   }
 };

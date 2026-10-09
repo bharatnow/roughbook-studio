@@ -4,6 +4,8 @@
 export type AgentView = {
   id: string;
   name: string;
+  /** A terminal agent runs in a terminal or unattended; an editor's agent is the designer's. */
+  kind: 'terminal' | 'editor';
   found: boolean;
   version: string | null;
   signedIn: boolean | null;
@@ -136,4 +138,11 @@ export type Launched =
   | { kind: 'builtin'; terminals: TerminalInfo[] }
   | { kind: 'external'; terminal: string }
   | { kind: 'manual'; reason: string; commands: string[] }
-  | { kind: 'headless' };
+  | { kind: 'headless' }
+  | {
+      kind: 'editor';
+      editor: string;
+      opened: 'editor' | 'default-app' | null;
+      copied: boolean;
+      instructions: string[];
+    };

@@ -4,7 +4,24 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after } from 'node:test';
+import type { AgentAdapter, Detection } from '../agents/types.js';
 import type { Io } from '../io.js';
+
+/** An agent or editor that is not on this machine, as a test's injected detection says. */
+export function notFound(adapter: AgentAdapter): Detection {
+  return {
+    id: adapter.id,
+    name: adapter.name,
+    kind: adapter.kind,
+    found: false,
+    executable: null,
+    version: null,
+    signedIn: null,
+    signIn: null,
+    headless: { ready: false, reason: `${adapter.name} was not found.` },
+    capabilities: adapter.capabilities
+  };
+}
 
 /**
  * A fresh folder under the OS temp folder, removed when the test file ends. It holds an empty

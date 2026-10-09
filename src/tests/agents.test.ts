@@ -6,6 +6,9 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { claudeCode, headlessSettings, parseClaudeLine } from '../agents/claude.js';
 import { codex, parseCodexLine } from '../agents/codex.js';
+import { antigravity, cursor, ownEditor, vscode, windsurf } from '../agents/editors.js';
+import { clipboardCommands, copyText, pipeTo } from '../launch/clipboard.js';
+import { launchDetached } from '../launch/open.js';
 import { runHeadless } from '../agents/process.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import type { TerminalAdapter } from '../agents/types.js';
@@ -18,11 +21,12 @@ import type { RunRecord } from '../runs/types.js';
 
 const RUN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-/** A file system made of the paths given; folders are inferred from them. */
-function probe(files: string[]): Probe {
-  const all = new Set(files);
+/** A file system made of the paths given, and the text of some; folders are inferred from them. */
+function probe(files: string[], contents: Record<string, string> = {}): Probe {
+  const all = new Set([...files, ...Object.keys(contents)]);
   return {
     exists: file => all.has(file),
+    read: file => contents[file] ?? null,
     dirs: dir => {
       const sep = dir.includes('\\') ? '\\' : '/';
       const prefix = dir.endsWith(sep) ? dir : `${dir}${sep}`;
@@ -38,13 +42,18 @@ function probe(files: string[]): Probe {
   };
 }
 
-function lookup(platform: NodeJS.Platform, files: string[], env: NodeJS.ProcessEnv = {}): Lookup {
+function lookup(
+  platform: NodeJS.Platform,
+  files: string[],
+  env: NodeJS.ProcessEnv = {},
+  contents: Record<string, string> = {}
+): Lookup {
   return {
     env,
     platform,
     home: platform === 'win32' ? 'C:\\Users\\a' : platform === 'darwin' ? '/Users/a' : '/home/a',
     node: platform === 'win32' ? 'C:\\node\\node.exe' : '/usr/bin/node',
-    probe: probe(files)
+    probe: probe(files, contents)
   };
 }
 
@@ -183,6 +192,135 @@ describe('finding agents', () => {
   it('reports a missing agent without running anything', async () => {
     const found = await claudeCode.detect(lookup('linux', []));
     assert.deepEqual([found.found, found.headless.ready], [false, false]);
+  });
+});
+
+describe('finding editors', () => {
+  // The launcher scripts as VS Code 1.141 and Cursor 3.24 install them on Windows.
+  const vsDir = 'C:\\Users\\a\\AppData\\Local\\Programs\\Microsoft VS Code';
+  const codeCmd = `${vsDir}\\bin\\code.cmd`;
+  const codeScript =
+    '@echo off\r\nsetlocal\r\nset VSCODE_DEV=\r\nset ELECTRON_RUN_AS_NODE=1\r\n"%~dp0..\\Code.exe" "%~dp0..\\2a59476c9b\\resources\\app\\out\\cli.js" %*\r\nIF %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%\r\nendlocal\r\n';
+  const vsFiles = [`${vsDir}\\Code.exe`, `${vsDir}\\2a59476c9b\\resources\\app\\out\\cli.js`];
+
+  it('runs what a Windows launcher script runs, from PATH or the install folders, with no shell', () => {
+    // Not on PATH: the per-user install folder.
+    assert.deepEqual(vscode.find(lookup('win32', vsFiles, {}, { [codeCmd]: codeScript })), {
+      command: `${vsDir}\\Code.exe`,
+      prefixArgs: [`${vsDir}\\2a59476c9b\\resources\\app\\out\\cli.js`],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      source: vsDir
+    });
+    // Cursor's script sits three folders down, and here it is on PATH.
+    const cursorDir = 'C:\\Users\\a\\AppData\\Local\\Programs\\cursor';
+    const cursorBin = `${cursorDir}\\resources\\app\\bin`;
+    const found = cursor.find(
+      lookup(
+        'win32',
+        [`${cursorDir}\\Cursor.exe`, `${cursorDir}\\resources\\app\\out\\cli.js`],
+        { PATH: `C:\\Windows;${cursorBin}` },
+        {
+          [`${cursorBin}\\cursor.cmd`]:
+            '"%~dp0..\\..\\..\\Cursor.exe" "%~dp0..\\out\\cli.js" %*\r\n'
+        }
+      )
+    );
+    assert.deepEqual(
+      [found?.command, found?.prefixArgs, found?.source],
+      [`${cursorDir}\\Cursor.exe`, [`${cursorDir}\\resources\\app\\out\\cli.js`], 'PATH']
+    );
+    // A script naming files that are not there, or one that cannot be read, finds nothing.
+    assert.equal(vscode.find(lookup('win32', [], {}, { [codeCmd]: codeScript })), null);
+    assert.equal(vscode.find(lookup('win32', [codeCmd, ...vsFiles])), null);
+    assert.equal(windsurf.find(lookup('win32', vsFiles, {}, { [codeCmd]: codeScript })), null);
+    // ROUGHBOOK_VSCODE_BIN may name the script itself.
+    assert.equal(
+      vscode.find(
+        lookup('win32', vsFiles, { ROUGHBOOK_VSCODE_BIN: codeCmd }, { [codeCmd]: codeScript })
+      )?.source,
+      'ROUGHBOOK_VSCODE_BIN'
+    );
+  });
+
+  it('finds them on PATH, in a macOS app bundle or a Linux package, and opens the repo and prompts', () => {
+    assert.equal(
+      cursor.find(lookup('darwin', ['/opt/homebrew/bin/cursor'], { PATH: '/opt/homebrew/bin' }))
+        ?.command,
+      '/opt/homebrew/bin/cursor'
+    );
+    const bundle = '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code';
+    assert.deepEqual(vscode.find(lookup('darwin', [bundle])), {
+      command: bundle,
+      prefixArgs: [],
+      source: 'Visual Studio Code.app'
+    });
+    assert.equal(
+      antigravity.find(
+        lookup('darwin', [
+          '/Users/a/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity'
+        ])
+      )?.source,
+      'Antigravity.app'
+    );
+    assert.equal(
+      windsurf.find(lookup('linux', ['/usr/share/windsurf/bin/windsurf']))?.command,
+      '/usr/share/windsurf/bin/windsurf'
+    );
+    assert.equal(vscode.find(lookup('linux', ['/snap/bin/code']))?.command, '/snap/bin/code');
+    assert.equal(
+      cursor.find(lookup('linux', ['/opt/c'], { ROUGHBOOK_CURSOR_BIN: '/opt/c' }))?.source,
+      'ROUGHBOOK_CURSOR_BIN'
+    );
+    assert.equal(cursor.find(lookup('linux', [])), null);
+    assert.deepEqual(cursor.openArgs('/repo', ['/repo/rough/home/hero/prompts/x.md']), [
+      '/repo',
+      '/repo/rough/home/hero/prompts/x.md'
+    ]);
+  });
+
+  it('reports an editor missing and never unattended, and your own editor as always there', async () => {
+    const missing = await cursor.detect(lookup('linux', []));
+    assert.deepEqual(
+      [missing.found, missing.kind, missing.headless.ready],
+      [false, 'editor', false]
+    );
+    assert.match((missing.headless as { reason: string }).reason, /never unattended/);
+    const own = await ownEditor.detect(lookup('linux', []));
+    assert.deepEqual([own.found, own.id, own.executable], [true, 'other', null]);
+  });
+
+  it('copies with clip, pbcopy, or wl-copy, xclip and xsel in turn', async () => {
+    assert.deepEqual(clipboardCommands('win32', {}), [{ command: 'clip', args: [] }]);
+    assert.deepEqual(clipboardCommands('darwin', {}), [{ command: 'pbcopy', args: [] }]);
+    assert.deepEqual(
+      clipboardCommands('linux', { WAYLAND_DISPLAY: 'wayland-0' }).map(item => item.command),
+      ['wl-copy', 'xclip', 'xsel']
+    );
+    const tried: string[] = [];
+    const copiedIt = await copyText('Follow', 'linux', {}, async command => {
+      tried.push(command.command);
+      return command.command === 'xsel';
+    });
+    assert.equal(copiedIt, true);
+    assert.deepEqual(tried, ['xclip', 'xsel']);
+    assert.equal(await copyText('Follow', 'darwin', {}, async () => false), false);
+
+    // A real child reading standard input; a command that is not there is a false, not a throw.
+    const reader = (expected: string) => ({
+      command: process.execPath,
+      args: [
+        '-e',
+        `let s = ''; process.stdin.on('data', d => (s += d)).on('end', () => process.exit(s === ${JSON.stringify(expected)} ? 0 : 3));`
+      ]
+    });
+    assert.equal(await pipeTo(reader('hello'), 'hello'), true);
+    assert.equal(await pipeTo(reader('hello'), 'bye'), false);
+    assert.equal(await pipeTo({ command: 'roughbook-no-such-clipboard', args: [] }, 'x'), false);
+  });
+
+  it('starts an editor detached, and says when it cannot', async () => {
+    await launchDetached({ command: process.execPath, args: ['-e', 'process.exit(0)'] });
+    await assert.rejects(launchDetached({ command: 'roughbook-no-such-editor', args: [] }));
   });
 });
 

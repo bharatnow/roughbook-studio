@@ -6,7 +6,13 @@ import { diskProbe, type Probe } from './platform.js';
  * npm install on Windows leaves a `.cmd` shim, which cannot be started without a shell, so its
  * package's script is run with Node instead.
  */
-export type Executable = { command: string; prefixArgs: string[]; source: string };
+export type Executable = {
+  command: string;
+  prefixArgs: string[];
+  source: string;
+  /** Variables it needs set, such as an editor's launcher running its exe as Node. */
+  env?: Record<string, string>;
+};
 
 export type Lookup = {
   env: NodeJS.ProcessEnv;
