@@ -5,8 +5,7 @@
 // designer's own API key (CODEX_API_KEY or OPENAI_API_KEY), never a ChatGPT login. No Codex CLI
 // was installed where this was written: check the event names against the first real run.
 import path from 'node:path';
-import { diskProbe } from '../launch/platform.js';
-import { findNpmScript, findOnPath, fromEnv } from '../launch/which.js';
+import { findInstalled, findNpmScript, findOnPath, fromEnv } from '../launch/which.js';
 import { count, record, runCommand } from './command.js';
 import type { ParsedLine, TerminalAdapter } from './types.js';
 
@@ -87,23 +86,14 @@ export const codex: TerminalAdapter = {
   notFound: NOT_FOUND,
 
   find(lookup) {
-    const p = lookup.platform === 'win32' ? path.win32 : path.posix;
-    const probe = lookup.probe ?? diskProbe;
     const explicit = fromEnv('ROUGHBOOK_CODEX_BIN', lookup);
     if (explicit) return explicit;
     const onPath = findOnPath('codex', lookup);
     if (onPath) return { command: onPath, prefixArgs: [], source: 'PATH' };
-    const npm = findNpmScript('codex', '@openai/codex', 'bin/codex.js', lookup);
-    if (npm) return npm;
-    const native = p.join(
-      lookup.home,
-      '.local',
-      'bin',
-      lookup.platform === 'win32' ? 'codex.exe' : 'codex'
+    return (
+      findNpmScript('codex', '@openai/codex', 'bin/codex.js', lookup) ??
+      findInstalled('codex', lookup)
     );
-    return probe.exists(native)
-      ? { command: native, prefixArgs: [], source: 'native install' }
-      : null;
   },
 
   async detect(lookup) {

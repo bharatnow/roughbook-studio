@@ -98,6 +98,59 @@ describe('finding agents', () => {
     assert.equal(claudeCode.find(lookup('darwin', [])), null);
   });
 
+  it("finds the packaged Windows desktop app's copy, which a terminal sees only in the package folder", () => {
+    const packaged =
+      'C:\\Users\\a\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude\\claude-code\\2.1.293\\83cb0bd7fed4\\claude.exe';
+    const roaming =
+      'C:\\Users\\a\\AppData\\Roaming\\Claude\\claude-code\\2.1.289\\e1f0154146bb\\claude.exe';
+    // No APPDATA or LOCALAPPDATA: Windows' defaults under the home folder are used.
+    assert.deepEqual(claudeCode.find(lookup('win32', [packaged])), {
+      command: packaged,
+      prefixArgs: [],
+      source: 'Claude desktop app'
+    });
+    // The newest version wins, whichever folder it is in.
+    assert.equal(claudeCode.find(lookup('win32', [roaming, packaged]))?.command, packaged);
+    assert.equal(
+      claudeCode.find(lookup('win32', [roaming.replace('2.1.289', '2.1.300'), packaged]))?.command,
+      roaming.replace('2.1.289', '2.1.300')
+    );
+  });
+
+  it('finds installs that PATH misses: WinGet, npm, Homebrew, the old local install, Linux desktop', () => {
+    const winget = 'C:\\Users\\a\\AppData\\Local\\Microsoft\\WinGet\\Links\\claude.exe';
+    assert.deepEqual(claudeCode.find(lookup('win32', [winget])), {
+      command: winget,
+      prefixArgs: [],
+      source: 'C:\\Users\\a\\AppData\\Local\\Microsoft\\WinGet\\Links'
+    });
+    const npmDir = 'C:\\Users\\a\\AppData\\Roaming\\npm';
+    const cli = `${npmDir}\\node_modules\\@anthropic-ai\\claude-code\\cli.js`;
+    assert.deepEqual(claudeCode.find(lookup('win32', [`${npmDir}\\claude.cmd`, cli]))?.prefixArgs, [
+      cli
+    ]);
+    assert.equal(
+      claudeCode.find(lookup('darwin', ['/opt/homebrew/bin/claude']))?.command,
+      '/opt/homebrew/bin/claude'
+    );
+    const local = '/home/a/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js';
+    assert.deepEqual(claudeCode.find(lookup('linux', [local])), {
+      command: '/usr/bin/node',
+      prefixArgs: [local],
+      source: 'local install'
+    });
+    assert.equal(
+      claudeCode.find(lookup('linux', ['/home/a/.config/Claude/claude-code/1.0.0/claude']))?.source,
+      'Claude desktop app'
+    );
+    // PATH still comes first.
+    assert.equal(
+      claudeCode.find(lookup('darwin', ['/opt/homebrew/bin/claude', '/x/claude'], { PATH: '/x' }))
+        ?.command,
+      '/x/claude'
+    );
+  });
+
   it('finds Codex the same ways', () => {
     assert.equal(
       codex.find(lookup('linux', ['/usr/bin/codex'], { PATH: '/usr/bin' }))?.command,
@@ -114,6 +167,15 @@ describe('finding agents', () => {
       )?.prefixArgs,
       [`${npmDir}\\node_modules\\@openai\\codex\\bin\\codex.js`]
     );
+    assert.equal(
+      codex.find(lookup('darwin', ['/opt/homebrew/bin/codex']))?.command,
+      '/opt/homebrew/bin/codex'
+    );
+    assert.equal(
+      codex.find(lookup('linux', ['/home/a/.local/bin/codex']))?.source,
+      'native install'
+    );
+    assert.equal(codex.find(lookup('linux', [])), null);
   });
 
   it('reports a missing agent without running anything', async () => {

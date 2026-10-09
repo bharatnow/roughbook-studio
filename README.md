@@ -7,6 +7,19 @@ Your code stays on your machine: the server only ever sees ids, review decisions
 
 Runs on Windows, macOS and Linux, with Node 22 or later.
 
+## Install
+
+```bash
+npm install -g roughbook
+roughbook login
+roughbook init       # in your app's repo
+roughbook start
+```
+
+Installed once, `roughbook` runs as it is, with no version and no `npx`. `npm install -g
+roughbook@latest` updates it. `npx roughbook <command>` works without installing, but npx keeps
+its own copy and asks before fetching each new one.
+
 ## Commands
 
 | Command                                                  | Does                                                                                                                                                                                       |
@@ -127,7 +140,12 @@ Reviews and run results are written to the outbox first and sent in order when t
 reached, so nothing is lost offline; the server applies one sent twice once. `run` sends what is
 waiting before it asks for a prompt, so a rejection always reaches the next one.
 
-Claude Code and Codex are supported. A run opens the agent in a terminal: Windows Terminal or a
+Claude Code and Codex are supported, found without any setup: on PATH, then where installers put
+them when PATH misses it (the native installers' `~/.local/bin`, npm's global folder, WinGet,
+Scoop, Homebrew, Volta, Bun), then, for Claude Code, its older `~/.claude/local` install and the
+copy the Claude desktop app keeps, including the Windows package's own folder.
+`ROUGHBOOK_CLAUDE_BIN` or `ROUGHBOOK_CODEX_BIN` names one anywhere else. A run opens the agent in a
+terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and
 `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole or xterm on Linux; otherwise it prints
 the command to paste. `--headless` runs the agent unattended, only with your own API key

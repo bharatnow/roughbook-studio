@@ -26,12 +26,21 @@ export function pathDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): str
   return (env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : ':').filter(Boolean);
 }
 
-/** A program on PATH by name, as an executable file (with .exe or .com on Windows). */
-export function findOnPath(name: string, lookup: Lookup): string | null {
+/** Windows' per-user data folders, with Windows' defaults when the environment lacks them. */
+export function windowsDataDirs(lookup: Lookup): { roaming: string; local: string } {
+  const p = path.win32;
+  return {
+    roaming: lookup.env.APPDATA || p.join(lookup.home, 'AppData', 'Roaming'),
+    local: lookup.env.LOCALAPPDATA || p.join(lookup.home, 'AppData', 'Local')
+  };
+}
+
+/** A program in one of `dirs` by name, as an executable file (with .exe or .com on Windows). */
+export function findInDirs(name: string, dirs: string[], lookup: Lookup): string | null {
   const p = pathApi(lookup.platform);
   const probe = lookup.probe ?? diskProbe;
   const names = lookup.platform === 'win32' ? [`${name}.exe`, `${name}.com`] : [name];
-  for (const dir of pathDirs(lookup.env, lookup.platform)) {
+  for (const dir of dirs) {
     for (const candidate of names) {
       const file = p.join(dir, candidate);
       if (probe.exists(file)) return file;
@@ -40,9 +49,53 @@ export function findOnPath(name: string, lookup: Lookup): string | null {
   return null;
 }
 
+/** A program on PATH by name. */
+export function findOnPath(name: string, lookup: Lookup): string | null {
+  return findInDirs(name, pathDirs(lookup.env, lookup.platform), lookup);
+}
+
 /**
- * An npm-installed command: on Windows, the `.cmd` shim's package script run with Node; elsewhere
- * the shim on PATH is itself executable, so findOnPath already found it.
+ * Folders installers put commands in that PATH can miss, as in a terminal opened before the
+ * install or a profile that never adds them: the native installers' ~/.local/bin, WinGet, Scoop,
+ * Homebrew, npm's usual global folder, Volta and Bun.
+ */
+export function installDirs(lookup: Lookup): string[] {
+  const p = pathApi(lookup.platform);
+  const home = lookup.home;
+  if (lookup.platform === 'win32') {
+    return [
+      p.join(home, '.local', 'bin'),
+      p.join(windowsDataDirs(lookup).local, 'Microsoft', 'WinGet', 'Links'),
+      p.join(home, 'scoop', 'shims'),
+      p.join(home, '.bun', 'bin')
+    ];
+  }
+  return [
+    p.join(home, '.local', 'bin'),
+    lookup.platform === 'darwin' ? '/opt/homebrew/bin' : '/home/linuxbrew/.linuxbrew/bin',
+    '/usr/local/bin',
+    p.join(home, '.npm-global', 'bin'),
+    p.join(home, '.volta', 'bin'),
+    p.join(home, '.bun', 'bin')
+  ];
+}
+
+/** A program in the install folders, for when it is not on PATH. */
+export function findInstalled(name: string, lookup: Lookup): Executable | null {
+  const native = pathApi(lookup.platform).join(lookup.home, '.local', 'bin');
+  for (const dir of installDirs(lookup)) {
+    const file = findInDirs(name, [dir], lookup);
+    if (file) {
+      return { command: file, prefixArgs: [], source: dir === native ? 'native install' : dir };
+    }
+  }
+  return null;
+}
+
+/**
+ * An npm-installed command: on Windows, the `.cmd` shim's package script run with Node, looked
+ * for on PATH and in npm's default global folder; elsewhere the shim is itself executable, so
+ * findOnPath or findInstalled finds it.
  */
 export function findNpmScript(
   name: string,
@@ -53,7 +106,8 @@ export function findNpmScript(
   if (lookup.platform !== 'win32') return null;
   const p = path.win32;
   const probe = lookup.probe ?? diskProbe;
-  for (const dir of pathDirs(lookup.env, lookup.platform)) {
+  const npmGlobal = p.join(windowsDataDirs(lookup).roaming, 'npm');
+  for (const dir of [...pathDirs(lookup.env, lookup.platform), npmGlobal]) {
     const target = p.join(dir, 'node_modules', ...npmPackage.split('/'), ...script.split('/'));
     if (probe.exists(p.join(dir, `${name}.cmd`)) && probe.exists(target)) {
       return { command: lookup.node, prefixArgs: [target], source: 'npm' };

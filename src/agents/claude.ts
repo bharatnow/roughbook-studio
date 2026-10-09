@@ -8,9 +8,12 @@
 import path from 'node:path';
 import {
   compareVersions,
+  findInstalled,
   findNpmScript,
   findOnPath,
   fromEnv,
+  windowsDataDirs,
+  type Executable,
   type Lookup
 } from '../launch/which.js';
 import { diskProbe } from '../launch/platform.js';
@@ -20,20 +23,42 @@ import type { ParsedLine, TerminalAdapter } from './types.js';
 const NOT_FOUND =
   'Claude Code was not found. Install it, or set ROUGHBOOK_CLAUDE_BIN to the full path of claude.';
 
-/** The copy the Claude desktop app keeps: <data>/Claude/claude-code/<version>/[<build>/]claude. */
-function desktopCopy(lookup: Lookup): string | null {
-  const windows = lookup.platform === 'win32';
-  const p = windows ? path.win32 : path.posix;
+/**
+ * Where the Claude desktop app keeps its copy of Claude Code. On Windows that is %APPDATA%, or,
+ * when the app is installed as a package (MSIX), the package's own folder, which Windows shows at
+ * %APPDATA% only to the app and what it starts, never to a terminal opened on its own.
+ */
+function desktopRoots(lookup: Lookup): string[] {
   const probe = lookup.probe ?? diskProbe;
-  const data = windows
-    ? lookup.env.APPDATA
-    : lookup.platform === 'darwin'
+  if (lookup.platform === 'win32') {
+    const p = path.win32;
+    const { roaming, local } = windowsDataDirs(lookup);
+    const packages = p.join(local, 'Packages');
+    return [
+      p.join(roaming, 'Claude', 'claude-code'),
+      ...probe
+        .dirs(packages)
+        .filter(name => name.startsWith('Claude_'))
+        .map(name => p.join(packages, name, 'LocalCache', 'Roaming', 'Claude', 'claude-code'))
+    ];
+  }
+  const p = path.posix;
+  const data =
+    lookup.platform === 'darwin'
       ? p.join(lookup.home, 'Library', 'Application Support')
-      : null;
-  if (!data) return null;
-  const root = p.join(data, 'Claude', 'claude-code');
-  const executable = windows ? 'claude.exe' : 'claude';
-  for (const version of probe.dirs(root).sort((a, b) => compareVersions(b, a))) {
+      : lookup.env.XDG_CONFIG_HOME || p.join(lookup.home, '.config');
+  return [p.join(data, 'Claude', 'claude-code')];
+}
+
+/** The newest copy the desktop app keeps: <root>/<version>/[<build>/]claude, in any root. */
+function desktopCopy(lookup: Lookup): string | null {
+  const p = lookup.platform === 'win32' ? path.win32 : path.posix;
+  const probe = lookup.probe ?? diskProbe;
+  const executable = lookup.platform === 'win32' ? 'claude.exe' : 'claude';
+  const versions = desktopRoots(lookup)
+    .flatMap(root => probe.dirs(root).map(version => ({ root, version })))
+    .sort((a, b) => compareVersions(b.version, a.version));
+  for (const { root, version } of versions) {
     const direct = p.join(root, version, executable);
     if (probe.exists(direct)) return direct;
     for (const build of probe.dirs(p.join(root, version))) {
@@ -42,6 +67,23 @@ function desktopCopy(lookup: Lookup): string | null {
     }
   }
   return null;
+}
+
+/** Claude Code's older per-user install, in ~/.claude/local, which only a shell alias reached. */
+function localInstall(lookup: Lookup): Executable | null {
+  const p = lookup.platform === 'win32' ? path.win32 : path.posix;
+  const script = p.join(
+    lookup.home,
+    '.claude',
+    'local',
+    'node_modules',
+    '@anthropic-ai',
+    'claude-code',
+    'cli.js'
+  );
+  return (lookup.probe ?? diskProbe).exists(script)
+    ? { command: lookup.node, prefixArgs: [script], source: 'local install' }
+    : null;
 }
 
 /** What a headless run may do: write its folder; never run commands, fetch, or read secrets. */
@@ -120,21 +162,14 @@ export const claudeCode: TerminalAdapter = {
   notFound: NOT_FOUND,
 
   find(lookup) {
-    const p = lookup.platform === 'win32' ? path.win32 : path.posix;
-    const probe = lookup.probe ?? diskProbe;
     const explicit = fromEnv('ROUGHBOOK_CLAUDE_BIN', lookup);
     if (explicit) return explicit;
     const onPath = findOnPath('claude', lookup);
     if (onPath) return { command: onPath, prefixArgs: [], source: 'PATH' };
     const npm = findNpmScript('claude', '@anthropic-ai/claude-code', 'cli.js', lookup);
     if (npm) return npm;
-    const native = p.join(
-      lookup.home,
-      '.local',
-      'bin',
-      lookup.platform === 'win32' ? 'claude.exe' : 'claude'
-    );
-    if (probe.exists(native)) return { command: native, prefixArgs: [], source: 'native install' };
+    const installed = findInstalled('claude', lookup) ?? localInstall(lookup);
+    if (installed) return installed;
     const desktop = desktopCopy(lookup);
     return desktop ? { command: desktop, prefixArgs: [], source: 'Claude desktop app' } : null;
   },
