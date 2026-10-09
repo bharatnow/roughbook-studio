@@ -36,6 +36,8 @@ Next.js 16 app with Tailwind v4 and a git repository there. It then:
   providers, and the generated `rough/preview-registry.ts`;
 - excludes `rough/` and the route from TypeScript and ESLint, and adds an `@source` line so
   Tailwind v4 sees the classes in `rough/`;
+- writes `rough/tsconfig.json`, which extends the app's so editors check iterations with its paths
+  and types while the build still skips them;
 - tells git what to keep: run state, screenshots, the registry and the route are never committed,
   and `rough/` itself only when you choose not to commit it.
 

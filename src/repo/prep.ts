@@ -90,6 +90,21 @@ ${OURS}; it rewrites this file.
 /** Claude Code reads CLAUDE.md, so it points at the same rules. */
 export const ROUGH_CLAUDE = '@AGENTS.md\n';
 
+/**
+ * The app's tsconfig excludes rough/, so an editor would check an iteration alone: without the
+ * app's paths such as `@/`, and from TypeScript 6 without @types. This one extends the app's and
+ * takes Next.js's types from next-env.d.ts; `tsc` and `next build` read only the app's own, so
+ * the build still never sees rough/.
+ */
+export const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsconfig.json excludes rough/,
+// so iterations never fail its build; this one lets editors check them with the app's settings.
+{
+  "extends": "../tsconfig.json",
+  "include": ["../next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": []
+}
+`;
+
 /** Why a folder cannot be prepared, or nothing. */
 export function checkRepo(repo: string, home?: string): string[] {
   if (!path.isAbsolute(repo)) return ['The repo path must be absolute.'];
@@ -511,6 +526,17 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
   }
   add(planGitignore(read(root, '.gitignore'), gitWanted, committed ? [ROUGH_DIR] : []));
   add(planTsconfig(read(root, 'tsconfig.json'), ignoredFromBuild));
+  if (read(root, 'tsconfig.json') !== null) {
+    add(
+      ownFile(
+        root,
+        `${ROUGH_DIR}/tsconfig.json`,
+        ROUGH_TSCONFIG,
+        "Let editors check iterations with the app's TypeScript settings.",
+        text => text.includes(OURS)
+      )
+    );
+  }
   add(
     planEslint(
       Object.fromEntries(

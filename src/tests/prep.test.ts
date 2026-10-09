@@ -104,6 +104,7 @@ describe('preparing a repo', () => {
         'rough/preview-registry.ts',
         '.gitignore',
         'tsconfig.json',
+        'rough/tsconfig.json',
         'eslint.config.mjs'
       ]
     );
@@ -120,6 +121,13 @@ describe('preparing a repo', () => {
       /"exclude": \["rough", "src\/app\/rough-preview", "node_modules"\]/
     );
     assert.match(read(repo, 'tsconfig.json'), /\/\/ keep this comment/);
+    // Editors check iterations with the app's settings; the app's own tsconfig still skips them.
+    const roughTsconfig = JSON.parse(stripJsonc(read(repo, 'rough/tsconfig.json')));
+    assert.deepEqual(roughTsconfig, {
+      extends: '../tsconfig.json',
+      include: ['../next-env.d.ts', '**/*.ts', '**/*.tsx'],
+      exclude: []
+    });
     assert.match(read(repo, 'eslint.config.mjs'), /globalIgnores\(\["rough\/\*\*", "\.next\/\*\*"/);
     assert.equal(
       read(repo, 'src/app/globals.css'),
@@ -133,6 +141,8 @@ describe('preparing a repo', () => {
     assert.match(read(repo, 'rough/AGENTS.md'), /Never edit an existing iteration/);
     assert.match(read(repo, 'rough/README.md'), /This folder is committed/);
     const page = read(repo, 'src/app/rough-preview/[...slug]/page.tsx');
+    // Checked alone in an editor, the route still knows `process`.
+    assert.match(page, /^\/\/\/ <reference types="node" \/>$/m);
     // Four levels up from src/app/rough-preview/[...slug]/ is the repo root.
     assert.match(
       page,
@@ -222,6 +232,24 @@ describe('preparing a repo', () => {
     const plan = planPrep(repo, { link: LINK });
     assert.ok(!plan.changes.some(change => change.file.endsWith('ready.tsx')));
     assert.match(plan.manual.join(' '), /ready\.tsx exists and was not written by Roughbook/);
+  });
+
+  it("writes rough/tsconfig.json only beside the app's own, and never replaces one someone else wrote", async () => {
+    const plain = await tempRepo({ 'package.json': '{}', 'src/app/layout.tsx': '' });
+    assert.ok(!planPrep(plain, { link: LINK }).changes.some(c => c.file === 'rough/tsconfig.json'));
+
+    const theirs = await tempRepo({
+      'package.json': '{}',
+      'tsconfig.json': NEXT_TSCONFIG,
+      'src/app/layout.tsx': '',
+      'rough/tsconfig.json': '{ "extends": "../tsconfig.json" }\n'
+    });
+    const plan = planPrep(theirs, { link: LINK });
+    assert.ok(!plan.changes.some(change => change.file === 'rough/tsconfig.json'));
+    assert.match(
+      plan.manual.join(' '),
+      /rough\/tsconfig\.json exists and was not written by Roughbook/
+    );
   });
 });
 

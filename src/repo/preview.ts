@@ -54,6 +54,8 @@ export function previewRouteFiles(appDir: string): { file: string; content: stri
       file: `${dir}/page.tsx`,
       content: `// ${MARKER}. Development only, not committed (see .gitignore).
 // Renders one iteration from ${ROUGH_DIR}/ with this app's own layout, styles and components.
+// tsconfig excludes this file, so editors check it alone; TypeScript 6 and later then load no @types.
+/// <reference types="node" />
 import { notFound } from "next/navigation";
 import { Ready } from "./ready";
 
