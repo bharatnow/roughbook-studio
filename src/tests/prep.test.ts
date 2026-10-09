@@ -125,6 +125,8 @@ describe('preparing a repo', () => {
     const roughTsconfig = JSON.parse(stripJsonc(read(repo, 'rough/tsconfig.json')));
     assert.deepEqual(roughTsconfig, {
       extends: '../tsconfig.json',
+      // Build info from a `tsc -p rough` stays in the state folder, out of git.
+      compilerOptions: { tsBuildInfoFile: '.roughbook/tsconfig.tsbuildinfo' },
       include: ['../next-env.d.ts', '**/*.ts', '**/*.tsx'],
       exclude: []
     });

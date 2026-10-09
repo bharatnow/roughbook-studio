@@ -94,12 +94,15 @@ export const ROUGH_CLAUDE = '@AGENTS.md\n';
  * The app's tsconfig excludes rough/, so an editor would check an iteration alone: without the
  * app's paths such as `@/`, and from TypeScript 6 without @types. This one extends the app's and
  * takes Next.js's types from next-env.d.ts; `tsc` and `next build` read only the app's own, so
- * the build still never sees rough/.
+ * the build still never sees rough/. An app's tsconfig is usually incremental, so a `tsc -p rough`
+ * (an agent checking its work) would leave build info in rough/, which is committed; it goes to
+ * the state folder, which is not.
  */
 export const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsconfig.json excludes rough/,
 // so iterations never fail its build; this one lets editors check them with the app's settings.
 {
   "extends": "../tsconfig.json",
+  "compilerOptions": { "tsBuildInfoFile": "${STATE_DIR}/tsconfig.tsbuildinfo" },
   "include": ["../next-env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": []
 }
