@@ -416,6 +416,95 @@ describe('roughbook run, done and revert', () => {
     assert.ok(studio.io.lines.includes('home/hero/iteration-07: completed'));
     assert.equal(studio.shots.length, 1);
   });
+
+  it('does not count what init rewrote while the run was going', async () => {
+    const studio = await setup({
+      [`POST ${PROJECT}/runs`]: () => ok([started('iteration-07', RUN_A)], 201),
+      'GET /projects': () =>
+        ok([{ id: ORG, name: 'Acme', role: 'owner', projects: [{ slug: 'site', name: 'Site' }] }]),
+      [`POST /orgs/${ORG}/links`]: () =>
+        ok(
+          {
+            linkId: 'link-1',
+            org: { id: ORG, name: 'Acme' },
+            project: { slug: 'site', name: 'Site' }
+          },
+          201
+        ),
+      [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: request =>
+        ok({ status: (request.body as { outcome: string }).outcome })
+    });
+    // Prepared by an older studio: the rules file is the studio's own, and out of date.
+    write(
+      studio.repo,
+      'rough/AGENTS.md',
+      'Old rules.\n\nWritten by `roughbook init`; it rewrites this file.\n'
+    );
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    assert.equal(
+      await studio.run(['init', '--project', 'site', '--yes']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.match(read(studio.repo, 'rough/AGENTS.md'), /Never edit an existing iteration/);
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    assert.equal(await studio.run(['done']), 0, studio.io.errors.join('\n'));
+    const finish = studio.requests.at(-1)!.body as { outcome: string; outOfScopeWrites: number };
+    assert.equal(finish.outcome, 'completed', studio.io.lines.join('\n'));
+    assert.equal(finish.outOfScopeWrites, 0);
+  });
+});
+
+describe('roughbook screenshot', () => {
+  it("takes the last finished run's screenshots again, or a named iteration's", async () => {
+    const studio = await setup({
+      [`POST ${PROJECT}/runs`]: () => ok([started('iteration-07', RUN_A)], 201),
+      [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: request =>
+        ok({ status: (request.body as { outcome: string }).outcome })
+    });
+    assert.equal(await studio.run(['screenshot']), 1);
+    assert.match(studio.io.errors.at(-1)!, /Name the iteration/);
+
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    assert.equal(await studio.run(['done']), 0, studio.io.errors.join('\n'));
+    assert.deepEqual(studio.shots, ['http://localhost:3000 iteration-07']);
+
+    assert.equal(await studio.run(['screenshot']), 0, studio.io.errors.join('\n'));
+    assert.equal(
+      await studio.run([
+        'screenshot',
+        'home/hero/iteration-07',
+        '--dev-url',
+        'http://localhost:3123'
+      ]),
+      0
+    );
+    assert.deepEqual(studio.shots.slice(1), [
+      'http://localhost:3000 iteration-07',
+      'http://localhost:3123 iteration-07'
+    ]);
+    assert.ok(
+      studio.io.lines.includes(
+        'home/hero/iteration-07: rough/.screenshots/home/hero/iteration-07/desktop.png'
+      )
+    );
+    // The preview route can render it: the registry lists it.
+    assert.match(read(studio.repo, 'rough/preview-registry.ts'), /"home\/hero\/iteration-07"/);
+
+    assert.equal(await studio.run(['screenshot', 'home/hero/iteration-09']), 1);
+    assert.match(studio.io.errors.at(-1)!, /home\/hero\/iteration-09 is not in this repo/);
+    assert.equal(await studio.run(['screenshot', 'x', '--dev-url', 'http://example.com']), 1);
+    assert.equal(studio.shots.length, 3);
+  });
 });
 
 describe('roughbook review', () => {

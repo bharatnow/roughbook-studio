@@ -160,6 +160,8 @@ describe('the local server', () => {
   let pty: ReturnType<typeof fakePty>;
   let server: http.Server | undefined;
   let next = 1;
+  /** Screenshots asked for, as "<dev url> <page>/<component>/<iteration>". */
+  const shots: string[] = [];
 
   /** A call as the local UI makes it: this server's Host and Origin, and the token. */
   const api = async (method: 'GET' | 'POST', pathname: string, body?: unknown) => {
@@ -375,7 +377,10 @@ describe('the local server', () => {
         error: null,
         usage: null
       }),
-      screenshot: async () => ({ files: {}, warning: null }),
+      screenshot: async (_repo, devUrl, target) => {
+        shots.push(`${devUrl} ${target.page}/${target.component}/${target.iteration}`);
+        return { files: {}, warning: null };
+      },
       waitForStop: async () => {}
     };
     studio = new LocalStudio({
@@ -580,6 +585,18 @@ describe('the local server', () => {
     pty.spawned.at(-1)!.exit(0);
     const [info] = (await api('GET', '/api/terminals')).json.data;
     assert.deepEqual([info.status, info.exitCode, info.stopped], ['exited', 0, false]);
+  });
+
+  it("takes an iteration's screenshots again, only for one in this repo", async () => {
+    const before = shots.length;
+    const taken = await api('POST', '/api/iterations/home/hero/iteration-01/screenshots');
+    assert.equal(taken.status, 200, JSON.stringify(taken.json));
+    assert.deepEqual(taken.json.data, { files: {}, warning: null });
+    assert.deepEqual(shots.slice(before), [`${DEV_URL} home/hero/iteration-01`]);
+    const missing = await api('POST', '/api/iterations/home/hero/iteration-90/screenshots');
+    assert.equal(missing.status, 400);
+    assert.match(JSON.stringify(missing.json), /not in this repo/);
+    assert.equal(shots.length, before + 1);
   });
 
   it("sends the local UI's decisions through the outbox in the backend's shapes", async () => {

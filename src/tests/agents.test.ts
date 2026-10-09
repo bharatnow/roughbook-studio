@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -11,7 +13,7 @@ import type { Probe } from '../launch/platform.js';
 import { manualCommand, planTerminal, sessionScript, type Session } from '../launch/terminal.js';
 import type { Lookup } from '../launch/which.js';
 import { browserArgs, findBrowser } from '../screenshot/browser.js';
-import { screenshotIteration } from '../screenshot/iteration.js';
+import { checkPreview, previewProblem, screenshotIteration } from '../screenshot/iteration.js';
 import type { RunRecord } from '../runs/types.js';
 
 const RUN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -560,7 +562,8 @@ describe('screenshots', () => {
         taken.push(`${url} ${size.width}`);
         return true;
       },
-      '/usr/bin/chromium'
+      '/usr/bin/chromium',
+      async url => ({ status: 200, url })
     );
     assert.deepEqual(taken, [
       'http://localhost:3001/rough-preview/home/hero/iteration-03 1440',
@@ -582,5 +585,68 @@ describe('screenshots', () => {
       null
     );
     assert.match(none.warning!, /ROUGHBOOK_BROWSER/);
+  });
+
+  it('asks the preview first, and photographs nothing behind a login, a redirect, a 404 or an error', async () => {
+    const dev = 'http://localhost:3000';
+    const url = `${dev}/rough-preview/home/hero/iteration-03`;
+    assert.equal(previewProblem(url, dev, { status: 200, url }), null);
+    assert.match(previewProblem(url, dev, null)!, /Nothing answered at http:\/\/localhost:3000/);
+    assert.match(previewProblem(url, dev, { status: 401, url })!, /asks for a login .*HTTP 401/);
+    assert.match(previewProblem(url, dev, { status: 403, url })!, /asks for a login .*HTTP 403/);
+    assert.match(
+      previewProblem(url, dev, { status: 200, url: `${dev}/sign-in?next=%2Frough-preview` })!,
+      /sent the preview to \/sign-in/
+    );
+    assert.match(previewProblem(url, dev, { status: 404, url })!, /answered 404/);
+    assert.match(previewProblem(url, dev, { status: 500, url })!, /HTTP 500.*may not render/);
+
+    let took = 0;
+    const gated = await screenshotIteration(
+      '/repo',
+      dev,
+      { page: 'home', component: 'hero', iteration: 'iteration-03' },
+      {},
+      async () => {
+        took += 1;
+        return true;
+      },
+      '/usr/bin/chromium',
+      async asked => ({ status: 401, url: asked })
+    );
+    assert.equal(took, 0);
+    assert.deepEqual(gated.files, {});
+    assert.match(gated.warning!, /asks for a login.*roughbook screenshot/);
+  });
+
+  it("reads the preview's real answer: a gate's 401, where a redirect lands, and nothing at all", async () => {
+    const app = http.createServer((request, response) => {
+      if (request.url === '/rough-preview/home/hero/iteration-01') {
+        response.writeHead(401, { 'www-authenticate': 'Basic realm="Private preview"' }).end();
+      } else if (request.url === '/rough-preview/home/hero/iteration-02') {
+        response.writeHead(307, { location: '/sign-in' }).end();
+      } else {
+        response.writeHead(200, { 'content-type': 'text/html' }).end('<p>Sign in</p>');
+      }
+    });
+    await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+    const { port } = app.address() as AddressInfo;
+    try {
+      const base = `http://127.0.0.1:${port}/rough-preview/home/hero`;
+      assert.deepEqual(await checkPreview(`${base}/iteration-01`), {
+        status: 401,
+        url: `${base}/iteration-01`
+      });
+      assert.deepEqual(await checkPreview(`${base}/iteration-02`), {
+        status: 200,
+        url: `http://127.0.0.1:${port}/sign-in`
+      });
+    } finally {
+      await new Promise(resolve => app.close(resolve));
+    }
+    assert.equal(
+      await checkPreview(`http://127.0.0.1:${port}/rough-preview/x/y/iteration-01`),
+      null
+    );
   });
 });

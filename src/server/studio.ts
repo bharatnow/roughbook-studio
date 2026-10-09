@@ -24,7 +24,7 @@ import { startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
 import { pullAdvice, pullSketch } from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
-import { assertTarget } from '../runs/slots.js';
+import { assertTarget, iterationExists } from '../runs/slots.js';
 import { revertFile } from '../runs/snapshot.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
@@ -720,6 +720,18 @@ export class LocalStudio {
       screenshotPath(target.page, target.component, target.iteration, size as keyof typeof SIZES)
     );
     return fs.existsSync(file) ? file : null;
+  }
+
+  /** Takes an iteration's screenshots again, as `roughbook screenshot` does. */
+  async screenshots(target: ReviewTarget) {
+    this.assertIteration(target);
+    if (!iterationExists(this.repoRoot, target.page, target.component, target.iteration)) {
+      throw new BadRequest(
+        `${target.page}/${target.component}/${target.iteration} is not in this repo.`
+      );
+    }
+    writePreviewRegistry(this.repoRoot);
+    return this.context.screenshot(this.repoRoot, this.options.devUrl, target, this.context.env);
   }
 
   /** Sends what waits in the outbox; quiet when the server cannot be reached. */

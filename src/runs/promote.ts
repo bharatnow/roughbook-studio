@@ -11,6 +11,7 @@ import type { RepoLink } from '../repo/link.js';
 import { iterationDir } from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { assertTarget } from './slots.js';
+import { recordOwnWritesForOpenRuns } from './snapshot.js';
 import { assertRunId } from './store.js';
 
 export type AssetName = { scope: AssetScope; file: string };
@@ -223,6 +224,12 @@ export async function preparePromotion(
   const promptFile = promotePromptFile(page, component, promotion.promotionId);
   fs.mkdirSync(path.dirname(toDisk(repoRoot, promptFile)), { recursive: true });
   fs.writeFileSync(toDisk(repoRoot, promptFile), fillInPrompt(promotion, targetFile, publicDir));
+  // Runs still open did not write these, so their Done does not count them.
+  await recordOwnWritesForOpenRuns(repoRoot, [
+    ...copied,
+    ...(promotion.copyMarkdown !== null ? [`${workspace}/copy.md`] : []),
+    promptFile
+  ]);
 
   return {
     promotionId: promotion.promotionId,

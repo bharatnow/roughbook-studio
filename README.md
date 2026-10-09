@@ -29,6 +29,7 @@ its own copy and asks before fetching each new one.
 | `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                    |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal, or `--headless` runs it unattended |
 | `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                        |
+| `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                       |
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers              |
 | `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                     |
 | `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                |
@@ -152,7 +153,11 @@ the command to paste. `--headless` runs the agent unattended, only with your own
 (`ANTHROPIC_API_KEY` for Claude Code, `CODEX_API_KEY` or `OPENAI_API_KEY` for Codex), confined
 to the run's folder, and reports its token counts. `done` takes desktop and phone screenshots
 through the app's dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`) with
-Chrome, Chromium or Edge (`ROUGHBOOK_BROWSER` names another), into `rough/.screenshots/`.
+Chrome, Chromium or Edge (`ROUGHBOOK_BROWSER` names another), into `rough/.screenshots/`. It asks
+the preview route first and takes none, saying why, when nothing answers or the app answers with a
+login (such as a pre-launch password), a redirect elsewhere, a 404 or an error; `roughbook
+screenshot` takes them once that is fixed. What the studio itself writes while a run is open,
+`init`'s prep, a pull or a promotion, is never counted as the run's write outside its folder.
 
 ## Pull
 

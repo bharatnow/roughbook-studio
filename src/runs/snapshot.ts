@@ -10,7 +10,7 @@ import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
 import { ROUGH_DIR, STATE_DIR, statePath } from '../repo/root.js';
-import { assertRunId } from './store.js';
+import { assertRunId, listRuns } from './store.js';
 
 /** Never recorded: the studio's own state and screenshots, and what no repo commits. */
 const SKIPPED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
@@ -219,7 +219,9 @@ export async function takeSnapshot(repoRoot: string, runIds: string[]): Promise<
 
 /**
  * Files the studio itself wrote while runs were going, such as a pulled sketch: recorded in those
- * runs' snapshots as they are now, so their Done does not count them as the agent's.
+ * runs' snapshots as they are now, so their Done does not count them as the agent's. Only what
+ * Done will list is recorded: a file the same write hid from git, such as the preview route once
+ * init ignores it, leaves the snapshot instead of reading as removed.
  */
 export async function recordOwnWrites(
   repoRoot: string,
@@ -227,19 +229,33 @@ export async function recordOwnWrites(
   files: string[]
 ): Promise<void> {
   if (!runIds.length || !files.length) return;
+  const listed = new Set((await listRepoFiles(repoRoot)).files);
   const hashes: Record<string, string> = {};
-  for (const file of files) {
+  for (const file of files.filter(item => listed.has(item))) {
     const hash = await hashFile(path.join(repoRoot, ...file.split('/')));
     if (hash) hashes[file] = hash;
   }
   for (const runId of runIds) {
     const snapshot = await readSnapshot(repoRoot, runId);
     if (!snapshot) continue;
+    const kept = Object.fromEntries(
+      Object.entries(snapshot.files).filter(([file]) => listed.has(file) || !files.includes(file))
+    );
     await writeJsonAtomic(path.join(snapshotDir(repoRoot, runId), 'snapshot.json'), {
       ...snapshot,
-      files: { ...snapshot.files, ...hashes }
+      files: { ...kept, ...hashes }
     });
   }
+}
+
+/** recordOwnWrites for every run still open in the repo: init's prep, a pull, a promotion. */
+export async function recordOwnWritesForOpenRuns(repoRoot: string, files: string[]): Promise<void> {
+  const open = (await listRuns(repoRoot)).filter(run => run.status === 'started');
+  await recordOwnWrites(
+    repoRoot,
+    open.map(run => run.runId),
+    files
+  );
 }
 
 export async function readSnapshot(repoRoot: string, runId: string): Promise<Snapshot | null> {

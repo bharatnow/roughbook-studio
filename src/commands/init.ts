@@ -8,6 +8,7 @@ import { appRoot, detectFramework } from '../repo/framework.js';
 import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../repo/link.js';
 import { applyPrep, checkRepo, planPrep, type PrepPlan } from '../repo/prep.js';
 import { gitInit, writeScratch } from '../repo/scratch.js';
+import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
 import { openApi, type Command } from './context.js';
 
 type Choice = { orgId: string; orgName: string; slug: string; name: string };
@@ -207,6 +208,11 @@ export const init: Command = {
       linkId = linked.linkId;
     }
     applyPrep(plan);
+    // A run still open did not make these changes, so its Done does not count them.
+    await recordOwnWritesForOpenRuns(
+      repo,
+      plan.changes.map(change => change.file)
+    );
     await writeLocalLink(repo, {
       linkId,
       installId: credentials.installId,

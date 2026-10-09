@@ -21,6 +21,7 @@ import { pull } from './pull.js';
 import { revert } from './revert.js';
 import { review } from './review.js';
 import { run } from './run.js';
+import { screenshot } from './screenshot.js';
 import { start } from './start.js';
 import { status } from './status.js';
 import { telemetry } from './telemetry.js';
@@ -32,6 +33,7 @@ export const COMMANDS: Command[] = [
   start,
   run,
   done,
+  screenshot,
   review,
   revert,
   pull,

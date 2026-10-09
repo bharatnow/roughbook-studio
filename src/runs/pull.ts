@@ -10,8 +10,7 @@ import type { PulledSketch, SketchFile } from '../api/types.js';
 import type { RepoLink } from '../repo/link.js';
 import { iterationDir, writePreviewRegistry } from '../repo/preview.js';
 import { assertTarget, iterationExists } from './slots.js';
-import { recordOwnWrites } from './snapshot.js';
-import { listRuns } from './store.js';
+import { recordOwnWritesForOpenRuns } from './snapshot.js';
 
 /** A sketch's files as the backend's build allows them: a few folders deep, known types only. */
 const SKETCH_PATH =
@@ -204,10 +203,8 @@ export async function pullSketch(
   }
   writePreviewRegistry(repoRoot);
   // Runs going now did not write these, so their Done does not count them.
-  const open = (await listRuns(repoRoot)).filter(run => run.status === 'started');
-  await recordOwnWrites(
+  await recordOwnWritesForOpenRuns(
     repoRoot,
-    open.map(run => run.runId),
     files.map(file => `${folder}/${file.path}`)
   );
 
