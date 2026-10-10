@@ -26,7 +26,7 @@ import {
 } from './slots.js';
 import { allChanged, compareFiles, hashRepo, readSnapshot, takeSnapshot } from './snapshot.js';
 import { listRuns, readRun, saveRun } from './store.js';
-import type { Finding, RunOutcome, RunRecord, StartRunRequest } from './types.js';
+import type { FinishedBy, Finding, RunOutcome, RunRecord, StartRunRequest } from './types.js';
 
 /** Token counts a headless agent reported, sent with its result. */
 export type RunUsage = {
@@ -214,6 +214,8 @@ export type FinishOptions = {
   usage?: RunUsage | null;
   /** Files or folders changed outside the run's folder that were the designer's own work. */
   mine?: string[];
+  /** Who is finishing it, kept on the record. */
+  by?: FinishedBy;
   now?: Date;
 };
 
@@ -268,6 +270,7 @@ export async function finishRun(
     warnings,
     outOfScope,
     mine,
+    finishedBy: options.by,
     reported
   };
   await saveRun(repoRoot, finished);

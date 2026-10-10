@@ -14,6 +14,13 @@ const OUTCOMES: Record<string, string> = {
   cancelled: 'Cancelled'
 };
 
+const FINISHED_BY: Record<string, string> = {
+  agent: 'Finished by the agent, through the Roughbook MCP tools.',
+  done: 'Finished with roughbook done.',
+  'local-ui': 'Finished with Done here.',
+  headless: 'Finished when the agent exited.'
+};
+
 const REVERTED: Record<string, string> = {
   restored: 'put back as it was before the run',
   removed: 'removed, since the run created it',
@@ -175,6 +182,7 @@ export function RunCard({ run }: { run: RunView }) {
         </div>
       ) : (
         <div className="mt-2 flex flex-col gap-1 text-xs">
+          {run.finishedBy ? <p className="text-steel">{FINISHED_BY[run.finishedBy]}</p> : null}
           {run.failure ? <p className="text-danger">{run.failure.message}</p> : null}
           {run.warnings.map(warning => (
             <p key={warning.code + warning.message} className="text-slate">

@@ -179,7 +179,8 @@ export const done: Command = {
         outcome: values.failed ? 'failed' : values.cancelled ? 'cancelled' : undefined,
         devUrl: url,
         screenshots: !values['no-screenshots'],
-        mine
+        mine,
+        by: 'done'
       });
       // A run the designer marked failed is not the command failing.
       failed ||= finished.outcome === 'failed' && !values.failed;

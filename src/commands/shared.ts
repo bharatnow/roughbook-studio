@@ -105,7 +105,7 @@ export async function openInEditor(
   promptFiles: string[]
 ): Promise<EditorLaunched> {
   const files = promptFiles.map(file => path.join(repoRoot, ...file.split('/')));
-  const instructions = promptFiles.map(file => handoffLine(file));
+  const instructions = promptFiles.map(file => handoffLine(file, true));
   let opened: EditorLaunched['opened'] = null;
   const executable = detection.executable;
   if (executable) {

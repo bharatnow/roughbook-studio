@@ -17,6 +17,7 @@ import { saveCredentials } from '../config/credentials.js';
 import { saveSettings } from '../config/settings.js';
 import type { PtyModule } from '../launch/pty.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
+import { handoffLine } from '../runs/slots.js';
 import type { StartedRun } from '../runs/types.js';
 import { createLocalServer } from '../server/app.js';
 import { LocalStudio } from '../server/studio.js';
@@ -512,7 +513,7 @@ describe('the local server', () => {
     const session = pty.spawned.at(-1)!;
     assert.equal(session.file, AGENT);
     assert.equal(session.cwd, repo);
-    assert.equal(session.args.at(-1), `Follow the instructions in ${run.promptFile}`);
+    assert.equal(session.args.at(-1), handoffLine(run.promptFile, true));
 
     const prompt = fs.readFileSync(path.join(repo, ...run.promptFile.split('/')), 'utf8');
     assert.ok(prompt.includes(`Use them as http://127.0.0.1:${port}/api/files/...`));
@@ -602,6 +603,7 @@ describe('the local server', () => {
     assert.equal(done.status, 200, JSON.stringify(done.json));
     assert.deepEqual(done.json.data.run.outOfScope, ['src/app/stray.ts']);
     assert.equal(done.json.data.run.outcome, 'completed_with_warnings');
+    assert.equal(done.json.data.run.finishedBy, 'local-ui');
 
     assert.equal(
       (await api('POST', `/api/runs/${run.runId}/revert`, { file: 'src/app/page.tsx' })).status,
@@ -851,7 +853,7 @@ describe('the local server', () => {
     assert.equal(launched.copied, true);
     assert.deepEqual(
       launched.instructions,
-      runs.map(run => `Follow the instructions in ${run.promptFile}`)
+      runs.map(run => handoffLine(run.promptFile, true))
     );
     // Cursor's exe as Node with its cli.js, the repo, then each prompt; no shell.
     const launch = editorLaunches.slice(before.launches);

@@ -148,6 +148,11 @@ describe('starting runs', () => {
       handoffLine(records[0]!.promptFile),
       `Follow the instructions in rough/home/hero/prompts/${RUN_A}.md`
     );
+    // A run the designer drives is told how to finish in the same line.
+    assert.equal(
+      handoffLine(records[0]!.promptFile, true),
+      `Follow the instructions in rough/home/hero/prompts/${RUN_A}.md. When the iteration is ready, finish the run with the roughbook MCP tools: get_checks, then finish_run.`
+    );
   });
 
   it('refuses a folder the server names outside rough/, and a parent that is not here', async () => {

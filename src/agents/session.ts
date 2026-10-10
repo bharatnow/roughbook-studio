@@ -11,7 +11,7 @@ export function runTarget(repoRoot: string, run: RunRecord, model: string | null
     repoRoot,
     targetFolder: run.targetFolder,
     promptFile: run.promptFile,
-    instruction: handoffLine(run.promptFile),
+    instruction: handoffLine(run.promptFile, run.mode !== 'headless'),
     sessionId: run.runId,
     model,
     title: sessionTitle(`${run.component} ${run.iteration}`)

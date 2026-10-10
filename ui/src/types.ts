@@ -130,6 +130,7 @@ export type RunView = {
   warnings: Finding[];
   outOfScope: string[];
   mine?: string[];
+  finishedBy?: 'agent' | 'done' | 'local-ui' | 'headless';
   reported: 'sent' | 'queued' | null;
   terminal: TerminalInfo | null;
   headless: { status: 'running' | 'finished'; lines: string[]; error: string | null } | null;

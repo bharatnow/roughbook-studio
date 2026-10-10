@@ -23,6 +23,7 @@ import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
 import { importedPackages } from '../runs/pull.js';
+import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
 import type { RunRecord, StartedRun } from '../runs/types.js';
 import type { Shots } from '../screenshot/iteration.js';
@@ -458,6 +459,7 @@ describe('roughbook run, done and revert', () => {
     assert.ok(studio.io.lines.includes('  iteration-07: wrote index.tsx'));
     assert.ok(studio.io.lines.includes('home/hero/iteration-07: completed'));
     assert.equal(studio.shots.length, 1);
+    assert.equal((await listRuns(studio.repo))[0]!.finishedBy, 'headless');
     // It ends when the agent exits, so its prompt does not tell it to finish through MCP.
     assert.equal(
       read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`),
@@ -548,6 +550,7 @@ describe('whose changes', () => {
       ['completed', [], 0]
     );
     const record = (await listRuns(studio.repo))[0]!;
+    assert.equal(record.finishedBy, 'done');
     assert.deepEqual(record.outOfScope, []);
     assert.deepEqual([...record.mine!].sort(), ['docs/notes.md', 'src/app/page.tsx']);
     assert.ok(
@@ -708,12 +711,16 @@ describe('roughbook run in an editor', () => {
         env: { ELECTRON_RUN_AS_NODE: '1' }
       }
     ]);
-    assert.deepEqual(studio.copied, [`Follow the instructions in ${prompts[0]}`]);
+    assert.deepEqual(studio.copied, [handoffLine(prompts[0]!, true)]);
+    assert.match(
+      studio.copied[0]!,
+      /finish the run with the roughbook MCP tools: get_checks, then finish_run\.$/
+    );
     assert.equal(studio.plans.length, 0, 'no terminal is opened for an editor');
     const said = studio.io.lines.join('\n');
     assert.match(said, /Opened the repo and the prompts in Cursor\./);
     assert.match(said, /On the clipboard, to paste into a new chat with Cursor's agent:/);
-    assert.ok(studio.io.lines.includes(`  Follow the instructions in ${prompts[1]}`));
+    assert.ok(studio.io.lines.includes(`  ${handoffLine(prompts[1]!, true)}`));
 
     // Done is the same as after a terminal run.
     write(
@@ -936,6 +943,7 @@ describe('roughbook mcp', () => {
       'rough/.screenshots/home/hero/iteration-07/desktop.png'
     ]);
     assert.equal(finished.json.reported, 'sent');
+    assert.equal(finished.json.finishedBy, 'agent');
     assert.match(finished.json.next, /roughbook revert home\/hero\/iteration-07 <file>/);
     assert.deepEqual(studio.shots, ['http://localhost:3000 iteration-07']);
     const report = studio.requests.at(-1)!;

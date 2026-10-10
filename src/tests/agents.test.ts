@@ -327,10 +327,12 @@ describe('finding editors', () => {
 describe('starting agents', () => {
   const executable = { command: '/usr/bin/claude', prefixArgs: [], source: 'PATH' };
   const target = runTarget('/repo', RUN, null);
+  // An unattended run ends with its agent, so its instruction says nothing about finishing.
+  const unattended = runTarget('/repo', { ...RUN, mode: 'headless' }, null);
 
   it('runs Claude Code headless on an API key only, confined to the run folder', () => {
-    assert.ok('refused' in claudeCode.headless(target, executable, {}));
-    const run = claudeCode.headless({ ...target, model: 'sonnet' }, executable, {
+    assert.ok('refused' in claudeCode.headless(unattended, executable, {}));
+    const run = claudeCode.headless({ ...unattended, model: 'sonnet' }, executable, {
       ANTHROPIC_API_KEY: 'sk-ant-test'
     });
     assert.ok(!('refused' in run));
@@ -357,8 +359,8 @@ describe('starting agents', () => {
 
   it('runs Codex headless in the run folder, on an API key only', () => {
     const exe = { command: '/usr/bin/codex', prefixArgs: [], source: 'PATH' };
-    assert.ok('refused' in codex.headless(target, exe, {}));
-    const run = codex.headless(target, exe, { OPENAI_API_KEY: 'sk-test' });
+    assert.ok('refused' in codex.headless(unattended, exe, {}));
+    const run = codex.headless(unattended, exe, { OPENAI_API_KEY: 'sk-test' });
     assert.ok(!('refused' in run));
     const folder = path.join('/repo', 'rough', 'home', 'hero', 'iteration-03');
     assert.deepEqual(run.args, [
@@ -392,7 +394,8 @@ describe('starting agents', () => {
           'C:\\cli.js',
           '--name',
           'hero iteration-03',
-          `Follow the instructions in rough/home/hero/prompts/${RUN_ID}.md`
+          // A session the designer watches is told how to finish, in the same line.
+          `Follow the instructions in rough/home/hero/prompts/${RUN_ID}.md. When the iteration is ready, finish the run with the roughbook MCP tools: get_checks, then finish_run.`
         ]
       }
     ]);

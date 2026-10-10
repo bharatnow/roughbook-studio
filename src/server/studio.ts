@@ -537,7 +537,8 @@ export class LocalStudio {
           outcome,
           usage,
           devUrl: this.options.devUrl,
-          screenshots: true
+          screenshots: true,
+          by: 'headless'
         }
       );
     })()
@@ -584,7 +585,8 @@ export class LocalStudio {
         outcome,
         mine: mine as string[] | undefined,
         devUrl: this.options.devUrl,
-        screenshots: true
+        screenshots: true,
+        by: 'local-ui'
       }
     );
   }

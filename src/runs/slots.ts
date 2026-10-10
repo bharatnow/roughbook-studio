@@ -46,9 +46,16 @@ export function promptFile(page: string, component: string, runId: string): stri
   return `${ROUGH_DIR}/${page}/${component}/prompts/${assertRunId(runId)}.md`;
 }
 
-/** The one line every agent is given, whichever agent it is. */
-export function handoffLine(prompt: string): string {
-  return `Follow the instructions in ${prompt}`;
+/**
+ * The one line every agent is given, whichever agent it is. A run the designer drives also says
+ * how to finish it, since the line the designer pastes carries more weight than a prompt's last
+ * section; an unattended run ends when its agent exits, and a promotion is not a run.
+ */
+export function handoffLine(prompt: string, finish = false): string {
+  const follow = `Follow the instructions in ${prompt}`;
+  return finish
+    ? `${follow}. When the iteration is ready, finish the run with the roughbook MCP tools: get_checks, then finish_run.`
+    : follow;
 }
 
 /**
@@ -70,7 +77,8 @@ When the iteration is ready and you have the Roughbook MCP tools, call
 get_checks with this run id, fix what it reports inside the target folder,
 then call finish_run with it once and pass on what it says. Without those
 tools, tell the designer the iteration is ready; they finish the run in the
-Roughbook studio or with roughbook done.
+Roughbook studio or with roughbook done. The tools are in the MCP server named
+roughbook; if your editor lists or groups tools by server, open that group.
 ${devServer}
 </finishing>
 `;

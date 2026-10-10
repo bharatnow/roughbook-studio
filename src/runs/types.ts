@@ -18,6 +18,7 @@ export type RunAgent =
   | 'other';
 export type RunMode = 'interactive' | 'headless' | 'editor';
 export type RunOutcome = 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled';
+export type FinishedBy = 'agent' | 'done' | 'local-ui' | 'headless';
 
 /** What `POST /runs` asks for: new directions, a fork, or a refinement. */
 export type StartRunRequest = {
@@ -79,6 +80,8 @@ export type RunRecord = {
   outOfScope: string[];
   /** Files changed outside it that the designer said were their own work, so not counted. */
   mine?: string[];
+  /** Who finished it: the agent through MCP, roughbook done, the local UI, or the agent exiting. */
+  finishedBy?: FinishedBy;
   /** Whether the result reached the backend, or waits in the outbox. */
   reported: 'sent' | 'queued' | null;
 };

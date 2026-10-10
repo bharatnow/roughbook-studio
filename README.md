@@ -134,7 +134,7 @@ iteration's folder (a placeholder, or a copy of the parent for a fork or refinem
 in `rough/<page>/<component>/prompts/<run>.md`, and hands the agent one line:
 `Follow the instructions in <prompt file>`. At Done it applies the backend's checks (the entry
 file exists and is not the placeholder, a fork changed from its parent, the approved headline
-appears) and its own (nothing outside `rough/` imports from it), lists every file changed outside the run's folder, and sends the outcome, warning codes and counts. What you changed yourself while the run was open is not the agent's: `done` shows those files and asks, `--mine <path>` names them (a file, a folder, or `.` for all), the local UI's Done lists them to tick, and `finish_run` takes `mine`; they are kept on the run and left out of the count. Any such file can be put back:
+appears) and its own (nothing outside `rough/` imports from it), lists every file changed outside the run's folder, and sends the outcome, warning codes and counts. What you changed yourself while the run was open is not the agent's: `done` shows those files and asks, `--mine <path>` names them (a file, a folder, or `.` for all), the local UI's Done lists them to tick, and `finish_run` takes `mine`; they are kept on the run and left out of the count. The run records who finished it: the agent through MCP, `done`, the local UI, or the agent exiting. Any such file can be put back:
 a new one is removed, an uncommitted one comes back from its copy, a committed one from git.
 
 Reviews and run results are written to the outbox first and sent in order when the backend can be
@@ -150,8 +150,7 @@ copy the Claude desktop app keeps, including the Windows package's own folder.
 Cursor, VS Code (with Copilot), Antigravity and Windsurf run iterations with their own agents, with
 you driving: `run --agent cursor` (or the local UI's Agent list) opens the repo and the run's prompt
 in the editor, through its own launcher (`cursor`, `code`, `antigravity`, `windsurf`; on Windows the
-editor's exe and `cli.js` that its `.cmd` launcher runs, with no shell), and puts the one-line
-instruction on the clipboard for a new chat with the editor's agent. Each is found on PATH, in its
+editor's exe and `cli.js` that its `.cmd` launcher runs, with no shell), and puts the instruction on the clipboard for a new chat with the editor's agent: follow the prompt, and when the iteration is ready finish the run with the roughbook MCP tools. Each is found on PATH, in its
 install folder (Windows), app bundle (macOS) or package folder (Linux), or through
 `ROUGHBOOK_<EDITOR>_BIN`. `--agent other` opens the prompt with the OS's default app instead, and the
 default app takes over when an editor cannot start. Editors never run unattended; Done, the checks

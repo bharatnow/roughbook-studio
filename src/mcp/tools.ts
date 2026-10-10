@@ -315,7 +315,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           outboxFor(repoRoot),
           link,
           run.runId,
-          { outcome, mine, devUrl: options.devUrl, screenshots: true }
+          { outcome, mine, devUrl: options.devUrl, screenshots: true, by: 'agent' }
         ));
       }
       const tell: string[] = [];
@@ -337,6 +337,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
         warnings: finished.warnings.map(item => item.message),
         changedOutsideFolder: finished.outOfScope,
         mine: finished.mine ?? [],
+        finishedBy: finished.finishedBy ?? null,
         screenshots: shots ? Object.values(shots.files) : [],
         reported: finished.reported,
         next: [

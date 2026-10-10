@@ -135,7 +135,8 @@ export const run: Command = {
             outcome: result.ok ? undefined : result.cancelled ? 'cancelled' : 'failed',
             usage: result.usage,
             devUrl: dev,
-            screenshots: !values['no-screenshots']
+            screenshots: !values['no-screenshots'],
+            by: 'headless'
           });
         })
       );
