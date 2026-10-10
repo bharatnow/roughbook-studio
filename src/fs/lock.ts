@@ -9,8 +9,14 @@ export type LockOptions = {
 };
 
 /**
- * Runs `work` while holding `<file>.lock`, so the CLI and the local server never write the same
- * state file at once. Creating the lock with `wx` is atomic on every OS.
+ * Windows refuses to create a file while one of the same name is still being deleted, so a lock
+ * its holder has just let go of can answer these for a moment instead of EEXIST.
+ */
+const RELEASING = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/**
+ * Runs `work` while holding `<file>.lock`, so the CLI, the local server and the MCP server never
+ * write the same state file at once. Creating the lock with `wx` is atomic on every OS.
  */
 export async function withLock<T>(
   file: string,
@@ -27,14 +33,18 @@ export async function withLock<T>(
       await handle.close();
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (code !== 'EEXIST' && !RELEASING.has(code)) throw error;
       const held = await stat(lock).catch(() => null);
-      if (held && Date.now() - held.mtimeMs > staleMs) {
+      if (code === 'EEXIST' && held && Date.now() - held.mtimeMs > staleMs) {
         await rm(lock, { force: true });
         continue;
       }
-      if (Date.now() - started > waitMs)
+      if (Date.now() - started > waitMs) {
+        // A folder that is truly not writable says so, rather than blaming another process.
+        if (code !== 'EEXIST') throw error;
         throw new Error(`Another Roughbook process holds ${lock}.`);
+      }
       await new Promise(resolve => setTimeout(resolve, 25));
     }
   }
