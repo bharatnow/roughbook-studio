@@ -7,7 +7,7 @@ import { requireRepoLink } from '../repo/link.js';
 import { startRuns } from '../runs/lifecycle.js';
 import type { StartRunRequest } from '../runs/types.js';
 import { requireApi, type Command } from './context.js';
-import { DEFAULT_DEV_URL, completeRun } from './done.js';
+import { completeRun, devUrl } from './done.js';
 import { chooseAgent, openInEditor, parseComponent, sayEditorLaunch } from './shared.js';
 
 /** What the designer asked for: new directions, a fork, or a refinement. */
@@ -80,6 +80,7 @@ export const run: Command = {
     const { adapter, detection } = await chooseAgent(context, values.agent);
     const model = values.model ?? null;
     if (values.headless && !detection.headless.ready) throw new Error(detection.headless.reason);
+    const dev = devUrl(values['dev-url'], context.env);
 
     const api = await requireApi(context);
     const outbox = outboxFor(repoRoot);
@@ -93,7 +94,8 @@ export const run: Command = {
       ...kind
     } as StartRunRequest;
     const runs = await startRuns(repoRoot, api, link, request, {
-      assetOrigin: localOrigin(await readSettings(context.configDir))
+      assetOrigin: localOrigin(await readSettings(context.configDir)),
+      devUrl: dev
     });
     for (const item of runs) {
       io.out(`${item.page}/${item.component}/${item.iteration}: ${item.promptFile}`);
@@ -113,7 +115,6 @@ export const run: Command = {
 
     if (values.headless) {
       io.out(`Running ${adapter.name} unattended. Its output is summarized here.`);
-      const devUrl = values['dev-url'] ?? context.env.ROUGHBOOK_DEV_URL ?? DEFAULT_DEV_URL;
       const finished = await Promise.all(
         runs.map(async record => {
           const invocation = adapter.headless(
@@ -133,7 +134,7 @@ export const run: Command = {
           return completeRun(context, api, outbox, link, record, {
             outcome: result.ok ? undefined : result.cancelled ? 'cancelled' : 'failed',
             usage: result.usage,
-            devUrl,
+            devUrl: dev,
             screenshots: !values['no-screenshots']
           });
         })

@@ -36,6 +36,14 @@ function text(value: unknown, name: string): string | undefined {
   return value.trim();
 }
 
+function strings(value: unknown, name: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+    throw new Error(`${name} must be a list of paths.`);
+  }
+  return value.map(item => item.trim()).filter(Boolean);
+}
+
 /** A folder an agent named: a path, or a file URI, or VS Code's /c:/… form on Windows. */
 function folderFrom(value: string, context: CommandContext): string {
   if (value.startsWith('file:')) return fileURLToPath(value);
@@ -239,9 +247,16 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
             ? 'This run is already finished; this is what Done found.'
             : passes
               ? 'Everything passes. Call finish_run when the iteration is ready.'
-              : now.outOfScope.length
-                ? `Fix what fails inside ${run.targetFolder}. Files changed outside it count against the run; tell the designer which, rather than changing more.`
-                : `Fix what fails inside ${run.targetFolder}, then call get_checks again or finish_run.`
+              : [
+                  now.failure || now.warnings.some(item => item.code !== 'OUT_OF_SCOPE_WRITE')
+                    ? `Fix what fails inside ${run.targetFolder}, then call get_checks again or finish_run.`
+                    : '',
+                  now.outOfScope.length
+                    ? `Files changed outside ${run.targetFolder} count against the run: put back any you changed; if the designer says the rest were their own work, pass them to finish_run as mine ("." for all); otherwise call finish_run anyway and name them, and the designer decides at review.`
+                    : ''
+                ]
+                  .filter(Boolean)
+                  .join(' ')
       });
     }
   };
@@ -261,6 +276,12 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           description:
             'Only when the iteration was not made: failed when you could not make it, cancelled when the designer stopped the run.'
         },
+        mine: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Files or folders changed outside the run\'s folder that the designer told you were their own work, so they are not counted against the run; "." for all of them. Never the files you wrote.'
+        },
         repo: REPO
       },
       additionalProperties: false
@@ -276,6 +297,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
       if (outcome !== undefined && outcome !== 'failed' && outcome !== 'cancelled') {
         throw new Error('outcome is failed or cancelled, or left out when the iteration is ready.');
       }
+      const mine = strings(args.mine, 'mine');
       const repos = await reposFor(context, text(args.repo, 'repo'), call);
       const { repoRoot, run } = await findRun(repos, text(args.run, 'run'));
       refuseUnattended(run);
@@ -293,7 +315,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           outboxFor(repoRoot),
           link,
           run.runId,
-          { outcome, devUrl: options.devUrl, screenshots: true }
+          { outcome, mine, devUrl: options.devUrl, screenshots: true }
         ));
       }
       const tell: string[] = [];
@@ -314,6 +336,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
         failure: finished.failure?.message ?? null,
         warnings: finished.warnings.map(item => item.message),
         changedOutsideFolder: finished.outOfScope,
+        mine: finished.mine ?? [],
         screenshots: shots ? Object.values(shots.files) : [],
         reported: finished.reported,
         next: [

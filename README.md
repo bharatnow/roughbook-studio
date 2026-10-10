@@ -28,7 +28,7 @@ its own copy and asks before fetching each new one.
 | `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                                                                                                                             |
 | `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                                                                                                                         |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal, `--headless` runs it unattended, and `--agent cursor` (or `vscode`, `antigravity`, `windsurf`, `other`) opens the prompt in that editor |
-| `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it, takes screenshots, reports it                                                                                                                                                                                             |
+| `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it and asks whether they were yours (`--mine <path>` names them), takes screenshots, reports it                                                                                                                               |
 | `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                                                                                                                            |
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers                                                                                                                   |
 | `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                                                                                                                          |
@@ -134,8 +134,7 @@ iteration's folder (a placeholder, or a copy of the parent for a fork or refinem
 in `rough/<page>/<component>/prompts/<run>.md`, and hands the agent one line:
 `Follow the instructions in <prompt file>`. At Done it applies the backend's checks (the entry
 file exists and is not the placeholder, a fork changed from its parent, the approved headline
-appears) and its own (nothing outside `rough/` imports from it), lists every file changed outside
-the run's folder, and sends the outcome, warning codes and counts. Any such file can be put back:
+appears) and its own (nothing outside `rough/` imports from it), lists every file changed outside the run's folder, and sends the outcome, warning codes and counts. What you changed yourself while the run was open is not the agent's: `done` shows those files and asks, `--mine <path>` names them (a file, a folder, or `.` for all), the local UI's Done lists them to tick, and `finish_run` takes `mine`; they are kept on the run and left out of the count. Any such file can be put back:
 a new one is removed, an uncommitted one comes back from its copy, a committed one from git.
 
 Reviews and run results are written to the outbox first and sent in order when the backend can be
@@ -180,9 +179,7 @@ there is one); to `~/.codeium/windsurf/mcp_config.json` for Windsurf; and throug
 It keeps what else the file holds, leaves a file with comments alone and prints the entry to
 paste, and `--print` only prints. The entry starts this Node with this install's `cli.js`, which
 needs no shell or PATH on any OS (`npx -y roughbook mcp` when the studio runs from npx's cache);
-run it again after moving Node. A run's prompt ends by telling the agent to call `get_checks` and
-then `finish_run` with the run's id when it has the tools, and to hand back to you when it does
-not; after an editor run, the studio says to install the server if that editor does not have it.
+run it again after moving Node. A run's prompt ends by telling the agent to call `get_checks` and then `finish_run` with the run's id when it has the tools, to hand back to you when it does not, and that the app's dev server is yours to run, never its to start or stop, naming where the iteration renders (`--dev-url`, `ROUGHBOOK_DEV_URL` or `http://localhost:3000`); after an editor run, the studio says to install the server if that editor does not have it.
 
 A terminal agent's run opens it in a terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and

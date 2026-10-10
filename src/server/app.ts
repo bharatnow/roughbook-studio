@@ -145,9 +145,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       studio.startRuns((await readBody(request)) as unknown as RunBody)
     ),
     route('GET', '/api/runs/:runId/prompt', (_request, params) => studio.prompt(params.runId!)),
-    route('POST', '/api/runs/:runId/done', async (request, params) =>
-      studio.done(params.runId!, (await readBody(request)).outcome)
-    ),
+    route('POST', '/api/runs/:runId/done', async (request, params) => {
+      const body = await readBody(request);
+      return studio.done(params.runId!, body.outcome, body.mine);
+    }),
+    route('GET', '/api/runs/:runId/checks', (_request, params) => studio.checks(params.runId!)),
     route('POST', '/api/runs/:runId/stop', async (_request, params) => ({
       stopped: studio.stopRun(params.runId!)
     })),

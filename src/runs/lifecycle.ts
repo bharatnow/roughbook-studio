@@ -11,6 +11,7 @@ import {
   REGISTRY_FILE,
   iterationDir,
   previewRouteDir,
+  previewUrl,
   writePreviewRegistry
 } from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
@@ -57,6 +58,8 @@ export const ASSET_ORIGIN_PLACEHOLDER = '{{roughbook:asset-origin}}';
 export type StartOptions = {
   /** The local server's address, where iterations load the project's asset files. */
   assetOrigin?: string;
+  /** The app's dev server, so the prompt can say where the iteration renders. */
+  devUrl?: string;
   now?: () => Date;
 };
 
@@ -122,10 +125,15 @@ export async function startRuns(
     createSlot(repoRoot, record);
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
     const prompt = run.prompt.replaceAll(standIn, () => assetOrigin);
+    const preview = options.devUrl
+      ? previewUrl(options.devUrl, request.page, request.component, run.iteration)
+      : null;
     writePrompt(
       repoRoot,
       record.promptFile,
-      request.mode === 'headless' ? prompt : `${prompt.trimEnd()}\n\n${finishingSection(run.runId)}`
+      request.mode === 'headless'
+        ? prompt
+        : `${prompt.trimEnd()}\n\n${finishingSection(run.runId, preview)}`
     );
     await saveRun(repoRoot, record);
     records.push(record);
@@ -134,18 +142,36 @@ export async function startRuns(
   return records;
 }
 
-/** What Done finds in a run's iteration: the backend's checks, and the studio's own. */
-export type Assessment = { failure: Finding | null; warnings: Finding[]; outOfScope: string[] };
+/** Whether `file` is one the designer said was their own: `.` for every file, a file, or a folder. */
+export function isMine(file: string, mine: string[]): boolean {
+  return mine.some(entry => {
+    const own = entry.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+    return own === '.' || own === file || file.startsWith(`${own}/`);
+  });
+}
+
+/**
+ * What Done finds in a run's iteration: the backend's checks, the studio's own, the files changed
+ * outside the run's folder, and those among them the designer said were their own.
+ */
+export type Assessment = {
+  failure: Finding | null;
+  warnings: Finding[];
+  outOfScope: string[];
+  mine: string[];
+};
 
 /**
  * The checks Done applies, without finishing anything: the backend's checks on the iteration,
- * files changed outside the run's folder since it started, and imports from rough/.
+ * files changed outside the run's folder since it started (less those the designer claims with
+ * `mine`), and imports from rough/.
  */
 export async function assessRun(
   repoRoot: string,
   link: RepoLink,
   run: RunRecord,
-  now: Date = new Date()
+  now: Date = new Date(),
+  mine: string[] = []
 ): Promise<Assessment> {
   const checked = checkIteration(repoRoot, run);
   const after = await hashRepo(repoRoot);
@@ -153,11 +179,13 @@ export async function assessRun(
   const others = (await listRuns(repoRoot)).filter(
     other => other.runId !== run.runId && overlapped(other, run, now)
   );
-  const outOfScope = snapshot
+  const changed = snapshot
     ? allChanged(compareFiles(snapshot.files, after.files)).filter(
         file => !inScope(file, [run, ...others])
       )
     : [];
+  const claimed = changed.filter(file => isMine(file, mine));
+  const outOfScope = changed.filter(file => !isMine(file, mine));
   const offenders = importsFromRough(
     repoRoot,
     Object.keys(after.files),
@@ -177,13 +205,15 @@ export async function assessRun(
       message: `${offenders.join(', ')} import${offenders.length === 1 ? 's' : ''} from ${ROUGH_DIR}/. The app must never depend on a design reference.`
     });
   }
-  return { failure: checked.failure, warnings, outOfScope };
+  return { failure: checked.failure, warnings, outOfScope, mine: claimed };
 }
 
 export type FinishOptions = {
   /** Set when the run did not finish on its own: the agent failed, or the designer stopped it. */
   outcome?: Extract<RunOutcome, 'failed' | 'cancelled'>;
   usage?: RunUsage | null;
+  /** Files or folders changed outside the run's folder that were the designer's own work. */
+  mine?: string[];
   now?: Date;
 };
 
@@ -200,7 +230,13 @@ export async function finishRun(
   if (run.status === 'finished') return run;
   const now = options.now ?? new Date();
 
-  const { failure, warnings, outOfScope } = await assessRun(repoRoot, link, run, now);
+  const { failure, warnings, outOfScope, mine } = await assessRun(
+    repoRoot,
+    link,
+    run,
+    now,
+    options.mine ?? []
+  );
   const outcome: RunOutcome =
     options.outcome ??
     (failure ? 'failed' : warnings.length ? 'completed_with_warnings' : 'completed');
@@ -231,6 +267,7 @@ export async function finishRun(
     failure,
     warnings,
     outOfScope,
+    mine,
     reported
   };
   await saveRun(repoRoot, finished);

@@ -7,7 +7,7 @@ import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
 import type { RepoLink } from '../repo/link.js';
 import { applyChecks, headlineAppearsIn, importsFromRough } from '../runs/checks.js';
-import { finishRun, inScope, startRuns } from '../runs/lifecycle.js';
+import { finishRun, inScope, isMine, startRuns } from '../runs/lifecycle.js';
 import {
   PLACEHOLDER_INDEX,
   createSlot,
@@ -101,6 +101,19 @@ const GENERATE: StartRunRequest = {
   kind: 'generate',
   directions: [{ direction: 'Quiet' }, { direction: 'Loud' }]
 };
+
+describe('whose change', () => {
+  it('matches a file, a folder, or everything with a dot', () => {
+    assert.ok(isMine('src/app/page.tsx', ['src/app/page.tsx']));
+    assert.ok(isMine('src/app/page.tsx', ['src']));
+    assert.ok(isMine('src/app/page.tsx', ['./src/app/']));
+    assert.ok(isMine('src/app/page.tsx', ['src\\app']));
+    assert.ok(isMine('src/app/page.tsx', ['docs', '.']));
+    assert.ok(!isMine('src/app/page.tsx', ['src/app/page']));
+    assert.ok(!isMine('src/app/page.tsx', ['docs', 'src/lib']));
+    assert.ok(!isMine('src/app/page.tsx', []));
+  });
+});
 
 describe('starting runs', () => {
   it('writes a placeholder slot and a prompt file for each run, and records them', async () => {

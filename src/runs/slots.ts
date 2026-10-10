@@ -56,7 +56,14 @@ export function handoffLine(prompt: string): string {
  * tools when the agent has them, else by the designer. An unattended run ends when its agent
  * exits, so its prompt has none.
  */
-export function finishingSection(runId: string): string {
+export function finishingSection(runId: string, previewUrl: string | null = null): string {
+  const devServer = previewUrl
+    ? `The app's dev server is the designer's: never start, restart or stop it, or
+any other process. While it runs, this iteration renders at
+${previewUrl}
+and finish_run takes the screenshots through it.`
+    : `The app's dev server is the designer's: never start, restart or stop it, or
+any other process; finish_run takes the screenshots through it.`;
   return `<finishing>
 Roughbook run: ${assertRunId(runId)}
 When the iteration is ready and you have the Roughbook MCP tools, call
@@ -64,6 +71,7 @@ get_checks with this run id, fix what it reports inside the target folder,
 then call finish_run with it once and pass on what it says. Without those
 tools, tell the designer the iteration is ready; they finish the run in the
 Roughbook studio or with roughbook done.
+${devServer}
 </finishing>
 `;
 }

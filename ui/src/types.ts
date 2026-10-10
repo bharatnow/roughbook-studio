@@ -129,6 +129,7 @@ export type RunView = {
   failure: Finding | null;
   warnings: Finding[];
   outOfScope: string[];
+  mine?: string[];
   reported: 'sent' | 'queued' | null;
   terminal: TerminalInfo | null;
   headless: { status: 'running' | 'finished'; lines: string[]; error: string | null } | null;

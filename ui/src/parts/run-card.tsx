@@ -42,9 +42,27 @@ export function RunCard({ run }: { run: RunView }) {
     }
   }
 
+  const [review, setReview] = useState<WhoseChanges | null>(null);
+
+  /** Done: first what changed outside the iteration, for the designer to say whose it was. */
   const finish = (outcome?: 'failed' | 'cancelled') =>
     act('done', async () => {
+      const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
+      if (outOfScope.length) {
+        setReview({ files: outOfScope, mine: [], outcome });
+        return null;
+      }
       await post(`/api/runs/${run.runId}/done`, outcome ? { outcome } : {});
+      return null;
+    });
+
+  const complete = (choice: WhoseChanges) =>
+    act('done', async () => {
+      await post(`/api/runs/${run.runId}/done`, {
+        ...(choice.outcome ? { outcome: choice.outcome } : {}),
+        mine: choice.mine
+      });
+      setReview(null);
       return null;
     });
 
@@ -83,7 +101,15 @@ export function RunCard({ run }: { run: RunView }) {
         <p className="mt-2 text-xs text-danger">{run.headless.error}</p>
       ) : null}
 
-      {open ? (
+      {open && review ? (
+        <WhoseChangesPanel
+          review={review}
+          busy={busy !== null}
+          onChange={mine => setReview({ ...review, mine })}
+          onFinish={() => void complete(review)}
+          onBack={() => setReview(null)}
+        />
+      ) : open ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {run.terminal ? (
             <a href={`#/terminals/${run.terminal.id}`} className={button}>
@@ -181,6 +207,11 @@ export function RunCard({ run }: { run: RunView }) {
               ))}
             </ul>
           ) : null}
+          {run.mine?.length ? (
+            <p className="text-steel">
+              Yours, not counted: <span className="font-mono">{run.mine.join(', ')}</span>
+            </p>
+          ) : null}
           {run.reported === 'queued' ? (
             <p className="text-steel">
               The result waits in the outbox until the server can be reached.
@@ -189,5 +220,83 @@ export function RunCard({ run }: { run: RunView }) {
         </div>
       )}
     </li>
+  );
+}
+
+/** What changed outside the iteration, and which of it the designer says was their own work. */
+type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'cancelled' };
+
+/** Before Done: the files changed outside the iteration, each to tick as the designer's own. */
+function WhoseChangesPanel({
+  review,
+  busy,
+  onChange,
+  onFinish,
+  onBack
+}: {
+  review: WhoseChanges;
+  busy: boolean;
+  onChange: (mine: string[]) => void;
+  onFinish: () => void;
+  onBack: () => void;
+}) {
+  const count = review.files.length;
+  const toggle = (file: string) =>
+    onChange(
+      review.mine.includes(file)
+        ? review.mine.filter(item => item !== file)
+        : [...review.mine, file]
+    );
+  return (
+    <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-xs">
+      <p className="text-graphite">
+        {count} {count === 1 ? 'file' : 'files'} changed outside the iteration while the run was
+        open. Tick what was your own work; the rest counts as the agent's and can be put back after.
+      </p>
+      <div className="mt-1 flex gap-3">
+        <button
+          type="button"
+          className="min-h-6 text-violet hover:underline"
+          onClick={() => onChange(review.files)}
+        >
+          All mine
+        </button>
+        <button
+          type="button"
+          className="min-h-6 text-violet hover:underline"
+          onClick={() => onChange([])}
+        >
+          None
+        </button>
+      </div>
+      <ul className="mt-1 max-h-48 overflow-auto">
+        {review.files.map(file => (
+          <li key={file}>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={review.mine.includes(file)}
+                onChange={() => toggle(file)}
+              />
+              <span className="font-mono break-all text-graphite">{file}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onFinish}
+          className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+        >
+          {busy ? 'Checking' : 'Finish'}
+        </button>
+        <button type="button" disabled={busy} onClick={onBack} className={button}>
+          Back
+        </button>
+      </div>
+    </div>
   );
 }

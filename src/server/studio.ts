@@ -25,7 +25,7 @@ import type { PtySupport } from '../launch/pty.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { ITERATION, SLUG, listIterations, writePreviewRegistry } from '../repo/preview.js';
-import { startRuns } from '../runs/lifecycle.js';
+import { assessRun, startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
 import { pullAdvice, pullSketch } from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
@@ -563,9 +563,12 @@ export class LocalStudio {
     return session ? this.terminals!.stop(session.id) : false;
   }
 
-  async done(runId: string, outcome: unknown) {
+  async done(runId: string, outcome: unknown, mine?: unknown) {
     if (outcome !== undefined && outcome !== 'failed' && outcome !== 'cancelled') {
       throw new BadRequest('A run is marked failed or cancelled, or finished as it is.');
+    }
+    if (mine !== undefined && (!Array.isArray(mine) || !mine.every(i => typeof i === 'string'))) {
+      throw new BadRequest('mine is a list of the files or folders that were your own work.');
     }
     const run = await this.requireRun(runId);
     if (this.jobs.get(run.runId)?.status === 'running') {
@@ -577,8 +580,27 @@ export class LocalStudio {
       this.outbox,
       this.options.link,
       run.runId,
-      { outcome, devUrl: this.options.devUrl, screenshots: true }
+      {
+        outcome,
+        mine: mine as string[] | undefined,
+        devUrl: this.options.devUrl,
+        screenshots: true
+      }
     );
+  }
+
+  /** What Done would find now, for the designer to see first; for a finished run, its record. */
+  async checks(runId: string) {
+    const run = await this.requireRun(runId);
+    if (run.status === 'finished') {
+      return {
+        failure: run.failure,
+        warnings: run.warnings,
+        outOfScope: run.outOfScope,
+        mine: run.mine ?? []
+      };
+    }
+    return assessRun(this.repoRoot, this.options.link, run);
   }
 
   /** Puts back one file a finished run changed outside its folder. */

@@ -507,6 +507,84 @@ describe('roughbook run, done and revert', () => {
   });
 });
 
+describe('whose changes', () => {
+  const strayRoutes = () => ({
+    [`POST ${PROJECT}/runs`]: () => ok([started('iteration-07', RUN_A)], 201),
+    [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: (request: RecordedRequest) =>
+      ok({ status: (request.body as { outcome: string }).outcome })
+  });
+  /** The agent writes its iteration; the designer edits the app meanwhile. */
+  const agentAndDesignerWrite = (studio: Studio) => {
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    write(studio.repo, 'src/app/page.tsx', 'export default function Page() { return 1; }\n');
+  };
+
+  it('leaves out what the designer says was their own, by file or folder', async () => {
+    const studio = await setup(strayRoutes());
+    assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    // The prompt says whose the dev server is, and where the iteration renders.
+    const text = read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`);
+    assert.match(text, /never start, restart or stop it, or\nany other process/);
+    assert.ok(text.includes('http://localhost:3000/rough-preview/home/hero/iteration-07'));
+
+    agentAndDesignerWrite(studio);
+    write(studio.repo, 'docs/notes.md', 'mine\n');
+    assert.equal(
+      await studio.run(['done', '--mine', 'docs', '--mine', 'src/app/page.tsx']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    const finish = studio.requests.at(-1)!.body as {
+      outcome: string;
+      warnings: string[];
+      outOfScopeWrites: number;
+    };
+    assert.deepEqual(
+      [finish.outcome, finish.warnings, finish.outOfScopeWrites],
+      ['completed', [], 0]
+    );
+    const record = (await listRuns(studio.repo))[0]!;
+    assert.deepEqual(record.outOfScope, []);
+    assert.deepEqual([...record.mine!].sort(), ['docs/notes.md', 'src/app/page.tsx']);
+    assert.ok(
+      studio.io.lines.includes('  2 files changed outside the iteration were yours, not counted.')
+    );
+  });
+
+  it('asks whose the changes are, and counts them when nobody answers', async () => {
+    const asked = await setup(strayRoutes());
+    assert.equal(await asked.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    agentAndDesignerWrite(asked);
+    asked.io.answers.push('y');
+    assert.equal(await asked.run(['done']), 0, asked.io.errors.join('\n'));
+    assert.ok(
+      asked.io.lines.includes(
+        '1 file changed outside rough/home/hero/iteration-07 since the run started:'
+      )
+    );
+    assert.ok(asked.io.lines.includes('  src/app/page.tsx'));
+    const claimed = (await listRuns(asked.repo))[0]!;
+    assert.deepEqual(
+      [claimed.outcome, claimed.outOfScope, claimed.mine],
+      ['completed', [], ['src/app/page.tsx']]
+    );
+
+    const unanswered = await setup(strayRoutes());
+    assert.equal(await unanswered.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
+    agentAndDesignerWrite(unanswered);
+    assert.equal(await unanswered.run(['done']), 0);
+    const counted = (await listRuns(unanswered.repo))[0]!;
+    assert.deepEqual(
+      [counted.outcome, counted.outOfScope, counted.mine],
+      ['completed_with_warnings', ['src/app/page.tsx'], []]
+    );
+  });
+});
+
 describe('roughbook screenshot', () => {
   it("takes the last finished run's screenshots again, or a named iteration's", async () => {
     const studio = await setup({
@@ -845,7 +923,7 @@ describe('roughbook mcp', () => {
     const after = await mcp.call('get_checks', { run: runId });
     assert.equal(after.json.now.failure, null);
     assert.deepEqual(after.json.now.changedOutsideFolder, ['src/app/stray.ts']);
-    assert.match(after.json.next, /tell the designer which/);
+    assert.match(after.json.next, /the designer decides at review/);
     const finishes = () =>
       paths(studio.requests).filter(item => item.endsWith(`/runs/${runId}/finish`)).length;
     assert.equal(finishes(), 0, 'get_checks finishes nothing');
@@ -938,6 +1016,35 @@ describe('roughbook mcp', () => {
     const badOutcome = await rooted.call('finish_run', { run: 'iteration-07', outcome: 'done' });
     assert.match(badOutcome.text, /outcome is failed or cancelled/);
     assert.equal(await rooted.close(), 0);
+  });
+
+  it('finishes with the files the designer said were theirs left out', async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Quiet', '--agent', 'cursor']),
+      0
+    );
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    write(studio.repo, 'src/app/stray.ts', 'export const stray = true;\n');
+    const mcp = mcpSession(studio);
+    await mcp.start();
+    const checks = await mcp.call('get_checks');
+    assert.match(checks.json.next, /pass them to finish_run as mine/);
+    assert.doesNotMatch(checks.json.next, /Fix what fails/);
+    const bad = await mcp.call('finish_run', { mine: 'src' });
+    assert.match(bad.text, /mine must be a list of paths/);
+    const finished = await mcp.call('finish_run', { mine: ['src/app'] });
+    assert.equal(finished.error, false, finished.text);
+    assert.deepEqual(
+      [finished.json.outcome, finished.json.changedOutsideFolder, finished.json.mine],
+      ['completed', [], ['src/app/stray.ts']]
+    );
+    assert.equal(await mcp.close(), 0);
   });
 
   it('says how to add it when run in a terminal by a person', async () => {

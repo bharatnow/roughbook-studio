@@ -77,6 +77,8 @@ export type RunRecord = {
   warnings: Finding[];
   /** Files changed outside the run's folder, repo-relative. */
   outOfScope: string[];
+  /** Files changed outside it that the designer said were their own work, so not counted. */
+  mine?: string[];
   /** Whether the result reached the backend, or waits in the outbox. */
   reported: 'sent' | 'queued' | null;
 };

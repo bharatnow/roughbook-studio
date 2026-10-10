@@ -594,6 +594,10 @@ describe('the local server', () => {
       "export const stray = 'written by the agent';\n"
     );
 
+    // Before Done, the local UI asks what changed outside the iteration, to say whose it was.
+    const checks = await api('GET', `/api/runs/${run.runId}/checks`);
+    assert.deepEqual(checks.json.data.outOfScope, ['src/app/stray.ts']);
+    assert.equal((await api('POST', `/api/runs/${run.runId}/done`, { mine: 'src' })).status, 400);
     const done = await api('POST', `/api/runs/${run.runId}/done`, {});
     assert.equal(done.status, 200, JSON.stringify(done.json));
     assert.deepEqual(done.json.data.run.outOfScope, ['src/app/stray.ts']);
