@@ -58,7 +58,7 @@ export type Command = {
   run(args: string[], context: CommandContext): Promise<number>;
 };
 
-/** `roughbook-studio/0.3.0 (windows)`: the version and OS, nothing about the machine or repo. */
+/** `roughbook-studio/0.3.1 (windows)`: the version and OS, nothing about the machine or repo. */
 export function userAgent(): string {
   return `roughbook-studio/${STUDIO_VERSION} (${currentOs()})`;
 }
