@@ -7,6 +7,7 @@ import http, { type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { after, before, describe, it } from 'node:test';
 import { WebSocket } from 'ws';
 import type { Detection } from '../agents/types.js';
@@ -368,6 +369,7 @@ describe('the local server', () => {
       env: { ROUGHBOOK_CONFIG_DIR: configDir },
       repoRoot: repo,
       configDir,
+      home: configDir,
       fetch: backend.fetch,
       sleep: async () => {},
       openUrl: async () => true,
@@ -405,7 +407,9 @@ describe('the local server', () => {
         shots.push(`${devUrl} ${target.page}/${target.component}/${target.iteration}`);
         return { files: {}, warning: null };
       },
-      waitForStop: async () => {}
+      runCommand: async () => ({ ok: false, stdout: '', stderr: 'not run', code: null }),
+      waitForStop: async () => {},
+      stdio: { input: new PassThrough(), output: new PassThrough(), interactive: false }
     };
     studio = new LocalStudio({
       context,

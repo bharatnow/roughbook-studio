@@ -3,6 +3,7 @@ import { ADAPTERS, ALL_AGENTS, adapterFor } from '../agents/index.js';
 import type { AgentAdapter, Detection, EditorAdapter } from '../agents/types.js';
 import { readSettings } from '../config/settings.js';
 import { openerFor } from '../launch/open.js';
+import { hasEntry, mcpTarget } from '../mcp/install.js';
 import { currentOs } from '../launch/platform.js';
 import { ITERATION, SLUG } from '../repo/preview.js';
 import { handoffLine } from '../runs/slots.js';
@@ -85,6 +86,11 @@ export type EditorLaunched = {
   copied: boolean;
   /** One per prompt, each for a fresh chat with the editor's agent. */
   instructions: string[];
+  /**
+   * Whether the editor has the studio's MCP server, so its agent finishes the run itself, with the
+   * command that adds it; null when that cannot be told.
+   */
+  mcp: { ready: boolean; install: string } | null;
 };
 
 /**
@@ -124,7 +130,12 @@ export async function openInEditor(
     }
   }
   const copied = await context.copyText(instructions[0]!);
-  return { kind: 'editor', editor: adapter.name, opened, copied, instructions };
+  const target = mcpTarget(adapter.id);
+  const ready = target
+    ? await hasEntry(target, { platform: context.platform, home: context.home, env: context.env })
+    : null;
+  const mcp = ready === null ? null : { ready, install: `roughbook mcp install ${adapter.id}` };
+  return { kind: 'editor', editor: adapter.name, opened, copied, instructions, mcp };
 }
 
 /** What the CLI says after an editor launch. */
@@ -153,6 +164,11 @@ export function sayEditorLaunch(
   if (rest.length) {
     io.out('Then each of these, one chat per iteration:');
     for (const instruction of rest) io.out(`  ${instruction}`);
+  }
+  if (launched.mcp?.ready === false) {
+    io.out(
+      `Run ${launched.mcp.install} once, so ${where}'s agent can check and finish runs itself.`
+    );
   }
 }
 

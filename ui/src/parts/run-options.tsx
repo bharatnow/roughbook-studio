@@ -201,9 +201,17 @@ function EditorHandoff({ launched }: { launched: EditorLaunched }) {
       <p className="text-graphite">{openedIn(launched)}</p>
       <p className="mt-1 text-xs text-slate">
         Paste {launched.instructions.length > 1 ? 'each line' : 'this'} into a new chat with {agent}
-        {launched.instructions.length > 1 ? ', one chat per iteration' : ''}, then press Done on the
-        run when it has finished.
+        {launched.instructions.length > 1 ? ', one chat per iteration' : ''}
+        {launched.mcp?.ready
+          ? '. It checks and finishes the run itself through the Roughbook MCP tools, or press Done on the run.'
+          : ', then press Done on the run when it has finished.'}
       </p>
+      {launched.mcp?.ready === false && (
+        <p className="mt-1 text-xs text-slate">
+          Run <code className="font-mono text-graphite">{launched.mcp.install}</code> once, so{' '}
+          {agent} can check and finish runs itself.
+        </p>
+      )}
       <ul className="mt-2 flex flex-col gap-2">
         {launched.instructions.map((instruction, index) => (
           <li key={instruction} className="flex flex-wrap items-center gap-2">

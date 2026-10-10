@@ -35,6 +35,7 @@ its own copy and asks before fetching each new one.
 | `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                                                                                                                     |
 | `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                                                                                                                      |
 | `roughbook agents [--default <agent>]`                   | Lists the coding agents and editors found here, their sign-in and whether they can run unattended; sets the default                                                                                                                                                                             |
+| `roughbook mcp install [<editor>…]`                      | Lets your editors' and agents' own agents find, check and finish runs themselves: adds `roughbook mcp`, the MCP server, to each one found here, or to those named                                                                                                                               |
 | `roughbook status`                                       | The sign-in, the analytics answer, the linked project, and what is waiting to be sent                                                                                                                                                                                                           |
 | `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                                                                                                                                 |
 | `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                                                                                                                                  |
@@ -158,6 +159,31 @@ default app takes over when an editor cannot start. Editors never run unattended
 and the snapshot are the same as for a terminal agent. With no default set, `run` uses the first
 terminal agent found, then the first editor.
 
+## MCP
+
+`roughbook mcp` is an MCP server (stdio) with four tools, so an editor's agent finds a run and
+finishes it itself: `list_runs` (the runs open in the repo), `get_prompt`, `get_checks` (what the
+iteration must pass, checked now, without finishing anything) and `finish_run` (Done: the checks,
+the files changed outside the run's folder, the screenshots and the report, with the warnings back
+to the agent). It reads and writes local files only and reports through the same client and outbox
+as `done`. It works out the repo from the folders the editor says it has open, else the folder it
+was started in, else the `repo` path the agent passes. Unattended runs end when their agent exits,
+so `finish_run` leaves them alone.
+
+`roughbook mcp install` adds the server, as `roughbook`, at the user level, so every repo has it:
+to `~/.cursor/mcp.json` for Cursor; to VS Code's user `mcp.json` (`%APPDATA%\Code\User`,
+`~/Library/Application Support/Code/User` or `~/.config/Code/User`); to
+`~/.gemini/config/mcp_config.json` for Antigravity (and its older `~/.gemini/antigravity/` file when
+there is one); to `~/.codeium/windsurf/mcp_config.json` for Windsurf; and through
+`claude mcp add --scope user` and `codex mcp add` for Claude Code and Codex. Name any of `cursor`,
+`vscode`, `antigravity`, `windsurf`, `claude-code` and `codex`, or none for every one found here.
+It keeps what else the file holds, leaves a file with comments alone and prints the entry to
+paste, and `--print` only prints. The entry starts this Node with this install's `cli.js`, which
+needs no shell or PATH on any OS (`npx -y roughbook mcp` when the studio runs from npx's cache);
+run it again after moving Node. A run's prompt ends by telling the agent to call `get_checks` and
+then `finish_run` with the run's id when it has the tools, and to hand back to you when it does
+not; after an editor run, the studio says to install the server if that editor does not have it.
+
 A terminal agent's run opens it in a terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and
 `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole or xterm on Linux; otherwise it prints
@@ -203,6 +229,7 @@ src/
   config/       sign-in, server address, the user config folder
   agents/       one adapter per coding agent: finding it, terminal sessions, unattended runs
   launch/       everything that differs by OS: terminals, opening a browser, naming the OS
+  mcp/          the MCP server: the protocol, the four tools, and adding it to editors
   screenshot/   headless Chrome, Chromium or Edge, at desktop and phone widths
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion

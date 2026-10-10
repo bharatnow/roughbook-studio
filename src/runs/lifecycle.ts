@@ -15,7 +15,14 @@ import {
 } from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { checkIteration, importsFromRough } from './checks.js';
-import { createSlot, iterationExists, promptFile, writePrompt, assertTarget } from './slots.js';
+import {
+  assertTarget,
+  createSlot,
+  finishingSection,
+  iterationExists,
+  promptFile,
+  writePrompt
+} from './slots.js';
 import { allChanged, compareFiles, hashRepo, readSnapshot, takeSnapshot } from './snapshot.js';
 import { listRuns, readRun, saveRun } from './store.js';
 import type { Finding, RunOutcome, RunRecord, StartRunRequest } from './types.js';
@@ -114,10 +121,11 @@ export async function startRuns(
     };
     createSlot(repoRoot, record);
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
+    const prompt = run.prompt.replaceAll(standIn, () => assetOrigin);
     writePrompt(
       repoRoot,
       record.promptFile,
-      run.prompt.replaceAll(standIn, () => assetOrigin)
+      request.mode === 'headless' ? prompt : `${prompt.trimEnd()}\n\n${finishingSection(run.runId)}`
     );
     await saveRun(repoRoot, record);
     records.push(record);
@@ -126,29 +134,22 @@ export async function startRuns(
   return records;
 }
 
-export type FinishOptions = {
-  /** Set when the run did not finish on its own: the agent failed, or the designer stopped it. */
-  outcome?: Extract<RunOutcome, 'failed' | 'cancelled'>;
-  usage?: RunUsage | null;
-  now?: Date;
-};
+/** What Done finds in a run's iteration: the backend's checks, and the studio's own. */
+export type Assessment = { failure: Finding | null; warnings: Finding[]; outOfScope: string[] };
 
-export async function finishRun(
+/**
+ * The checks Done applies, without finishing anything: the backend's checks on the iteration,
+ * files changed outside the run's folder since it started, and imports from rough/.
+ */
+export async function assessRun(
   repoRoot: string,
-  api: StudioApi,
-  outbox: Outbox,
   link: RepoLink,
-  runId: string,
-  options: FinishOptions = {}
-): Promise<RunRecord> {
-  const run = await readRun(repoRoot, runId);
-  if (!run) throw new Error(`There is no run ${runId} in this repo.`);
-  if (run.status === 'finished') return run;
-  const now = options.now ?? new Date();
-
+  run: RunRecord,
+  now: Date = new Date()
+): Promise<Assessment> {
   const checked = checkIteration(repoRoot, run);
   const after = await hashRepo(repoRoot);
-  const snapshot = await readSnapshot(repoRoot, runId);
+  const snapshot = await readSnapshot(repoRoot, run.runId);
   const others = (await listRuns(repoRoot)).filter(
     other => other.runId !== run.runId && overlapped(other, run, now)
   );
@@ -176,14 +177,35 @@ export async function finishRun(
       message: `${offenders.join(', ')} import${offenders.length === 1 ? 's' : ''} from ${ROUGH_DIR}/. The app must never depend on a design reference.`
     });
   }
+  return { failure: checked.failure, warnings, outOfScope };
+}
+
+export type FinishOptions = {
+  /** Set when the run did not finish on its own: the agent failed, or the designer stopped it. */
+  outcome?: Extract<RunOutcome, 'failed' | 'cancelled'>;
+  usage?: RunUsage | null;
+  now?: Date;
+};
+
+export async function finishRun(
+  repoRoot: string,
+  api: StudioApi,
+  outbox: Outbox,
+  link: RepoLink,
+  runId: string,
+  options: FinishOptions = {}
+): Promise<RunRecord> {
+  const run = await readRun(repoRoot, runId);
+  if (!run) throw new Error(`There is no run ${runId} in this repo.`);
+  if (run.status === 'finished') return run;
+  const now = options.now ?? new Date();
+
+  const { failure, warnings, outOfScope } = await assessRun(repoRoot, link, run, now);
   const outcome: RunOutcome =
     options.outcome ??
-    (checked.failure ? 'failed' : warnings.length ? 'completed_with_warnings' : 'completed');
+    (failure ? 'failed' : warnings.length ? 'completed_with_warnings' : 'completed');
   const codes = [
-    ...new Set([
-      ...(checked.failure ? [checked.failure.code] : []),
-      ...warnings.map(item => item.code)
-    ])
+    ...new Set([...(failure ? [failure.code] : []), ...warnings.map(item => item.code)])
   ];
 
   let reported: RunRecord['reported'];
@@ -206,7 +228,7 @@ export async function finishRun(
     status: 'finished',
     finishedAt: now.toISOString(),
     outcome,
-    failure: checked.failure,
+    failure,
     warnings,
     outOfScope,
     reported

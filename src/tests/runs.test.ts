@@ -8,7 +8,13 @@ import { outboxFor } from '../api/outbox.js';
 import type { RepoLink } from '../repo/link.js';
 import { applyChecks, headlineAppearsIn, importsFromRough } from '../runs/checks.js';
 import { finishRun, inScope, startRuns } from '../runs/lifecycle.js';
-import { PLACEHOLDER_INDEX, createSlot, handoffLine, isPlaceholder } from '../runs/slots.js';
+import {
+  PLACEHOLDER_INDEX,
+  createSlot,
+  finishingSection,
+  handoffLine,
+  isPlaceholder
+} from '../runs/slots.js';
 import { revertFile } from '../runs/snapshot.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { Check, StartRunRequest, StartedRun } from '../runs/types.js';
@@ -116,11 +122,13 @@ describe('starting runs', () => {
     );
     assert.deepEqual(requests[0]!.body, GENERATE);
     assert.equal(read(repo, 'rough/home/hero/iteration-03/index.tsx'), PLACEHOLDER_INDEX);
-    // Prompt files are written with \n line endings whatever the server sent.
+    // Prompt files are written with \n line endings whatever the server sent, and end with how the
+    // run finishes, since the designer drives this one.
     assert.equal(
       read(repo, `rough/home/hero/prompts/${RUN_A}.md`),
-      '<task>\nGenerate iteration-03.\n</task>\n'
+      `<task>\nGenerate iteration-03.\n</task>\n\n${finishingSection(RUN_A)}`
     );
+    assert.match(finishingSection(RUN_A), new RegExp(`^Roughbook run: ${RUN_A}$`, 'm'));
     assert.match(read(repo, 'rough/preview-registry.ts'), /"home\/hero\/iteration-04"/);
     assert.equal((await listRuns(repo)).length, 2);
     assert.equal(

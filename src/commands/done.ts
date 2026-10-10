@@ -5,7 +5,7 @@ import { outboxFor } from '../api/outbox.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { finishRun, type FinishOptions } from '../runs/lifecycle.js';
 import type { Shots } from '../screenshot/iteration.js';
-import { listRuns } from '../runs/store.js';
+import { listRuns, namesRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 
@@ -86,17 +86,6 @@ export async function completeRun(
   return finished;
 }
 
-/** Runs still open, matched by run id (or its first eight characters) or by iteration. */
-function pick(open: RunRecord[], name: string): RunRecord[] {
-  return open.filter(
-    run =>
-      run.runId === name ||
-      (name.length >= 8 && run.runId.startsWith(name)) ||
-      run.iteration === name ||
-      `${run.page}/${run.component}/${run.iteration}` === name
-  );
-}
-
 export const done: Command = {
   name: 'done',
   summary: 'Finish a run: check its iteration, take screenshots, report it',
@@ -125,7 +114,7 @@ export const done: Command = {
 
     let runs: RunRecord[];
     if (positionals[0]) {
-      runs = pick(open, positionals[0]);
+      runs = open.filter(run => namesRun(run, positionals[0]!));
       if (!runs.length) throw new Error(`No open run matches ${positionals[0]}.`);
       if (runs.length > 1) {
         throw new Error(

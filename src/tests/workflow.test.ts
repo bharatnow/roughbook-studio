@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import type { HeadlessResult } from '../agents/process.js';
 import { ownEditor } from '../agents/editors.js';
 import { hostLookup } from '../agents/index.js';
@@ -15,12 +17,14 @@ import { parseComponent, parseIteration } from '../commands/shared.js';
 import { saveCredentials } from '../config/credentials.js';
 import { readSettings } from '../config/settings.js';
 import type { Launch } from '../launch/open.js';
+import type { Executable } from '../launch/which.js';
+import { serverCommand, thisStudio } from '../mcp/install.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
 import { importedPackages } from '../runs/pull.js';
-import { listRuns } from '../runs/store.js';
-import type { StartedRun } from '../runs/types.js';
+import { listRuns, saveRun } from '../runs/store.js';
+import type { RunRecord, StartedRun } from '../runs/types.js';
 import type { Shots } from '../screenshot/iteration.js';
 import {
   fakeFetch,
@@ -106,6 +110,8 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
   git('commit', '--quiet', '-m', 'start');
 
   const configDir = await tempDir('roughbook-config-');
+  // Editors' user settings live here, never in the real home folder.
+  const home = await tempDir('roughbook-home-');
   await saveCredentials(configDir, {
     server: SERVER,
     installId: 'install-1',
@@ -138,9 +144,15 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
     ROUGHBOOK_CONFIG_DIR: configDir,
     ...(options.headless ? { ANTHROPIC_API_KEY: 'test-key' } : {})
   };
+  const commands: { executable: Executable; args: string[] }[] = [];
   const overrides: Partial<MainOptions> = {
     fetch: fake.fetch,
     platform: 'win32',
+    home,
+    runCommand: async (executable, args) => {
+      commands.push({ executable, args });
+      return { ok: true, stdout: '', stderr: '', code: 0 };
+    },
     detect: async adapter => detections[adapter.id] ?? notFound(adapter),
     launchTerminal: async plan => void plans.push(plan),
     launchEditor: async launch => {
@@ -190,6 +202,10 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
     failing,
     copied,
     configDir,
+    home,
+    env,
+    overrides,
+    commands,
     requests: fake.requests,
     setOnline: (value: boolean) => (online = value),
     onAgent: (write: (invocation: HeadlessInvocation) => void) => (agentWrites = write),
@@ -442,6 +458,11 @@ describe('roughbook run, done and revert', () => {
     assert.ok(studio.io.lines.includes('  iteration-07: wrote index.tsx'));
     assert.ok(studio.io.lines.includes('home/hero/iteration-07: completed'));
     assert.equal(studio.shots.length, 1);
+    // It ends when the agent exits, so its prompt does not tell it to finish through MCP.
+    assert.equal(
+      read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`),
+      '<task>\nGenerate iteration-07.\n</task>\n'
+    );
   });
 
   it('does not count what init rewrote while the run was going', async () => {
@@ -534,50 +555,51 @@ describe('roughbook screenshot', () => {
   });
 });
 
-describe('roughbook run in an editor', () => {
-  const CURSOR = 'C:/cursor/Cursor.exe';
-  const CURSOR_CLI = 'C:/cursor/resources/app/out/cli.js';
-  const cursorFound = (): Detection => ({
-    id: 'cursor',
-    name: 'Cursor',
-    kind: 'editor',
-    found: true,
-    executable: {
-      command: CURSOR,
-      prefixArgs: [CURSOR_CLI],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-      source: 'PATH'
+const CURSOR = 'C:/cursor/Cursor.exe';
+const CURSOR_CLI = 'C:/cursor/resources/app/out/cli.js';
+const cursorFound = (): Detection => ({
+  id: 'cursor',
+  name: 'Cursor',
+  kind: 'editor',
+  found: true,
+  executable: {
+    command: CURSOR,
+    prefixArgs: [CURSOR_CLI],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    source: 'PATH'
+  },
+  version: '3.24.9',
+  signedIn: null,
+  signIn: null,
+  headless: { ready: false, reason: 'Cursor runs with you in it, never unattended.' },
+  capabilities: { interactive: true, headless: false, permissions: false, usage: false }
+});
+const runNumber = (number: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, '0')}`;
+/** A backend handing out a new iteration for each run asked for, from iteration-07. */
+const handingOut = () => {
+  let next = 7;
+  return {
+    [`POST ${PROJECT}/runs`]: (request: RecordedRequest) => {
+      const body = request.body as { directions: { direction: string }[] };
+      return ok(
+        body.directions.map(({ direction }) => {
+          const number = next++;
+          const iteration = `iteration-${String(number).padStart(2, '0')}`;
+          return {
+            ...started(iteration, runNumber(number)),
+            prompt: `<task>\nGenerate ${iteration}.\nDirection: ${direction}\n</task>\n`
+          };
+        }),
+        201
+      );
     },
-    version: '3.24.9',
-    signedIn: null,
-    signIn: null,
-    headless: { ready: false, reason: 'Cursor runs with you in it, never unattended.' },
-    capabilities: { interactive: true, headless: false, permissions: false, usage: false }
-  });
-  /** A backend handing out a new iteration for each run asked for. */
-  const handingOut = () => {
-    let next = 7;
-    return {
-      [`POST ${PROJECT}/runs`]: (request: RecordedRequest) => {
-        const body = request.body as { directions: unknown[] };
-        return ok(
-          body.directions.map(() => {
-            const number = next++;
-            return started(
-              `iteration-${String(number).padStart(2, '0')}`,
-              `aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, '0')}`
-            );
-          }),
-          201
-        );
-      },
-      [`POST /orgs/${ORG}/runs/aaaaaaaa-aaaa-4aaa-8aaa-000000000007/finish`]: (
-        request: RecordedRequest
-      ) => ok({ status: (request.body as { outcome: string }).outcome })
-    };
+    [`POST /orgs/${ORG}/runs/${runNumber(7)}/finish`]: (request: RecordedRequest) =>
+      ok({ status: (request.body as { outcome: string }).outcome })
   };
-  const prompt = (number: number) =>
-    `rough/home/hero/prompts/aaaaaaaa-aaaa-4aaa-8aaa-${String(number).padStart(12, '0')}.md`;
+};
+const prompt = (number: number) => `rough/home/hero/prompts/${runNumber(number)}.md`;
+
+describe('roughbook run in an editor', () => {
   const lookupHere = () => hostLookup({});
 
   it('opens the repo and the prompts in the editor, copies the first instruction, and finishes with done', async () => {
@@ -684,6 +706,348 @@ describe('roughbook run in an editor', () => {
     delete studio.detections.cursor;
     assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Third']), 1);
     assert.match(studio.io.errors.at(-1)!, /No coding agent or editor was found/);
+  });
+});
+
+type Studio = Awaited<ReturnType<typeof setup>>;
+/** Parsed JSON, read as freely as the server tests read the local server's answers. */
+type Parsed = ReturnType<typeof JSON.parse>;
+type ToolAnswer = { error: boolean; text: string; json: Parsed };
+
+/**
+ * An MCP client on `roughbook mcp`, run as the CLI runs it from `cwd`, answering roots/list with
+ * `roots` when it has any.
+ */
+function mcpSession(studio: Studio, options: { cwd?: string; roots?: string[] } = {}) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const exited = main(['mcp'], {
+    cwd: options.cwd ?? studio.repo,
+    env: studio.env,
+    io: studio.io,
+    ...studio.overrides,
+    waitForStop: () => new Promise(() => {}),
+    stdio: { input, output, interactive: false }
+  });
+  const waiting = new Map<unknown, (message: Parsed) => void>();
+  const lines: string[] = [];
+  let buffer = '';
+  output.on('data', chunk => {
+    buffer += String(chunk);
+    let end: number;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end);
+      buffer = buffer.slice(end + 1);
+      lines.push(line);
+      const message = JSON.parse(line);
+      if (message.method === 'roots/list') {
+        const roots = (options.roots ?? []).map(folder => ({ uri: pathToFileURL(folder).href }));
+        input.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { roots } })}\n`);
+      } else if (!message.method) {
+        waiting.get(message.id)?.(message);
+      }
+    }
+  });
+  let next = 1;
+  const request = (method: string, params: unknown) =>
+    new Promise<Parsed>(resolve => {
+      const id = next++;
+      waiting.set(id, resolve);
+      input.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    });
+  return {
+    lines,
+    start: () =>
+      request('initialize', {
+        protocolVersion: '2025-11-25',
+        capabilities: options.roots ? { roots: { listChanged: true } } : {},
+        clientInfo: { name: 'test-editor', version: '1.0.0' }
+      }),
+    async call(name: string, args: Record<string, unknown> = {}): Promise<ToolAnswer> {
+      const answer = await request('tools/call', { name, arguments: args });
+      const text: string = answer.result.content[0].text;
+      let json: unknown = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        // A prompt, read as text.
+      }
+      return { error: answer.result.isError === true, text, json };
+    },
+    async close(): Promise<number> {
+      input.end();
+      return exited;
+    }
+  };
+}
+
+describe('roughbook mcp', () => {
+  it("lets an editor's agent read, check and finish its run, as Done does", async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Quiet', '--agent', 'cursor']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.ok(
+      studio.io.lines.includes(
+        "Run roughbook mcp install cursor once, so Cursor's agent can check and finish runs itself."
+      )
+    );
+    const runId = runNumber(7);
+    assert.match(read(studio.repo, prompt(7)), new RegExp(`<finishing>\\nRoughbook run: ${runId}`));
+
+    const mcp = mcpSession(studio);
+    const init = await mcp.start();
+    assert.equal(init.result.serverInfo.name, 'roughbook');
+    const listed = await mcp.call('list_runs');
+    assert.deepEqual(listed.json.runs, [
+      {
+        run: runId,
+        iteration: 'home/hero/iteration-07',
+        kind: 'generate',
+        direction: 'Quiet',
+        parent: null,
+        agent: 'cursor',
+        mode: 'editor',
+        prompt: prompt(7),
+        folder: 'rough/home/hero/iteration-07',
+        startedAt: listed.json.runs[0].startedAt,
+        repo: studio.repo
+      }
+    ]);
+
+    // With one run open it need not be named.
+    const read7 = await mcp.call('get_prompt');
+    assert.equal(read7.text, read(studio.repo, prompt(7)));
+
+    const before = await mcp.call('get_checks', { run: 'iteration-07' });
+    assert.equal(before.json.now.passes, false);
+    assert.equal(
+      before.json.now.failure,
+      'index.tsx is still the placeholder. Is the session finished?'
+    );
+    assert.deepEqual(before.json.checks, [
+      'index.tsx exists in rough/home/hero/iteration-07, is not empty, and is no longer the placeholder.',
+      'The approved headline (Version 1) appears in the source: "Design that ships"',
+      'Nothing outside rough/home/hero/iteration-07/ changes.',
+      'No file outside rough/ imports from rough/.'
+    ]);
+
+    // The agent writes the iteration, and one file it should not have.
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-07/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    write(studio.repo, 'src/app/stray.ts', 'export const stray = true;\n');
+    const after = await mcp.call('get_checks', { run: runId });
+    assert.equal(after.json.now.failure, null);
+    assert.deepEqual(after.json.now.changedOutsideFolder, ['src/app/stray.ts']);
+    assert.match(after.json.next, /tell the designer which/);
+    const finishes = () =>
+      paths(studio.requests).filter(item => item.endsWith(`/runs/${runId}/finish`)).length;
+    assert.equal(finishes(), 0, 'get_checks finishes nothing');
+
+    const finished = await mcp.call('finish_run', { run: runId.slice(0, 8) });
+    assert.equal(finished.error, false, finished.text);
+    assert.equal(finished.json.outcome, 'completed_with_warnings');
+    assert.deepEqual(finished.json.changedOutsideFolder, ['src/app/stray.ts']);
+    assert.deepEqual(finished.json.screenshots, [
+      'rough/.screenshots/home/hero/iteration-07/desktop.png'
+    ]);
+    assert.equal(finished.json.reported, 'sent');
+    assert.match(finished.json.next, /roughbook revert home\/hero\/iteration-07 <file>/);
+    assert.deepEqual(studio.shots, ['http://localhost:3000 iteration-07']);
+    const report = studio.requests.at(-1)!;
+    assert.deepEqual(report.body, {
+      outcome: 'completed_with_warnings',
+      durationMs: (report.body as { durationMs: number }).durationMs,
+      warnings: ['OUT_OF_SCOPE_WRITE'],
+      outOfScopeWrites: 1,
+      usage: null
+    });
+    assert.equal((await listRuns(studio.repo))[0]!.status, 'finished');
+
+    // Finishing again changes nothing; the run is no longer listed.
+    const again = await mcp.call('finish_run', { run: runId });
+    assert.equal(again.json.alreadyFinished, true);
+    assert.equal(finishes(), 1);
+    // A finished run's checks are what Done found, not what changed since.
+    write(studio.repo, 'src/app/later.ts', 'export const later = true;\n');
+    const recorded = await mcp.call('get_checks', { run: runId });
+    assert.deepEqual(recorded.json.now.changedOutsideFolder, ['src/app/stray.ts']);
+    assert.match(recorded.json.next, /already finished; this is what Done found/);
+    assert.deepEqual((await mcp.call('list_runs')).json.runs, []);
+    assert.equal(await mcp.close(), 0);
+    // Stdout carried protocol messages only.
+    for (const line of mcp.lines) assert.equal(JSON.parse(line).jsonrpc, '2.0');
+  });
+
+  it("finds the repo from the client's folders or a path, and leaves unattended runs alone", async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Quiet', '--agent', 'cursor']),
+      0
+    );
+
+    // Started outside any repo, with a client that does not say what it has open.
+    const lost = mcpSession(studio, { cwd: studio.home });
+    await lost.start();
+    const refusedList = await lost.call('list_runs');
+    assert.equal(refusedList.error, true);
+    assert.match(refusedList.text, /Pass repo: the absolute path of the folder you have open/);
+    for (const named of [
+      studio.repo,
+      pathToFileURL(studio.repo).href,
+      path.join(studio.repo, 'src', 'app')
+    ]) {
+      const found = await lost.call('list_runs', { repo: named });
+      assert.equal(found.json.runs.length, 1, named);
+    }
+    const notRepo = await lost.call('get_checks', { repo: studio.home });
+    assert.match(notRepo.text, /is not in a Roughbook repo/);
+    await lost.close();
+
+    // A client saying it has a folder of the repo open.
+    const rooted = mcpSession(studio, { cwd: studio.home, roots: [path.join(studio.repo, 'src')] });
+    await rooted.start();
+    assert.equal((await rooted.call('list_runs')).json.runs.length, 1);
+
+    // An unattended run finishes when its agent exits, never through MCP.
+    const unattended: RunRecord = {
+      ...(await listRuns(studio.repo))[0]!,
+      runId: runNumber(9),
+      iteration: 'iteration-09',
+      targetFolder: 'rough/home/hero/iteration-09',
+      promptFile: prompt(9),
+      mode: 'headless',
+      agent: 'claude-code'
+    };
+    await saveRun(studio.repo, unattended);
+    const several = await rooted.call('finish_run');
+    assert.match(several.text, /^2 runs are open; name one with run:/);
+    const headlessRefused = await rooted.call('finish_run', { run: 'iteration-09' });
+    assert.equal(headlessRefused.error, true);
+    assert.match(
+      headlessRefused.text,
+      /unattended run: the studio finishes it when its agent exits/
+    );
+    const badOutcome = await rooted.call('finish_run', { run: 'iteration-07', outcome: 'done' });
+    assert.match(badOutcome.text, /outcome is failed or cancelled/);
+    assert.equal(await rooted.close(), 0);
+  });
+
+  it('says how to add it when run in a terminal by a person', async () => {
+    const studio = await setup({});
+    const code = await main(['mcp'], {
+      cwd: studio.repo,
+      env: studio.env,
+      io: studio.io,
+      ...studio.overrides,
+      stdio: { input: new PassThrough(), output: new PassThrough(), interactive: true }
+    });
+    assert.equal(code, 0);
+    assert.match(studio.io.errors.at(-1)!, /To add it to your editors, run roughbook mcp install/);
+  });
+
+  it("adds itself to each editor's user settings and through each agent's own mcp add", async () => {
+    const studio = await setup({});
+    const server = serverCommand({ platform: 'win32', node: process.execPath, ...thisStudio() });
+    const home = (...parts: string[]) => path.join(studio.home, ...parts);
+    const readJsonFile = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+    const cursorFile = home('.cursor', 'mcp.json');
+    const vscodeFile = home('AppData', 'Roaming', 'Code', 'User', 'mcp.json');
+    const antigravityFile = home('.gemini', 'config', 'mcp_config.json');
+    const olderAntigravity = home('.gemini', 'antigravity', 'mcp_config.json');
+    const windsurfFile = home('.codeium', 'windsurf', 'mcp_config.json');
+    // What was there stays; Antigravity's older, empty file is filled in.
+    write(studio.home, '.cursor/mcp.json', '{ "mcpServers": { "other": { "command": "x" } } }');
+    write(studio.home, '.gemini/antigravity/mcp_config.json', '');
+
+    const editors = ['cursor', 'vscode', 'antigravity', 'windsurf'];
+    assert.equal(await studio.run(['mcp', 'install', ...editors]), 0, studio.io.errors.join('\n'));
+    const entry = { command: server.command, args: server.args };
+    assert.deepEqual(readJsonFile(cursorFile), {
+      mcpServers: { other: { command: 'x' }, roughbook: entry }
+    });
+    assert.deepEqual(readJsonFile(vscodeFile), {
+      servers: { roughbook: { type: 'stdio', ...entry } }
+    });
+    for (const file of [antigravityFile, olderAntigravity, windsurfFile]) {
+      assert.deepEqual(readJsonFile(file), { mcpServers: { roughbook: entry } }, file);
+    }
+    assert.ok(studio.io.lines.includes(`Cursor: roughbook added to ${cursorFile}`));
+    assert.ok(server.args.includes('mcp'));
+
+    studio.io.lines.length = 0;
+    assert.equal(await studio.run(['mcp', 'install', 'cursor']), 0);
+    assert.ok(studio.io.lines.includes(`Cursor: roughbook already in ${cursorFile}`));
+
+    // --print shows the entry and writes nothing.
+    fs.rmSync(windsurfFile);
+    assert.equal(await studio.run(['mcp', 'install', 'windsurf', '--print']), 0);
+    assert.ok(!fs.existsSync(windsurfFile));
+    assert.ok(studio.io.lines.includes(`Windsurf: in ${windsurfFile}`));
+
+    // A file with comments is left alone, with the entry to paste.
+    const commented = '// mine\n{ "servers": {} }\n';
+    write(studio.home, 'AppData/Roaming/Code/User/mcp.json', commented);
+    assert.equal(await studio.run(['mcp', 'install', 'vscode']), 1);
+    assert.equal(fs.readFileSync(vscodeFile, 'utf8'), commented);
+    assert.ok(
+      studio.io.lines.includes(
+        `VS Code: ${vscodeFile} is not plain JSON, so it was left alone. Add this to it:`
+      )
+    );
+
+    // Claude Code is told with its own command; Codex, not here, gets the line to run.
+    studio.io.lines.length = 0;
+    assert.equal(await studio.run(['mcp', 'install', 'claude-code', 'codex']), 1);
+    assert.deepEqual(
+      studio.commands.map(item => [item.executable.command, ...item.args]),
+      [
+        [AGENT_BIN, 'mcp', 'remove', '--scope', 'user', 'roughbook'],
+        [
+          AGENT_BIN,
+          'mcp',
+          'add',
+          '--scope',
+          'user',
+          'roughbook',
+          '--',
+          server.command,
+          ...server.args
+        ]
+      ]
+    );
+    assert.ok(studio.io.lines.includes('Claude Code: added roughbook with claude mcp add.'));
+    assert.ok(studio.io.lines.includes('Codex was not found here. Once it is installed, run:'));
+
+    assert.equal(await studio.run(['mcp', 'install', 'other']), 1);
+    assert.match(studio.io.errors.at(-1)!, /Unknown editor other\. Choose one of: claude-code/);
+
+    // With none named, each one found here: Claude Code and Cursor in this test.
+    studio.detections.cursor = cursorFound();
+    studio.commands.length = 0;
+    fs.rmSync(cursorFile);
+    assert.equal(await studio.run(['mcp', 'install']), 0, studio.io.lines.join('\n'));
+    assert.equal(studio.commands.length, 2);
+    assert.ok(fs.existsSync(cursorFile));
+    assert.match(studio.io.lines.at(-1)!, /^Restart each one, or reload its window/);
+  });
+
+  it('no longer suggests installing once the editor has it', async () => {
+    const studio = await setup(handingOut());
+    studio.detections.cursor = cursorFound();
+    assert.equal(await studio.run(['mcp', 'install', 'cursor']), 0);
+    assert.equal(
+      await studio.run(['run', 'home/hero', '--direction', 'Quiet', '--agent', 'cursor']),
+      0
+    );
+    assert.ok(!studio.io.lines.some(line => line.includes('mcp install cursor once')));
   });
 });
 

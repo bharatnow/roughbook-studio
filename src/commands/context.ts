@@ -1,3 +1,5 @@
+import type { Readable, Writable } from 'node:stream';
+import type { runCommand } from '../agents/command.js';
 import type { runHeadless } from '../agents/process.js';
 import type { AgentAdapter, Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
@@ -21,6 +23,8 @@ export type CommandContext = {
   repoRoot: string | null;
   /** Where the install token is kept. */
   configDir: string;
+  /** The designer's home folder, where editors keep their user-level settings. */
+  home: string;
   /** Replaced in tests, so nothing reaches the network, waits or opens a browser. */
   fetch?: typeof fetch;
   sleep: (ms: number) => Promise<void>;
@@ -35,10 +39,14 @@ export type CommandContext = {
   launchEditor: (launch: Launch) => Promise<void>;
   /** Puts text on the clipboard; false when no clipboard command worked. */
   copyText: (text: string) => Promise<boolean>;
+  /** Runs a short command, such as an agent's own `mcp add`, and collects its output. */
+  runCommand: typeof runCommand;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */
   waitForStop: () => Promise<void>;
+  /** The raw streams `mcp` speaks the protocol on, and whether a person is typing into it. */
+  stdio: { input: Readable; output: Writable; interactive: boolean };
 };
 
 export type Command = {

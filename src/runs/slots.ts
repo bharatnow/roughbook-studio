@@ -51,6 +51,23 @@ export function handoffLine(prompt: string): string {
   return `Follow the instructions in ${prompt}`;
 }
 
+/**
+ * How a run the designer drives ends, added below the backend's prompt: through the studio's MCP
+ * tools when the agent has them, else by the designer. An unattended run ends when its agent
+ * exits, so its prompt has none.
+ */
+export function finishingSection(runId: string): string {
+  return `<finishing>
+Roughbook run: ${assertRunId(runId)}
+When the iteration is ready and you have the Roughbook MCP tools, call
+get_checks with this run id, fix what it reports inside the target folder,
+then call finish_run with it once and pass on what it says. Without those
+tools, tell the designer the iteration is ready; they finish the run in the
+Roughbook studio or with roughbook done.
+</finishing>
+`;
+}
+
 function toDisk(repoRoot: string, relative: string): string {
   return path.join(repoRoot, ...relative.split('/'));
 }

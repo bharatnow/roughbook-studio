@@ -23,6 +23,16 @@ export async function readRun(repoRoot: string, runId: string): Promise<RunRecor
   return readJson<RunRecord>(runFile(repoRoot, runId));
 }
 
+/** Whether `name` is this run: its id, the id's first eight characters, or its iteration. */
+export function namesRun(run: RunRecord, name: string): boolean {
+  return (
+    run.runId === name ||
+    (name.length >= 8 && run.runId.startsWith(name)) ||
+    run.iteration === name ||
+    `${run.page}/${run.component}/${run.iteration}` === name
+  );
+}
+
 /** Every run in this repo, newest first. */
 export async function listRuns(repoRoot: string): Promise<RunRecord[]> {
   let names: string[];

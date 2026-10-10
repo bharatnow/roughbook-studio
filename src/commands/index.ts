@@ -1,3 +1,5 @@
+import os from 'node:os';
+import { runCommand } from '../agents/command.js';
 import { hostLookup } from '../agents/index.js';
 import { runHeadless } from '../agents/process.js';
 import { OfflineError, describeError } from '../api/errors.js';
@@ -17,6 +19,7 @@ import { done } from './done.js';
 import { init } from './init.js';
 import { login } from './login.js';
 import { logout } from './logout.js';
+import { mcp } from './mcp.js';
 import { promote } from './promote.js';
 import { pull } from './pull.js';
 import { revert } from './revert.js';
@@ -40,6 +43,7 @@ export const COMMANDS: Command[] = [
   pull,
   promote,
   agents,
+  mcp,
   status,
   telemetry,
   logout
@@ -87,9 +91,12 @@ export type MainOptions = {
     | 'launchTerminal'
     | 'launchEditor'
     | 'copyText'
+    | 'home'
+    | 'runCommand'
     | 'runHeadless'
     | 'screenshot'
     | 'waitForStop'
+    | 'stdio'
   >
 >;
 
@@ -125,6 +132,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     env: options.env,
     repoRoot: findRepoRoot(options.cwd),
     configDir: userConfigDir(options.env),
+    home: options.home ?? os.homedir(),
     fetch: options.fetch,
     sleep: options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))),
     openUrl: options.openUrl ?? openUrl,
@@ -134,9 +142,15 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     launchEditor: options.launchEditor ?? (launch => launchDetached(launch, options.env)),
     copyText:
       options.copyText ?? (text => copyText(text, options.platform ?? hostPlatform(), options.env)),
+    runCommand: options.runCommand ?? runCommand,
     runHeadless: options.runHeadless ?? runHeadless,
     screenshot: options.screenshot ?? screenshotIteration,
-    waitForStop: options.waitForStop ?? untilSignalled
+    waitForStop: options.waitForStop ?? untilSignalled,
+    stdio: options.stdio ?? {
+      input: process.stdin,
+      output: process.stdout,
+      interactive: Boolean(process.stdin.isTTY)
+    }
   };
   if (command.needsRepo && !context.repoRoot) {
     io.err('This folder is not in a Roughbook repo. Run roughbook init in the repo first.');

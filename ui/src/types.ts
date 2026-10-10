@@ -145,4 +145,5 @@ export type Launched =
       opened: 'editor' | 'default-app' | null;
       copied: boolean;
       instructions: string[];
+      mcp: { ready: boolean; install: string } | null;
     };
