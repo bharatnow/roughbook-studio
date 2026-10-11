@@ -1,6 +1,6 @@
 {
   "name": "roughbook",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": false,
   "description": "Roughbook studio: design iterations inside your own repo, with the coding agent and editor you already use",
   "type": "module",
