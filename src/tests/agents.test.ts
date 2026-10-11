@@ -428,12 +428,12 @@ describe('starting agents', () => {
     });
     assert.ok(!('refused' in run));
     assert.deepEqual(run.args, [
-      '-p',
-      unattended.instruction,
       '--output-format',
       'stream-json',
       '--model',
-      'pro'
+      'pro',
+      '-p',
+      unattended.instruction
     ]);
     assert.equal(run.cwd, '/repo');
     assert.deepEqual(run.env, {});
@@ -450,7 +450,7 @@ describe('starting agents', () => {
     const onWindows = 'C:\\Users\\a\\.gemini\\antigravity-cli\\settings.json';
     assert.equal(usesApiKey(lookup('win32', [], {}, { [onWindows]: 'not json' })), false);
     assert.equal(usesApiKey(lookup('linux', [])), false);
-    assert.deepEqual(antigravityCli.interactiveArgs(target), [target.instruction]);
+    assert.deepEqual(antigravityCli.interactiveArgs(target), ['-i', target.instruction]);
   });
 
   it("runs Cursor's CLI headless on an API key only, in its sandbox, with changes applied", () => {

@@ -1,14 +1,13 @@
 // Google's Antigravity CLI, `agy`, which replaced Gemini CLI for personal accounts on
-// 2026-06-18. Flags checked against its headless docs (2026-10-11): `-p` runs one prompt and
-// exits, `--output-format stream-json` gives one JSON event per line (`init`, `step_update`,
+// 2026-06-18. Flags checked against `agy --help` of 1.3.3 (2026-10-11): `-p` runs one prompt and
+// exits, `-i` runs one and stays, both with the prompt after the flags, `--output-format stream-json` gives one JSON event per line (`init`, `step_update`,
 // `result`), `--model` the model. Headless, it writes files in the workspace on its own and
 // soft-denies shell commands unless a permission rule allows them, so a run needs no skip flag
 // and never runs commands. Unattended runs use the designer's own key, GEMINI_API_KEY, never the
 // Google sign-in: agy takes the key only when ~/.gemini/antigravity-cli/settings.json says
 // "modelProvider": "gemini", so a run is ready only with both. The installer puts it in
 // ~/.local/bin on macOS and Linux and in %LOCALAPPDATA%\agy\bin on Windows. No agy was installed
-// where this was written: check the event names and the interactive prompt argument against the
-// first real run.
+// where this was written: check the event names against the first real run.
 import path from 'node:path';
 import { diskProbe } from '../launch/platform.js';
 import {
@@ -178,7 +177,7 @@ export const antigravityCli: TerminalAdapter = {
   },
 
   interactiveArgs(run) {
-    return [...(run.model ? ['--model', run.model] : []), run.instruction];
+    return [...(run.model ? ['--model', run.model] : []), '-i', run.instruction];
   },
 
   headless(run, executable, env) {
@@ -188,11 +187,11 @@ export const antigravityCli: TerminalAdapter = {
       command: executable.command,
       args: [
         ...executable.prefixArgs,
-        '-p',
-        run.instruction,
         '--output-format',
         'stream-json',
-        ...(run.model ? ['--model', run.model] : [])
+        ...(run.model ? ['--model', run.model] : []),
+        '-p',
+        run.instruction
       ],
       cwd: run.repoRoot,
       stdin: null,
