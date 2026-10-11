@@ -23,13 +23,21 @@ export async function readRun(repoRoot: string, runId: string): Promise<RunRecor
   return readJson<RunRecord>(runFile(repoRoot, runId));
 }
 
-/** Whether `name` is this run: its id, the id's first eight characters, or its iteration. */
+/**
+ * Whether `name` is this run: its id or the id's first eight characters, its iteration alone or
+ * as <page>/<component>/<iteration>, or its folder or prompt file, relative or absolute. An agent
+ * names a run by whatever it has in front of it.
+ */
 export function namesRun(run: RunRecord, name: string): boolean {
+  const clean = name.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  const isPath = (file: string) => clean === file || clean.endsWith(`/${file}`);
   return (
-    run.runId === name ||
-    (name.length >= 8 && run.runId.startsWith(name)) ||
-    run.iteration === name ||
-    `${run.page}/${run.component}/${run.iteration}` === name
+    run.runId === clean ||
+    (clean.length >= 8 && run.runId.startsWith(clean)) ||
+    run.iteration === clean ||
+    `${run.page}/${run.component}/${run.iteration}` === clean ||
+    isPath(run.targetFolder) ||
+    isPath(run.promptFile)
   );
 }
 

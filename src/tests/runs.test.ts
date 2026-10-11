@@ -16,7 +16,7 @@ import {
   isPlaceholder
 } from '../runs/slots.js';
 import { revertFile } from '../runs/snapshot.js';
-import { listRuns, readRun } from '../runs/store.js';
+import { listRuns, namesRun, readRun } from '../runs/store.js';
 import type { Check, StartRunRequest, StartedRun } from '../runs/types.js';
 import { watchedPath } from '../runs/watch.js';
 import { fakeFetch, ok, refused, tempDir, type RecordedRequest } from './helpers.js';
@@ -101,6 +101,30 @@ const GENERATE: StartRunRequest = {
   kind: 'generate',
   directions: [{ direction: 'Quiet' }, { direction: 'Loud' }]
 };
+
+describe('naming a run', () => {
+  it('takes the id, its start, the iteration, the folder or the prompt file, however written', async () => {
+    const { repo, api } = await setup([started('iteration-03', RUN_A)]);
+    const [run] = await startRuns(repo, api, LINK, GENERATE);
+    for (const name of [
+      RUN_A,
+      RUN_A.slice(0, 8),
+      'iteration-03',
+      'home/hero/iteration-03',
+      'rough/home/hero/iteration-03',
+      './rough/home/hero/iteration-03/',
+      'rough\\home\\hero\\iteration-03',
+      `C:/GitHub/app/rough/home/hero/iteration-03`,
+      `rough/home/hero/prompts/${RUN_A}.md`,
+      `/home/dana/app/rough/home/hero/prompts/${RUN_A}.md`
+    ]) {
+      assert.ok(namesRun(run!, name), name);
+    }
+    for (const name of ['iteration-04', RUN_A.slice(0, 7), 'rough/home/hero', 'home/hero']) {
+      assert.ok(!namesRun(run!, name), name);
+    }
+  });
+});
 
 describe('whose change', () => {
   it('matches a file, a folder, or everything with a dot', () => {

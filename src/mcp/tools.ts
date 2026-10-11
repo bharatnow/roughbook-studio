@@ -25,7 +25,7 @@ const REPO = {
 const RUN = {
   type: 'string',
   description:
-    "The run's id from list_runs, or its iteration as <page>/<component>/iteration-NN. Optional when only one run is open."
+    "The run's id from list_runs, its iteration as <page>/<component>/iteration-NN, or its folder or prompt file. Optional when only one run is open."
 };
 
 type Found = { repoRoot: string; run: RunRecord };

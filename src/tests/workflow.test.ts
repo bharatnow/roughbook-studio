@@ -909,6 +909,9 @@ describe('roughbook mcp', () => {
 
     const before = await mcp.call('get_checks', { run: 'iteration-07' });
     assert.equal(before.json.now.passes, false);
+    // Named by its folder, as an agent with the folder in front of it does.
+    const byFolder = await mcp.call('get_checks', { run: 'rough/home/hero/iteration-07' });
+    assert.equal(byFolder.json.run, runId);
     assert.equal(
       before.json.now.failure,
       'index.tsx is still the placeholder. Is the session finished?'
