@@ -4,7 +4,9 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { antigravityCli, parseAgyLine, usesApiKey } from '../agents/antigravityCli.js';
 import { claudeCode, headlessSettings, parseClaudeLine } from '../agents/claude.js';
+import { cursorCli, parseCursorLine } from '../agents/cursorCli.js';
 import { codex, parseCodexLine } from '../agents/codex.js';
 import { antigravity, cursor, ownEditor, vscode, windsurf } from '../agents/editors.js';
 import { clipboardCommands, copyText, pipeTo } from '../launch/clipboard.js';
@@ -187,6 +189,46 @@ describe('finding agents', () => {
       'native install'
     );
     assert.equal(codex.find(lookup('linux', [])), null);
+  });
+
+  it("finds Antigravity CLI and Cursor's CLI where their installers put them", () => {
+    assert.equal(
+      antigravityCli.find(lookup('linux', ['/home/a/.local/bin/agy']))?.source,
+      'native install'
+    );
+    const agyWin = 'C:\\Users\\a\\AppData\\Local\\agy\\bin\\agy.exe';
+    assert.deepEqual(antigravityCli.find(lookup('win32', [agyWin])), {
+      command: agyWin,
+      prefixArgs: [],
+      source: 'C:\\Users\\a\\AppData\\Local\\agy\\bin'
+    });
+    assert.equal(
+      antigravityCli.find(lookup('darwin', ['/usr/local/bin/agy'], { PATH: '/usr/local/bin' }))
+        ?.source,
+      'PATH'
+    );
+    assert.equal(
+      antigravityCli.find(lookup('linux', ['/x/agy'], { ROUGHBOOK_AGY_BIN: '/x/agy' }))?.source,
+      'ROUGHBOOK_AGY_BIN'
+    );
+    assert.equal(antigravityCli.find(lookup('linux', [])), null);
+
+    assert.equal(
+      cursorCli.find(lookup('darwin', ['/Users/a/.local/bin/agent']))?.command,
+      '/Users/a/.local/bin/agent'
+    );
+    // Its earlier name still counts.
+    assert.equal(
+      cursorCli.find(lookup('linux', ['/home/a/.local/bin/cursor-agent']))?.command,
+      '/home/a/.local/bin/cursor-agent'
+    );
+    const cursorWin = 'C:\\Users\\a\\AppData\\Local\\cursor-agent\\agent.exe';
+    assert.deepEqual(cursorCli.find(lookup('win32', [cursorWin])), {
+      command: cursorWin,
+      prefixArgs: [],
+      source: 'C:\\Users\\a\\AppData\\Local\\cursor-agent'
+    });
+    assert.equal(cursorCli.find(lookup('linux', [])), null);
   });
 
   it('reports a missing agent without running anything', async () => {
@@ -376,6 +418,69 @@ describe('starting agents', () => {
     assert.equal(run.cwd, folder);
     assert.deepEqual(run.env, { CODEX_API_KEY: 'sk-test' });
     assert.match(run.stdin!, /Follow the instructions in rough\/home\/hero\/prompts\//);
+  });
+
+  it('runs Antigravity CLI headless on a Gemini API key, in its API-key mode, with no skip flag', () => {
+    const exe = { command: '/home/a/.local/bin/agy', prefixArgs: [], source: 'native install' };
+    assert.ok('refused' in antigravityCli.headless(unattended, exe, {}));
+    const run = antigravityCli.headless({ ...unattended, model: 'pro' }, exe, {
+      GEMINI_API_KEY: 'k'
+    });
+    assert.ok(!('refused' in run));
+    assert.deepEqual(run.args, [
+      '-p',
+      unattended.instruction,
+      '--output-format',
+      'stream-json',
+      '--model',
+      'pro'
+    ]);
+    assert.equal(run.cwd, '/repo');
+    assert.deepEqual(run.env, {});
+    // The key alone does nothing: agy takes it only when its settings choose the Gemini API.
+    const settings = '/home/a/.gemini/antigravity-cli/settings.json';
+    assert.equal(
+      usesApiKey(lookup('linux', [], {}, { [settings]: '{"modelProvider":"gemini"}' })),
+      true
+    );
+    assert.equal(
+      usesApiKey(lookup('linux', [], {}, { [settings]: '{"modelProvider":"antigravity"}' })),
+      false
+    );
+    const onWindows = 'C:\\Users\\a\\.gemini\\antigravity-cli\\settings.json';
+    assert.equal(usesApiKey(lookup('win32', [], {}, { [onWindows]: 'not json' })), false);
+    assert.equal(usesApiKey(lookup('linux', [])), false);
+    assert.deepEqual(antigravityCli.interactiveArgs(target), [target.instruction]);
+  });
+
+  it("runs Cursor's CLI headless on an API key only, in its sandbox, with changes applied", () => {
+    const exe = {
+      command: 'C:\\Users\\a\\AppData\\Local\\cursor-agent\\agent.exe',
+      prefixArgs: [],
+      source: 'x'
+    };
+    assert.ok('refused' in cursorCli.headless(unattended, exe, {}));
+    const run = cursorCli.headless(unattended, exe, { CURSOR_API_KEY: 'k' });
+    assert.ok(!('refused' in run));
+    assert.deepEqual(run.args, [
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--force',
+      '--trust',
+      '--sandbox',
+      'enabled',
+      '--workspace',
+      '/repo',
+      unattended.instruction
+    ]);
+    assert.equal(run.cwd, '/repo');
+    assert.deepEqual(run.env, {});
+    assert.deepEqual(cursorCli.interactiveArgs({ ...target, model: 'gpt-5' }), [
+      '--model',
+      'gpt-5',
+      target.instruction
+    ]);
   });
 
   it('opens one terminal session per run, with its one-line instruction', () => {
@@ -789,5 +894,98 @@ describe('screenshots', () => {
       await checkPreview(`http://127.0.0.1:${port}/rough-preview/x/y/iteration-01`),
       null
     );
+  });
+});
+
+describe("reading Antigravity CLI's and Cursor CLI's output", () => {
+  it('turns agy events into a session, tools, files, a message and the result with its tokens', () => {
+    assert.deepEqual(
+      parseAgyLine(
+        '{"event":"init","conversation_id":"c1","init":{"cwd":"/repo","tools":[],"permission_mode":"request-review","model":"gemini-3"}}'
+      ),
+      { event: { kind: 'session', id: 'c1' } }
+    );
+    const tool = (state: string) =>
+      `{"event":"step_update","conversation_id":"c1","step_index":2,"state":"${state}","step_type":"tool","tool_name":"write_file","tool_info":{"name":"write_file","parameters":{"path":"rough/home/hero/iteration-03/index.tsx"}}}`;
+    assert.deepEqual(parseAgyLine(tool('ACTIVE')), { event: { kind: 'tool', name: 'write_file' } });
+    assert.deepEqual(parseAgyLine(tool('DONE')), { event: { kind: 'file', name: 'index.tsx' } });
+    assert.deepEqual(
+      parseAgyLine(
+        '{"event":"step_update","state":"ACTIVE","step_type":"agent_response","text_delta":"Work"}'
+      ),
+      {}
+    );
+    assert.deepEqual(
+      parseAgyLine(
+        '{"event":"step_update","state":"DONE","step_type":"agent_response","text_delta":"Done, the hero is in place."}'
+      ),
+      { event: { kind: 'message', text: 'Done, the hero is in place.' } }
+    );
+    assert.deepEqual(
+      parseAgyLine(
+        '{"event":"result","conversation_id":"c1","status":"SUCCESS","response":"Made it.","duration_seconds":12,"num_turns":1,"usage":{"input_tokens":1000,"output_tokens":200,"thinking_tokens":50,"cache_read_tokens":300,"total_tokens":1550}}'
+      ),
+      {
+        event: { kind: 'result', ok: true, text: 'Made it.' },
+        usage: {
+          model: '',
+          inputTokens: 1000,
+          outputTokens: 200,
+          cacheReadTokens: 300,
+          cacheWriteTokens: null
+        }
+      }
+    );
+    assert.deepEqual(
+      parseAgyLine(
+        '{"event":"result","status":"ERROR","error":{"type":"auth","message":"authentication required"}}'
+      ).event,
+      { kind: 'result', ok: false, text: 'authentication required' }
+    );
+    assert.deepEqual(parseAgyLine('not json'), {});
+  });
+
+  it("turns Cursor CLI's events into a session, tools, files, a message and the result, with no tokens", () => {
+    assert.deepEqual(
+      parseCursorLine(
+        '{"type":"system","subtype":"init","session_id":"s1","model":"x","cwd":"/repo","permissionMode":"default"}'
+      ),
+      { event: { kind: 'session', id: 's1' } }
+    );
+    assert.deepEqual(
+      parseCursorLine(
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Writing the hero."}]}}'
+      ),
+      { event: { kind: 'message', text: 'Writing the hero.' } }
+    );
+    assert.deepEqual(
+      parseCursorLine(
+        '{"type":"tool_call","subtype":"started","call_id":"1","tool_call":{"readToolCall":{"args":{"path":"src/app/layout.tsx"}}}}'
+      ),
+      { event: { kind: 'tool', name: 'Read' } }
+    );
+    const write = (subtype: string) =>
+      `{"type":"tool_call","subtype":"${subtype}","call_id":"2","tool_call":{"writeToolCall":{"args":{"path":"rough/home/hero/iteration-03/index.tsx","fileText":"x"},"result":{"success":{"linesCreated":19}}}}}`;
+    assert.deepEqual(parseCursorLine(write('started')), {});
+    assert.deepEqual(parseCursorLine(write('completed')), {
+      event: { kind: 'file', name: 'index.tsx' }
+    });
+    assert.deepEqual(
+      parseCursorLine(
+        '{"type":"tool_call","subtype":"started","call_id":"3","tool_call":{"function":{"name":"grep","arguments":"{}"}}}'
+      ),
+      { event: { kind: 'tool', name: 'grep' } }
+    );
+    assert.deepEqual(
+      parseCursorLine(
+        '{"type":"result","subtype":"success","is_error":false,"duration_ms":1200,"result":"Done.","session_id":"s1"}'
+      ),
+      { event: { kind: 'result', ok: true, text: 'Done.' } }
+    );
+    assert.deepEqual(parseCursorLine('{"type":"result","subtype":"error","is_error":true}').event, {
+      kind: 'result',
+      ok: false,
+      text: null
+    });
   });
 });

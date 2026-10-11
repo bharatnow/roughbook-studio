@@ -111,7 +111,12 @@ async function install(args: string[], context: CommandContext): Promise<number>
     }
   } else {
     for (const target of MCP_TARGETS) {
-      if ((await context.detect(adapterFor(target.id))).found) targets.push(target);
+      for (const id of target.agents) {
+        if ((await context.detect(adapterFor(id))).found) {
+          targets.push(target);
+          break;
+        }
+      }
     }
     if (!targets.length) {
       throw new Error(

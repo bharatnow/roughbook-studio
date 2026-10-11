@@ -2,13 +2,15 @@ import os from 'node:os';
 import { hostPlatform } from '../launch/platform.js';
 import type { Lookup } from '../launch/which.js';
 import type { RunAgent } from '../runs/types.js';
+import { antigravityCli } from './antigravityCli.js';
 import { claudeCode } from './claude.js';
 import { codex } from './codex.js';
+import { cursorCli } from './cursorCli.js';
 import { antigravity, cursor, ownEditor, vscode, windsurf } from './editors.js';
 import type { AgentAdapter, Detection, EditorAdapter, TerminalAdapter } from './types.js';
 
-/** The terminal agents this version ships. Gemini CLI and Cursor's CLI come later in S2. */
-export const ADAPTERS: TerminalAdapter[] = [claudeCode, codex];
+/** The terminal agents, in the order `agents` lists and `run` tries them. */
+export const ADAPTERS: TerminalAdapter[] = [claudeCode, codex, antigravityCli, cursorCli];
 
 /** The editors whose own agent the designer drives, then any other editor through the OS. */
 export const EDITORS: EditorAdapter[] = [cursor, vscode, antigravity, windsurf, ownEditor];

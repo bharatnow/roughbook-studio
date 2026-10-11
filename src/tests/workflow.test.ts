@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import type { HeadlessResult } from '../agents/process.js';
+import { antigravityCli } from '../agents/antigravityCli.js';
 import { ownEditor } from '../agents/editors.js';
 import { hostLookup } from '../agents/index.js';
 import type { Detection, HeadlessInvocation } from '../agents/types.js';
@@ -1155,6 +1156,29 @@ describe('roughbook mcp', () => {
     assert.equal(studio.commands.length, 2);
     assert.ok(fs.existsSync(cursorFile));
     assert.match(studio.io.lines.at(-1)!, /^Restart each one, or reload its window/);
+  });
+
+  it("adds a CLI's server to the file its editor reads, and counts the CLI as found", async () => {
+    const studio = await setup({});
+    assert.equal(
+      await studio.run(['mcp', 'install', 'cursor-cli', 'antigravity-cli']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.ok(fs.existsSync(path.join(studio.home, '.cursor', 'mcp.json')));
+    assert.ok(fs.existsSync(path.join(studio.home, '.gemini', 'config', 'mcp_config.json')));
+
+    // With none named: a file whose CLI alone is here is written too.
+    const other = await setup({});
+    other.detections['antigravity-cli'] = {
+      ...notFound(antigravityCli),
+      found: true,
+      executable: { command: '/x/agy', prefixArgs: [], source: 'PATH' },
+      version: '1.3.3'
+    };
+    assert.equal(await other.run(['mcp', 'install']), 0, other.io.lines.join('\n'));
+    assert.ok(fs.existsSync(path.join(other.home, '.gemini', 'config', 'mcp_config.json')));
+    assert.ok(other.io.lines.some(line => line.startsWith('Antigravity: roughbook added to')));
   });
 
   it('no longer suggests installing once the editor has it', async () => {

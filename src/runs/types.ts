@@ -11,6 +11,8 @@ export type RunAgent =
   | 'claude-code'
   | 'codex'
   | 'gemini-cli'
+  | 'antigravity-cli'
+  | 'cursor-cli'
   | 'cursor'
   | 'vscode'
   | 'antigravity'

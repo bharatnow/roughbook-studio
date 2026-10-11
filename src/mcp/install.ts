@@ -24,6 +24,8 @@ export type Where = { platform: NodeJS.Platform; home: string; env: NodeJS.Proce
 type ConfigTarget = {
   id: RunAgent;
   name: string;
+  /** The agents that read this file: an editor and its CLI share one. */
+  agents: RunAgent[];
   kind: 'file';
   /** The file it reads, and any older one it may still read, written only when it exists. */
   files(where: Where): { file: string; onlyIfThere: boolean }[];
@@ -34,6 +36,7 @@ type ConfigTarget = {
 type CliTarget = {
   id: RunAgent;
   name: string;
+  agents: RunAgent[];
   kind: 'cli';
   /** Arguments that take any earlier entry away, so adding never meets one. */
   remove: string[];
@@ -55,6 +58,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
+    agents: ['claude-code'],
     kind: 'cli',
     remove: ['mcp', 'remove', '--scope', 'user', SERVER_NAME],
     add: server => [
@@ -71,6 +75,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'codex',
     name: 'Codex',
+    agents: ['codex'],
     kind: 'cli',
     remove: ['mcp', 'remove', SERVER_NAME],
     add: server => ['mcp', 'add', SERVER_NAME, '--', server.command, ...server.args]
@@ -78,6 +83,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'cursor',
     name: 'Cursor',
+    agents: ['cursor', 'cursor-cli'],
     kind: 'file',
     files: ({ platform, home }) => [
       { file: pathFor(platform).join(home, '.cursor', 'mcp.json'), onlyIfThere: false }
@@ -88,6 +94,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'vscode',
     name: 'VS Code',
+    agents: ['vscode'],
     kind: 'file',
     files: ({ platform, home, env }) => {
       const p = pathFor(platform);
@@ -105,6 +112,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'antigravity',
     name: 'Antigravity',
+    agents: ['antigravity', 'antigravity-cli'],
     kind: 'file',
     files: ({ platform, home }) => {
       const p = pathFor(platform);
@@ -119,6 +127,7 @@ export const MCP_TARGETS: McpTarget[] = [
   {
     id: 'windsurf',
     name: 'Windsurf',
+    agents: ['windsurf'],
     kind: 'file',
     files: ({ platform, home }) => [
       {
@@ -131,8 +140,9 @@ export const MCP_TARGETS: McpTarget[] = [
   }
 ];
 
+/** The target an editor or agent id names: a CLI shares its editor's file. */
 export function mcpTarget(id: string): McpTarget | null {
-  return MCP_TARGETS.find(target => target.id === id) ?? null;
+  return MCP_TARGETS.find(target => target.agents.includes(id as RunAgent)) ?? null;
 }
 
 /** Where this copy of the studio runs from: its cli script, and tsx's loader when it is source. */
