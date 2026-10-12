@@ -2,8 +2,11 @@
 // the permission rules against its permissions docs: `--permission-mode` no longer takes
 // "default", so a headless run uses "dontAsk", which refuses anything not allowed instead of
 // asking, with one allow rule for the run's folder. `--bare` makes the CLI use only an Anthropic
-// API key (ANTHROPIC_API_KEY), never a claude.ai login, which is the split plan's rule for
-// unattended runs. The stream-json field names follow its docs; check them against the first
+// API key (ANTHROPIC_API_KEY), never a claude.ai login, which is Anthropic's own rule: its legal
+// page (2026-10-11) keeps the account sign-in for ordinary use of Claude Code and other native
+// Anthropic applications, and points products that interact with Claude, the Agent SDK that `-p`
+// is included, to API keys; a designer signing in to the unmodified binary for a terminal session
+// is theirs to do. The stream-json field names follow its docs; check them against the first
 // real headless run.
 import path from 'node:path';
 import {

@@ -30,7 +30,13 @@ export type Detection = {
   signIn: string | null;
   /**
    * Whether it may run unattended here: only on the designer's own API key, never on a
-   * subscription login, until each vendor says otherwise (the split plan's rule).
+   * subscription login. That is each vendor's published position (read 2026-10-11): Anthropic
+   * reserves the Claude account sign-in for ordinary use of Claude Code itself and points
+   * products that drive it, the Agent SDK included, to API keys (code.claude.com/docs/en/legal-and-compliance);
+   * OpenAI says to use API key authentication for programmatic Codex CLI workflows
+   * (learn.chatgpt.com/docs/auth); Cursor's CLI docs set an API key for scripts; Antigravity's
+   * headless mode reads only cached credentials, and the studio takes its key mode. A terminal
+   * or editor session is the designer driving their own tool and is not affected.
    */
   headless: { ready: true } | { ready: false; reason: string };
   capabilities: Capabilities;

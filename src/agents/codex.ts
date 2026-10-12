@@ -2,8 +2,11 @@
 // --json, --sandbox workspace-write, --cd, --model, --skip-git-repo-check, and "-" for a prompt
 // on standard input. The sandbox confines writes to the working directory, so a headless run
 // works in the run's folder and is told where the repo root is. Unattended runs use the
-// designer's own API key (CODEX_API_KEY or OPENAI_API_KEY), never a ChatGPT login. No Codex CLI
-// was installed where this was written: check the event names against the first real run.
+// designer's own API key (CODEX_API_KEY or OPENAI_API_KEY), never a ChatGPT login: OpenAI's
+// auth page (2026-10-11) says to use API key authentication for programmatic Codex CLI
+// workflows, with the plan's access tokens meant for an Enterprise workspace's own runners. No
+// Codex CLI was installed where this was written: check the event names against the first real
+// run.
 import path from 'node:path';
 import { findInstalled, findNpmScript, findOnPath, fromEnv } from '../launch/which.js';
 import { count, record, runCommand } from './command.js';
