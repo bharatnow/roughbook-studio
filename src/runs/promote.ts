@@ -49,8 +49,21 @@ export function pascalCase(text: string): string {
   return /^[A-Za-z]/.test(name) ? name : `Section${name}`;
 }
 
-export function defaultComponentFile(componentsDir: string, componentName: string): string {
-  return `${componentsDir}/${pascalCase(componentName)}.tsx`;
+/**
+ * Where a promoted component goes when --to does not say: the project's components folder. One
+ * under `src/` in a repo laid out as create-next-app's default, with `app/` at its root and no
+ * `src/`, moves to the root: `src/components` becomes `components`.
+ */
+export function defaultComponentFile(
+  componentsDir: string,
+  componentName: string,
+  isFolder: (relative: string) => boolean
+): string {
+  const dir =
+    componentsDir.startsWith('src/') && !isFolder('src') && isFolder('app')
+      ? componentsDir.slice('src/'.length)
+      : componentsDir;
+  return `${dir}/${pascalCase(componentName)}.tsx`;
 }
 
 /** A component path inside the repo, outside rough/ and the public folder; the problem, or null. */
@@ -188,7 +201,13 @@ export async function preparePromotion(
 
   const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir);
   const targetFile = (
-    options.targetFile ?? defaultComponentFile(tree.delivery.componentsDir, record.name)
+    options.targetFile ??
+    defaultComponentFile(
+      tree.delivery.componentsDir,
+      record.name,
+      folder =>
+        fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
+    )
   ).replace(/\\/g, '/');
   const problem = checkTargetFile(targetFile, publicDir);
   if (problem) throw new Error(problem);

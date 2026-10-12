@@ -22,7 +22,12 @@ import type { Executable } from '../launch/which.js';
 import { serverCommand, thisStudio } from '../mcp/install.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
-import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
+import {
+  checkTargetFile,
+  defaultComponentFile,
+  fillInPrompt,
+  referencedAssets
+} from '../runs/promote.js';
 import { importedPackages, withClientDirective } from '../runs/pull.js';
 import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
@@ -1535,6 +1540,45 @@ describe('roughbook promote', () => {
       new RegExp(`Promote Hero.*Follow the instructions in ${promptFile}`)
     );
     assert.ok(studio.io.lines.some(line => /mark\.svg is not in the library/.test(line)));
+  });
+
+  it("writes to components/ in create-next-app's layout, with app/ at the root and no src/", async () => {
+    const folders =
+      (...names: string[]) =>
+      (folder: string) =>
+        names.includes(folder);
+    assert.equal(
+      defaultComponentFile('src/components', 'hero', folders('src', 'app')),
+      'src/components/Hero.tsx'
+    );
+    assert.equal(
+      defaultComponentFile('src/components', 'hero', folders('app')),
+      'components/Hero.tsx'
+    );
+    assert.equal(
+      defaultComponentFile('src/components/sections', 'hero', folders('app')),
+      'components/sections/Hero.tsx'
+    );
+    // Without app/ at the root, the layout is not one to guess at.
+    assert.equal(
+      defaultComponentFile('src/components', 'hero', folders()),
+      'src/components/Hero.tsx'
+    );
+    assert.equal(defaultComponentFile('ui', 'hero', folders('app')), 'ui/Hero.tsx');
+
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () => ok(promotion, 201),
+      [`GET ${PROJECT}/files/project/hero.png`]: () => ({ status: 200, text: 'PNG-BYTES' })
+    });
+    fs.rmSync(path.join(studio.repo, 'src'), { recursive: true });
+    write(studio.repo, 'app/page.tsx', 'export default function Page() { return null; }\n');
+    write(studio.repo, 'rough/home/hero/iteration-02/index.tsx', 'export default () => null;\n');
+    assert.equal(await studio.run(['promote', 'home/hero']), 0, studio.io.errors.join('\n'));
+    assert.match(
+      read(studio.repo, `rough/home/hero/prompts/promote-${PROMOTION}.md`),
+      /^Write: components\/Hero\.tsx\nRead components near components\/\n/
+    );
   });
 
   it('never overwrites the app, and needs a selected iteration or a named one', async () => {
