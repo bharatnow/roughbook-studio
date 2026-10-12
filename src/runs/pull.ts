@@ -48,6 +48,21 @@ export type PullResult = {
   needsTailwind: boolean;
 };
 
+/** Comments and blank lines before a file's first statement, where a directive must stand. */
+const LEADING_COMMENTS = /^(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*/;
+
+/**
+ * A web sketch runs in the browser: the sandbox renders it on the client. In the Next.js App
+ * Router the preview route imports `index.tsx` as a server component unless the file says
+ * otherwise, and a sketch with state, effects or motion would fail there. So the pulled entry
+ * starts with `"use client";` when it does not already.
+ */
+export function withClientDirective(file: string, text: string): string {
+  if (file !== 'index.tsx') return text;
+  const first = text.replace(LEADING_COMMENTS, '');
+  return /^(['"])use client\1/.test(first) ? text : `"use client";\n${text}`;
+}
+
 /**
  * The sketch's asset URLs, which load beside the sandbox's page, made absolute on the studio's
  * server, where local iterations load the project's and library's files.
@@ -194,7 +209,7 @@ export async function pullSketch(
         const text = TEXT_FILE.test(file.path)
           ? localAssetUrls(file.content, options.assetOrigin)
           : file.content;
-        fs.writeFileSync(to, text.replace(/\r\n/g, '\n'));
+        fs.writeFileSync(to, withClientDirective(file.path, text).replace(/\r\n/g, '\n'));
       }
     }
   } catch (error) {

@@ -82,6 +82,9 @@ Rules for any agent working here:
 - An iteration never imports from another iteration. It may import the app's
   own components, styles and utilities.
 - Nothing outside rough/ imports from rough/.
+- \`index.tsx\` renders inside the app's own pages, as a server component in the
+  Next.js App Router. If it uses state, effects, event handlers, browser APIs or
+  animation hooks, its first line is \`"use client";\`.
 - Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
@@ -133,6 +136,27 @@ function read(repo: string, file: string): string | null {
   } catch {
     return null;
   }
+}
+
+const NEXT_CONFIGS = [
+  'next.config.ts',
+  'next.config.mts',
+  'next.config.js',
+  'next.config.mjs',
+  'next.config.cjs'
+];
+
+/**
+ * Whether the app's Next.js config turns Cache Components on, as `create-next-app` does from
+ * Next.js 16.4. Read as text, so a config that computes the flag reads as off; the preview route
+ * then still renders, with an error logged on each request.
+ */
+export function usesCacheComponents(repo: string): boolean {
+  for (const name of NEXT_CONFIGS) {
+    const text = read(repo, name);
+    if (text !== null) return /^\s*cacheComponents\s*:\s*true\b/m.test(text);
+  }
+  return false;
 }
 
 /** JSON with comments and trailing commas, as tsconfig and .eslintrc allow, made parseable. */
@@ -492,7 +516,9 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     const routeDir = previewRouteDir(appDir);
     ignoredFromBuild.push(routeDir);
     gitWanted.push(`/${routeDir}/`);
-    for (const route of previewRouteFiles(appDir)) {
+    for (const route of previewRouteFiles(appDir, {
+      cacheComponents: usesCacheComponents(root)
+    })) {
       const current = read(root, route.file);
       if (current === route.content) continue;
       if (current !== null && !isOurPreviewFile(current)) {

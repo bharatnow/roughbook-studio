@@ -23,7 +23,7 @@ import { serverCommand, thisStudio } from '../mcp/install.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
-import { importedPackages } from '../runs/pull.js';
+import { importedPackages, withClientDirective } from '../runs/pull.js';
 import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
 import type { RunRecord, StartedRun } from '../runs/types.js';
@@ -1311,6 +1311,20 @@ describe('roughbook pull', () => {
   const pulled = (iteration: string, files: unknown[] = SKETCH_FILES) =>
     ok({ iteration, parent: 'iteration-03', files }, 201);
 
+  it('marks a pulled entry as a client component once, and leaves every other file alone', () => {
+    const body = 'export default function Hero() {\n  return null;\n}\n';
+    assert.equal(withClientDirective('index.tsx', body), `"use client";\n${body}`);
+    for (const already of [
+      `'use client';\n${body}`,
+      `"use client"\n${body}`,
+      `// A note first.\n/* And a block. */\n"use client";\n${body}`
+    ]) {
+      assert.equal(withClientDirective('index.tsx', already), already);
+    }
+    assert.equal(withClientDirective('parts/badge.tsx', body), body);
+    assert.equal(withClientDirective('styles.css', '.a {}\n'), '.a {}\n');
+  });
+
   it('names the packages code imports, each once', () => {
     assert.deepEqual(
       importedPackages([
@@ -1378,6 +1392,8 @@ describe('roughbook pull', () => {
         'src="http://127.0.0.1:4848/api/files/project/site/hero.png"'
       )
     );
+    // A sketch runs in the browser, so its entry comes in as a client component.
+    assert.match(read(studio.repo, `${folder}/index.tsx`), /^"use client";\nimport \{ motion \}/);
     assert.equal(
       read(studio.repo, `${folder}/styles.css`),
       '.mark { background: url(http://127.0.0.1:4848/api/files/library/mark.svg); }\n'

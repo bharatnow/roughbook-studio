@@ -45,10 +45,31 @@ export function previewUrl(
   return `${devUrl.replace(/\/$/, '')}/${PREVIEW_ROUTE}/${page}/${component}/${iteration}`;
 }
 
-/** The route's two files. Imports climb from <app>/rough-preview/[...slug]/ to the repo root. */
-export function previewRouteFiles(appDir: string): { file: string; content: string }[] {
+/**
+ * The route's two files. Imports climb from <app>/rough-preview/[...slug]/ to the repo root.
+ *
+ * With Cache Components on (Next.js 16's default for new apps), a page that reads `params`
+ * outside Suspense is an error on every request, and the dev overlay's badge would show in
+ * screenshots. The page then says it may wait for the request (`instant = false`), which keeps
+ * real status codes: 404 for a missing iteration and 500 for a broken one, which the screenshot
+ * step reads. Without Cache Components, Next.js refuses that line and the whole app fails to
+ * compile, so it is written only when the app's config turns them on.
+ */
+export function previewRouteFiles(
+  appDir: string,
+  options: { cacheComponents?: boolean } = {}
+): { file: string; content: string }[] {
   const up = '../'.repeat(appDir.split('/').length + 2);
   const dir = `${previewRouteDir(appDir)}/[...slug]`;
+  const blocking = options.cacheComponents
+    ? [
+        '',
+        '// This app has Cache Components on: the preview waits for the request, so a missing',
+        '// iteration still answers 404 and a broken one 500.',
+        'export const instant = false;',
+        ''
+      ].join('\n')
+    : '';
   return [
     {
       file: `${dir}/page.tsx`,
@@ -58,7 +79,7 @@ export function previewRouteFiles(appDir: string): { file: string; content: stri
 /// <reference types="node" />
 import { notFound } from "next/navigation";
 import { Ready } from "./ready";
-
+${blocking}
 export default async function RoughPreview({ params }: { params: Promise<{ slug: string[] }> }) {
   // The bundler drops this branch from production builds, so nothing in ${ROUGH_DIR}/ is ever built for production.
   const registry = process.env.NODE_ENV === "development" ? await import("${up}${ROUGH_DIR}/preview-registry") : null;

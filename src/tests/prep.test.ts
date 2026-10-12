@@ -9,7 +9,8 @@ import {
   planGitignore,
   planPrep,
   planTsconfig,
-  stripJsonc
+  stripJsonc,
+  usesCacheComponents
 } from '../repo/prep.js';
 import {
   listIterations,
@@ -158,6 +159,37 @@ describe('preparing a repo', () => {
 
     const again = planPrep(repo, { link: LINK });
     assert.deepEqual(again.changes, []);
+  });
+
+  it('lets the preview wait for the request when the app turns Cache Components on, as create-next-app 16.4 does', async () => {
+    const repo = await tempRepo({
+      'package.json': '{ "dependencies": { "next": "16.4.0" } }',
+      'next.config.ts':
+        'import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {\n  cacheComponents: true,\n  partialPrefetching: true,\n};\n\nexport default nextConfig;\n',
+      'app/layout.tsx': 'export default function L() { return null; }\n'
+    });
+    assert.equal(usesCacheComponents(repo), true);
+    applyPrep(planPrep(repo, { link: LINK }));
+    assert.match(
+      read(repo, 'app/rough-preview/[...slug]/page.tsx'),
+      /^export const instant = false;$/m
+    );
+    assert.match(read(repo, 'rough/AGENTS.md'), /its first line is `"use client";`/);
+    assert.deepEqual(planPrep(repo, { link: LINK }).changes, []);
+
+    // Turned off again, the next init takes the line out, since Next.js would refuse it.
+    fs.writeFileSync(
+      path.join(repo, 'next.config.ts'),
+      'export default { cacheComponents: false };\n'
+    );
+    assert.equal(usesCacheComponents(repo), false);
+    const off = planPrep(repo, { link: LINK });
+    assert.deepEqual(
+      off.changes.map(change => [change.file, change.summary]),
+      [['app/rough-preview/[...slug]/page.tsx', 'Update the preview route.']]
+    );
+    applyPrep(off);
+    assert.doesNotMatch(read(repo, 'app/rough-preview/[...slug]/page.tsx'), /instant/);
   });
 
   it('ignores all of rough/ when it is not committed, and says so in its README', async () => {
@@ -328,6 +360,13 @@ describe('previews', () => {
     const [page, ready] = previewRouteFiles('app');
     assert.equal(page!.file, 'app/rough-preview/[...slug]/page.tsx');
     assert.match(page!.content, /await import\("\.\.\/\.\.\/\.\.\/rough\/preview-registry"\)/);
+    // Next.js refuses `instant` without Cache Components, and needs it with them.
+    assert.doesNotMatch(page!.content, /instant/);
+    const [cached] = previewRouteFiles('app', { cacheComponents: true });
+    assert.match(
+      cached!.content,
+      /import \{ Ready \} from "\.\/ready";\n\n\/\/ This app has Cache Components on[^\n]*\n[^\n]*\nexport const instant = false;\n\nexport default async function RoughPreview/
+    );
     assert.match(ready!.content, /^"use client";/);
     assert.match(ready!.content, /postMessage\(\{ roughbook: "ready", id \}, "\*"\)/);
     assert.equal(
