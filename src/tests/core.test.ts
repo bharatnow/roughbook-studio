@@ -220,7 +220,14 @@ describe('the API client', () => {
     await assert.rejects(
       api(fakeFetch(() => 'offline').fetch).request('GET', '/projects'),
       (error: unknown) =>
-        error instanceof OfflineError && /ROUGHBOOK_SERVER/.test(describeError(error))
+        error instanceof OfflineError &&
+        describeError(error) ===
+          'Could not reach http://localhost:4000. Check your connection, or set ROUGHBOOK_SERVER. To use a Roughbook site, sign in with the command on its Install page: roughbook login --server <url>.'
+    );
+    // A server someone chose is the right one; only the default points at the Install page.
+    assert.equal(
+      describeError(new OfflineError('https://api.roughbook.example')),
+      'Could not reach https://api.roughbook.example. Check your connection, or set ROUGHBOOK_SERVER.'
     );
   });
 });
