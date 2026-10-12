@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -15,7 +17,13 @@ import { runHeadless } from '../agents/process.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import type { TerminalAdapter } from '../agents/types.js';
 import type { Probe } from '../launch/platform.js';
-import { manualCommand, planTerminal, sessionScript, type Session } from '../launch/terminal.js';
+import {
+  HOLD_ON_ERROR,
+  manualCommand,
+  planTerminal,
+  sessionScript,
+  type Session
+} from '../launch/terminal.js';
 import type { Lookup } from '../launch/which.js';
 import {
   EMULATED_MEDIA,
@@ -700,6 +708,8 @@ describe('terminals on every OS', () => {
 
   it('Linux: $TERMINAL first, then the usual terminals, each told the folder its own way', () => {
     const env = { PATH: '/usr/bin' };
+    // Every terminal runs the session under the fixed script that holds a failed exit open.
+    const held = ['/bin/sh', '-c', HOLD_ON_ERROR, 'roughbook', session.command, ...session.args];
     const gnome = planTerminal({
       platform: 'linux',
       env,
@@ -713,10 +723,35 @@ describe('terminals on every OS', () => {
       '--working-directory',
       '/repo',
       '--',
-      session.command,
-      ...session.args
+      ...held
     ]);
     const xterm = planTerminal({
+      platform: 'linux',
+      env,
+      repoRoot: '/repo',
+      sessions: [session],
+      probe: probe(['/usr/bin/xterm'])
+    });
+    assert.deepEqual(xterm.kind === 'spawn' && xterm.launches[0], {
+      command: '/usr/bin/xterm',
+      args: ['-T', 'hero iteration-03', '-e', ...held],
+      cwd: '/repo'
+    });
+    for (const name of ['konsole', 'alacritty', 'wezterm', 'kitty']) {
+      const plan = planTerminal({
+        platform: 'linux',
+        env: { ...env, TERMINAL: name },
+        repoRoot: '/repo',
+        sessions: [session],
+        probe: probe([`/usr/bin/${name}`])
+      });
+      assert.deepEqual(
+        plan.kind === 'spawn' && plan.launches[0]!.args.slice(-held.length),
+        held,
+        name
+      );
+    }
+    const konsole = planTerminal({
       platform: 'linux',
       env,
       repoRoot: '/repo',
@@ -724,7 +759,7 @@ describe('terminals on every OS', () => {
       probe: probe(['/usr/bin/xterm', '/usr/bin/konsole'])
     });
     assert.equal(
-      xterm.kind === 'spawn' && path.posix.basename(xterm.launches[0]!.command),
+      konsole.kind === 'spawn' && path.posix.basename(konsole.launches[0]!.command),
       'konsole'
     );
     const kitty = planTerminal({
@@ -751,6 +786,27 @@ describe('terminals on every OS', () => {
       'manual'
     );
   });
+
+  it(
+    'Linux: the script keeps a failed session open until Enter, and lets a finished one close',
+    { skip: existsSync('/bin/sh') ? false : 'no /bin/sh here' },
+    () => {
+      const hold = (...program: string[]) =>
+        spawnSync('/bin/sh', ['-c', HOLD_ON_ERROR, 'roughbook', ...program], {
+          input: '\n',
+          encoding: 'utf8'
+        });
+      // A quote and a $ in an argument stay text: the script never reads them as shell.
+      const failed = hold('/bin/sh', '-c', 'echo "said $1"; exit 3', 'agent', "it's $HOME");
+      assert.equal(failed.status, 3);
+      assert.equal(
+        failed.stdout,
+        "said it's $HOME\n\nsh exited with code 3. Press Enter to close this window.\n"
+      );
+      const finished = hold('/bin/sh', '-c', 'echo done');
+      assert.deepEqual([finished.status, finished.stdout], [0, 'done\n']);
+    }
+  );
 
   it('refuses anything a terminal could misread, and gives the command to paste', () => {
     const quoted = planTerminal({

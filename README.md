@@ -180,7 +180,8 @@ run it again after moving Node. A run's prompt ends by telling the agent to call
 
 A terminal agent's run opens it in a terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and
-`$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole or xterm on Linux; otherwise it prints
+`$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole or xterm on Linux, where the window
+stays open with the exit code until Enter when the agent fails; otherwise it prints
 the command to paste. `--headless` runs the agent unattended, only with your own API key: `ANTHROPIC_API_KEY` for Claude Code, `CODEX_API_KEY` or `OPENAI_API_KEY` for Codex, `GEMINI_API_KEY` for Antigravity CLI (which takes it only with `"modelProvider": "gemini"` in `~/.gemini/antigravity-cli/settings.json`), `CURSOR_API_KEY` for Cursor's CLI. The key, not the login, because that is what each vendor publishes: Anthropic keeps the Claude account sign-in for ordinary use of Claude Code itself and points products that drive it to API keys ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)); OpenAI says to use an API key for programmatic Codex CLI workflows ([authentication](https://learn.chatgpt.com/docs/auth)); Cursor's CLI docs set one for scripts. A terminal or editor session is you driving your own tool, on whatever sign-in it has. Claude Code and Codex are confined to the run's folder by their own permissions; agy writes in the workspace and runs no commands; Cursor's CLI applies its changes with its shell in its sandbox; the studio's snapshot covers all four. Token counts are reported where the CLI gives them, which Cursor's does not. `done` takes desktop and phone screenshots
 through the app's dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`) with
 Chrome, Chromium or Edge (`ROUGHBOOK_BROWSER` names another), into `rough/.screenshots/`. It asks

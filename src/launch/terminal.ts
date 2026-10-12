@@ -1,10 +1,10 @@
 // Opens a terminal in the repo running an agent with its one-line instruction: a terminal
 // session the designer watches and steers. Windows uses Windows Terminal (one tab per session)
 // or a console window; macOS opens Terminal, or iTerm when ROUGHBOOK_TERMINAL=iterm; Linux tries
-// $TERMINAL, then x-terminal-emulator, GNOME Terminal, Konsole and xterm. Where none can be
-// opened, the plan says so and gives the command to paste. Planning is pure; launching is the
-// only side effect. Ported and extended from roughbook runner/terminal.ts (v2-local), which was
-// Windows only.
+// $TERMINAL, then x-terminal-emulator, GNOME Terminal, Konsole and xterm, and keeps the window
+// open when the agent fails. Where none can be opened, the plan says so and gives the command to
+// paste. Planning is pure; launching is the only side effect. Ported and extended from roughbook
+// runner/terminal.ts (v2-local), which was Windows only.
 import { spawn } from 'node:child_process';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -84,9 +84,26 @@ export function findWindowsTerminal(
   return candidates.find(candidate => probe.exists(candidate)) ?? null;
 }
 
+/**
+ * Linux terminals close the moment their program exits, taking what it printed with them, so
+ * each session runs under this fixed script: after a failed exit it names the code and keeps the
+ * window open until Enter. The session's command and arguments reach it as "$@", never as shell
+ * text. The trap keeps a Ctrl+C from ending the script while the agent handles it.
+ */
+export const HOLD_ON_ERROR = [
+  'trap : INT',
+  '"$@"',
+  'code=$?',
+  'if [ "$code" -ne 0 ]; then',
+  `  printf '\\n%s exited with code %s. Press Enter to close this window.\\n' "\${1##*/}" "$code"`,
+  '  read -r line',
+  'fi',
+  'exit "$code"'
+].join('\n');
+
 /** How each Linux terminal is told the folder and the program; most take xterm's -e. */
 function linuxArgs(terminal: string, repoRoot: string, session: Session): string[] {
-  const program = [session.command, ...session.args];
+  const program = ['/bin/sh', '-c', HOLD_ON_ERROR, 'roughbook', session.command, ...session.args];
   switch (path.posix.basename(terminal)) {
     case 'gnome-terminal':
       return ['--title', session.title, '--working-directory', repoRoot, '--', ...program];
