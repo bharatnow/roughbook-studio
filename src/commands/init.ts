@@ -22,6 +22,24 @@ type InitOptions = {
 /** The lines of an edit shown under it, at most this many. */
 const SHOWN_LINES = 12;
 
+/**
+ * The choice an answer to "Which project?" names: its number, or its name, slug or whole line in
+ * any case; "n", or the new choice's own words, for a new project. Null when it names none.
+ */
+function answered(all: Choice[], answer: string): Choice | 'new' | null {
+  const text = answer.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (text === 'n') return 'new';
+  if (/^\d+$/.test(text)) return all[Number(text) - 1] ?? null;
+  const named = all.filter(choice =>
+    [choice.name, choice.slug, `${choice.name} (${choice.slug})`].some(
+      label => label.toLowerCase() === text
+    )
+  );
+  if (named.length > 1) throw new Error(`Several projects are called ${answer}. Type its number.`);
+  if (named.length) return named[0]!;
+  return /^(a )?new( project)?$/.test(text) ? 'new' : null;
+}
+
 async function chooseProject(
   api: StudioApi,
   io: Io,
@@ -87,13 +105,21 @@ async function chooseProject(
   if (answer === null) {
     throw new Error('Pass --project <slug> or --new <name> when nobody can answer questions.');
   }
-  if (/^n(ew)?$/i.test(answer)) {
+  const chosen = answered(all, answer);
+  if (chosen === 'new') {
     const name = await io.ask('Name of the new project: ');
     if (!name) throw new Error('A new project needs a name.');
-    return create(await pickOrg(), name);
+    const org = await pickOrg();
+    if (!(await confirm(io, `Create a new project called "${name}" in ${org.name}?`, true))) {
+      throw new Error('No project was created. Run roughbook init again to choose one.');
+    }
+    return create(org, name);
   }
-  const chosen = all[Number(answer) - 1];
-  if (!chosen) throw new Error(`There is no choice ${answer}.`);
+  if (!chosen) {
+    throw new Error(
+      `There is no choice ${answer}. Answer with a project's number, name or slug, or n for a new project.`
+    );
+  }
   return chosen;
 }
 

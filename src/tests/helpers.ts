@@ -34,17 +34,26 @@ export async function tempDir(prefix = 'roughbook-'): Promise<string> {
   return dir;
 }
 
-export type RecordingIo = Io & { lines: string[]; errors: string[]; answers: (string | null)[] };
+export type RecordingIo = Io & {
+  lines: string[];
+  errors: string[];
+  questions: string[];
+  answers: (string | null)[];
+};
 
-/** Records what a command writes, and answers its questions from `answers` in order. */
+/** Records what a command writes and asks, and answers its questions from `answers` in order. */
 export function recordingIo(answers: (string | null)[] = []): RecordingIo {
   const io: RecordingIo = {
     lines: [],
     errors: [],
+    questions: [],
     answers: [...answers],
     out: line => void io.lines.push(line),
     err: line => void io.errors.push(line),
-    ask: async () => (io.answers.length ? (io.answers.shift() ?? null) : null)
+    ask: async question => {
+      io.questions.push(question);
+      return io.answers.length ? (io.answers.shift() ?? null) : null;
+    }
   };
   return io;
 }

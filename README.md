@@ -40,7 +40,8 @@ its own copy and asks before fetching each new one.
 | `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                                                                                                                                                                                                     |
 | `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                                                                                                                                                                                                      |
 
-`init` asks which project the repo works on (or `--project <slug>`, `--new <name>`, with
+`init` asks which project the repo works on, by its number, name or slug, or `n` for a new one,
+whose name it shows back before creating it (or `--project <slug>`, `--new <name>`, with
 `--org <id>` when two organizations share a slug) and whether to commit `rough/` (`--commit`, the
 default, or `--no-commit`); `--yes` applies without asking. `--scratch <dir>` first makes a minimal
 Next.js 16 app with Tailwind v4 and a git repository there. It then:

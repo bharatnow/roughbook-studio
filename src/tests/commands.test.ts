@@ -318,6 +318,74 @@ describe('roughbook init', () => {
     assert.match(io.errors.join(' '), /no package\.json/);
   });
 
+  it('takes a choice by its name or slug in any case, and names a new project before making it', async () => {
+    const { configDir, io, run } = await setup();
+    await signedIn(configDir);
+    const api = backend({
+      'GET /projects': projects,
+      [`POST /orgs/${ORG}/projects`]: request =>
+        ok({ slug: (request.body as { name: string }).name.toLowerCase().replace(/ /g, '-') }, 201),
+      [`POST /orgs/${ORG}/links`]: request =>
+        ok(
+          {
+            linkId: 'link-5',
+            org: { id: ORG, name: 'Acme' },
+            project: { slug: (request.body as { project: string }).project, name: 'Any' }
+          },
+          201
+        )
+    });
+    /** Runs init in a new repo with these answers, and says which project it linked. */
+    const linked = async (answers: string[]) => {
+      io.answers.push(...answers);
+      const repo = await nextRepo();
+      const code = await run(['init'], repo, api.fetch);
+      const file = path.join(repo, 'rough', 'roughbook.json');
+      const project = fs.existsSync(file)
+        ? JSON.parse(fs.readFileSync(file, 'utf8')).project
+        : null;
+      return { code, project };
+    };
+    const created = () =>
+      api.requests.filter(
+        request => request.method === 'POST' && request.url.endsWith('/projects')
+      );
+
+    assert.deepEqual(await linked(['LANDING', '', '']), { code: 0, project: 'landing' });
+    assert.deepEqual(await linked(['  site ', '', '']), { code: 0, project: 'site' });
+    assert.deepEqual(await linked(['Landing (landing)', '', '']), { code: 0, project: 'landing' });
+
+    // The new choice by its own words, as the walk-through typed it: the name is asked, then
+    // shown back, and nothing is made until that is confirmed.
+    io.questions.length = 0;
+    assert.deepEqual(await linked(['A new project', 'A new project', 'n']), {
+      code: 1,
+      project: null
+    });
+    assert.deepEqual(io.questions, [
+      'Project: ',
+      'Name of the new project: ',
+      'Create a new project called "A new project" in Acme? [Y/n] '
+    ]);
+    assert.match(io.errors.join(' '), /No project was created/);
+    assert.equal(created().length, 0);
+
+    assert.deepEqual(await linked(['n', 'Glaze Shop', '', '', '']), {
+      code: 0,
+      project: 'glaze-shop'
+    });
+    assert.deepEqual(
+      created().map(request => request.body),
+      [{ name: 'Glaze Shop' }]
+    );
+
+    assert.deepEqual(await linked(['Pottery']), { code: 1, project: null });
+    assert.match(
+      io.errors.at(-1)!,
+      /There is no choice Pottery\. Answer with a project's number, name or slug, or n/
+    );
+  });
+
   it('starts a scratch Next.js app and prepares it', async () => {
     const { configDir, io, run } = await setup();
     await signedIn(configDir);
