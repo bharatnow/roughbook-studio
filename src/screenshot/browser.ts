@@ -48,6 +48,18 @@ export const SETTLED = `new Promise(function (resolve) {
   })();
 })`;
 
+/**
+ * Browsers follow the OS's own reduced-motion setting (Windows' "Animation effects" off) and its
+ * colour scheme, so the same iteration would be photographed differently on each machine: without
+ * its entrance, or with a dark app body (create-next-app's, in dark mode) as a black band below a
+ * short iteration. Full motion, waited out by SETTLED, and the light scheme show every iteration
+ * the same, wherever it is taken.
+ */
+export const EMULATED_MEDIA = [
+  { name: 'prefers-reduced-motion', value: 'no-preference' },
+  { name: 'prefers-color-scheme', value: 'light' }
+];
+
 export type ScreenshotSize = { width: number; height: number; mobile: boolean };
 export const SIZES = {
   desktop: { width: 1440, height: 900, mobile: false },
@@ -212,14 +224,7 @@ export async function takeScreenshot({
         { width: size.width, height: size.height, deviceScaleFactor: 1, mobile: size.mobile },
         sessionId
       );
-      // Browsers follow the OS's own reduced-motion setting (Windows' "Animation effects" off),
-      // so the same iteration would be photographed differently on each machine. Full motion,
-      // waited out below, shows every iteration settled as designed, wherever it is taken.
-      await pipe.send(
-        'Emulation.setEmulatedMedia',
-        { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] },
-        sessionId
-      );
+      await pipe.send('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA }, sessionId);
       await pipe.send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_SETUP }, sessionId);
       const loaded = pipe.event('Page.loadEventFired', sessionId);
       await pipe.send('Page.navigate', { url }, sessionId);

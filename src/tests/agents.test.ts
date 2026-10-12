@@ -17,7 +17,13 @@ import type { TerminalAdapter } from '../agents/types.js';
 import type { Probe } from '../launch/platform.js';
 import { manualCommand, planTerminal, sessionScript, type Session } from '../launch/terminal.js';
 import type { Lookup } from '../launch/which.js';
-import { PAGE_SETUP, SETTLED, browserArgs, findBrowser } from '../screenshot/browser.js';
+import {
+  EMULATED_MEDIA,
+  PAGE_SETUP,
+  SETTLED,
+  browserArgs,
+  findBrowser
+} from '../screenshot/browser.js';
 import { checkPreview, previewProblem, screenshotIteration } from '../screenshot/iteration.js';
 import type { RunRecord } from '../runs/types.js';
 
@@ -806,6 +812,13 @@ describe('screenshots', () => {
     assert.match(SETTLED, /getAnimations\(\)/);
     assert.match(SETTLED, /isFinite\(end\)/, 'an endless animation never holds the shot');
     assert.match(SETTLED, /waited > 26000/, 'every wait has a cap');
+  });
+
+  it("photographs with full motion and the light scheme, whatever the machine's own settings", () => {
+    assert.deepEqual(EMULATED_MEDIA, [
+      { name: 'prefers-reduced-motion', value: 'no-preference' },
+      { name: 'prefers-color-scheme', value: 'light' }
+    ]);
   });
 
   it('takes desktop and phone screenshots through the preview route, into rough/.screenshots/', async () => {
