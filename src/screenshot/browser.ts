@@ -12,6 +12,42 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
+/**
+ * Runs in the page before its own scripts: notes the preview route's ready message (its `Ready`
+ * posts to the parent, which is the page itself when nothing frames it), and hides Next.js's dev
+ * overlay, whose badge would otherwise sit in the corner of every shot.
+ */
+export const PAGE_SETUP = `addEventListener('message', function (event) {
+  if (event.data && event.data.roughbook === 'ready') window.__roughbookReady = true;
+});
+addEventListener('DOMContentLoaded', function () {
+  var style = document.createElement('style');
+  style.textContent = 'nextjs-portal { display: none !important; }';
+  document.head.appendChild(style);
+});`;
+
+/**
+ * Resolves once the iteration has rendered and settled: the ready message has come (the page has
+ * hydrated, which in a dev server compiling on first request can take seconds), and no finite
+ * animation is still running, so text that fades in is in the shot. Each wait has a cap, so a page
+ * without the route's ready message, or with an endless animation, is photographed anyway.
+ */
+export const SETTLED = `new Promise(function (resolve) {
+  var start = Date.now();
+  function moving() {
+    return document.getAnimations().some(function (animation) {
+      var end = animation.effect && animation.effect.getComputedTiming().endTime;
+      return animation.playState === 'running' && typeof end === 'number' && isFinite(end);
+    });
+  }
+  (function check() {
+    var waited = Date.now() - start;
+    var ready = window.__roughbookReady === true || waited > 20000;
+    if (ready && (!moving() || waited > 26000)) resolve(true);
+    else setTimeout(check, 100);
+  })();
+})`;
+
 export type ScreenshotSize = { width: number; height: number; mobile: boolean };
 export const SIZES = {
   desktop: { width: 1440, height: 900, mobile: false },
@@ -176,16 +212,27 @@ export async function takeScreenshot({
         { width: size.width, height: size.height, deviceScaleFactor: 1, mobile: size.mobile },
         sessionId
       );
+      // Browsers follow the OS's own reduced-motion setting (Windows' "Animation effects" off),
+      // so the same iteration would be photographed differently on each machine. Full motion,
+      // waited out below, shows every iteration settled as designed, wherever it is taken.
+      await pipe.send(
+        'Emulation.setEmulatedMedia',
+        { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] },
+        sessionId
+      );
+      await pipe.send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_SETUP }, sessionId);
       const loaded = pipe.event('Page.loadEventFired', sessionId);
       await pipe.send('Page.navigate', { url }, sessionId);
       await loaded;
-      // Fonts, then a moment for client-side rendering to settle.
+      // Fonts, then hydration and any entrance animation, then a moment for what animates
+      // outside the Web Animations API (Motion's transforms run on requestAnimationFrame).
       await pipe.send(
         'Runtime.evaluate',
         { expression: 'document.fonts.ready.then(() => true)', awaitPromise: true },
         sessionId
       );
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await pipe.send('Runtime.evaluate', { expression: SETTLED, awaitPromise: true }, sessionId);
+      await new Promise(resolve => setTimeout(resolve, 700));
       const { data } = await pipe.send<{ data: string }>(
         'Page.captureScreenshot',
         { format: 'png' },

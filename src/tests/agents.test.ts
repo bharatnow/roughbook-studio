@@ -17,7 +17,7 @@ import type { TerminalAdapter } from '../agents/types.js';
 import type { Probe } from '../launch/platform.js';
 import { manualCommand, planTerminal, sessionScript, type Session } from '../launch/terminal.js';
 import type { Lookup } from '../launch/which.js';
-import { browserArgs, findBrowser } from '../screenshot/browser.js';
+import { PAGE_SETUP, SETTLED, browserArgs, findBrowser } from '../screenshot/browser.js';
 import { checkPreview, previewProblem, screenshotIteration } from '../screenshot/iteration.js';
 import type { RunRecord } from '../runs/types.js';
 
@@ -795,6 +795,17 @@ describe('screenshots', () => {
       null
     );
     assert.ok(browserArgs('/p').includes('--remote-debugging-pipe'));
+  });
+
+  it('waits for the ready message and finite animations, and hides the dev overlay, as plain browser scripts', () => {
+    // Both run in the page through the DevTools protocol, so they must be valid script on their own.
+    assert.doesNotThrow(() => new Function(PAGE_SETUP));
+    assert.doesNotThrow(() => new Function(`return ${SETTLED};`));
+    assert.match(PAGE_SETUP, /roughbook === 'ready'/);
+    assert.match(PAGE_SETUP, /nextjs-portal \{ display: none !important; \}/);
+    assert.match(SETTLED, /getAnimations\(\)/);
+    assert.match(SETTLED, /isFinite\(end\)/, 'an endless animation never holds the shot');
+    assert.match(SETTLED, /waited > 26000/, 'every wait has a cap');
   });
 
   it('takes desktop and phone screenshots through the preview route, into rough/.screenshots/', async () => {
