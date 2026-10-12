@@ -76,7 +76,9 @@ Runs open in the **built-in terminal** in the page (xterm.js on `node-pty`), or 
 terminal if you choose. A session runs the agent itself, never a shell, and belongs to its run:
 closing or reloading the page leaves it running, and joining again replays what it printed. It is
 used on Windows, macOS and glibc Linux, where `node-pty` installs and starts; elsewhere, and with
-`ROUGHBOOK_TERMINAL=external`, runs open in your own terminal.
+`ROUGHBOOK_TERMINAL=external`, runs open in your own terminal. It comes as `@lydell/node-pty`,
+node-pty's own files split into one package per platform with no install script, so npm has
+none to run or warn about.
 
 The server answers only `127.0.0.1` and `localhost` as its Host, and its API and terminal only
 the page it opened: a token made at each start reaches the page in the link's fragment, and every

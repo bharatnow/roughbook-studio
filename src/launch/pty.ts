@@ -1,6 +1,8 @@
 // The built-in terminal's pseudo-terminal: node-pty, an optional dependency with binaries for
-// Windows, macOS and glibc Linux (S1 step 5). Where it is missing, does not load, or would crash
-// Node (musl Linux), the studio opens the designer's own terminal instead.
+// Windows, macOS and glibc Linux (S1 step 5). It comes as @lydell/node-pty, node-pty's own files
+// split into one package per platform with no install script, so npm has no script to run or
+// warn about. Where it is missing, does not load, or would crash Node (musl Linux), the studio
+// opens the designer's own terminal instead.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
@@ -74,7 +76,7 @@ function probe(): PtySupport {
   let modulePath: string;
   let pty: PtyModule;
   try {
-    modulePath = require.resolve('node-pty');
+    modulePath = require.resolve('@lydell/node-pty');
     pty = require(modulePath) as PtyModule;
   } catch {
     return {
