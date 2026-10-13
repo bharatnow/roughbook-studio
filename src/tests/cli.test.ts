@@ -73,7 +73,8 @@ describe('the command line', () => {
     const server = serverCommand({
       platform: hostPlatform(),
       node: process.execPath,
-      ...thisStudio()
+      ...thisStudio(),
+      configDir: path.join(repo, 'config')
     });
     const messages = [
       { id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } },
@@ -83,7 +84,7 @@ describe('the command line', () => {
     ];
     const result = spawnSync(server.command, server.args, {
       cwd: repo,
-      env: { ...process.env, ROUGHBOOK_CONFIG_DIR: path.join(repo, 'config') },
+      env: { ...process.env, ...server.env },
       input: messages
         .map(message => `${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`)
         .join(''),

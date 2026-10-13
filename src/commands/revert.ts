@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { revertFile } from '../runs/snapshot.js';
+import { putBack } from '../runs/lifecycle.js';
 import { listRuns } from '../runs/store.js';
 import type { Command } from './context.js';
 import { parseIteration } from './shared.js';
@@ -37,7 +37,7 @@ export const revert: Command = {
     if (!run.outOfScope.includes(file)) {
       throw new Error(`${file} is not among the files ${positionals[0]}'s run changed outside it.`);
     }
-    const result = await revertFile(context.repoRoot!, run.runId, file);
+    const result = await putBack(context.repoRoot!, run, file);
     io.out(`${file}: ${SAID[result]}`);
     return result === 'cannot' ? 1 : 0;
   }

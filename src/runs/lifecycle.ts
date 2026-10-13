@@ -24,8 +24,16 @@ import {
   promptFile,
   writePrompt
 } from './slots.js';
-import { allChanged, compareFiles, hashRepo, readSnapshot, takeSnapshot } from './snapshot.js';
-import { listRuns, readRun, saveRun } from './store.js';
+import {
+  allChanged,
+  compareFiles,
+  hashRepo,
+  readSnapshot,
+  revertFile,
+  takeSnapshot,
+  type Revert
+} from './snapshot.js';
+import { listRuns, readRun, saveRun, updateRun } from './store.js';
 import type { FinishedBy, Finding, RunOutcome, RunRecord, StartRunRequest } from './types.js';
 
 /** Token counts a headless agent reported, sent with its result. */
@@ -276,4 +284,20 @@ export async function finishRun(
   await saveRun(repoRoot, finished);
   writePreviewRegistry(repoRoot);
   return finished;
+}
+
+/**
+ * Puts back one file a finished run changed outside its folder, and keeps on the run that it is
+ * back, so neither the CLI nor the local UI offers it again. A file the studio kept no copy of
+ * stays unmarked: putting it back is still the designer's to do.
+ */
+export async function putBack(repoRoot: string, run: RunRecord, file: string): Promise<Revert> {
+  const result = await revertFile(repoRoot, run.runId, file);
+  if (result !== 'cannot') {
+    await updateRun(repoRoot, run.runId, current => ({
+      ...current,
+      putBack: [...new Set([...(current.putBack ?? []), file])].sort()
+    }));
+  }
+  return result;
 }

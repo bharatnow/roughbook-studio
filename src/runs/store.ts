@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
+import { withLock } from '../fs/lock.js';
 import { statePath } from '../repo/root.js';
 import type { RunRecord } from './types.js';
 
@@ -21,6 +22,25 @@ export async function saveRun(repoRoot: string, run: RunRecord): Promise<void> {
 
 export async function readRun(repoRoot: string, runId: string): Promise<RunRecord | null> {
   return readJson<RunRecord>(runFile(repoRoot, runId));
+}
+
+/**
+ * Changes a run's record as it is now, under its lock, since the CLI and the local server may
+ * both change one after it finished.
+ */
+export async function updateRun(
+  repoRoot: string,
+  runId: string,
+  change: (run: RunRecord) => RunRecord
+): Promise<RunRecord> {
+  const file = runFile(repoRoot, runId);
+  return withLock(file, async () => {
+    const run = await readJson<RunRecord>(file);
+    if (!run) throw new Error(`There is no run ${runId} in this repo.`);
+    const changed = change(run);
+    await writeJsonAtomic(file, changed);
+    return changed;
+  });
 }
 
 /**

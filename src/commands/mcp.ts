@@ -130,7 +130,9 @@ async function install(args: string[], context: CommandContext): Promise<number>
     platform: context.platform,
     node: process.execPath,
     ...thisStudio(),
-    devUrl: values['dev-url'] ? devUrl(values['dev-url'], context.env) : undefined
+    devUrl: values['dev-url'] ? devUrl(values['dev-url'], context.env) : undefined,
+    // The folder as resolved here, since an editor starts the server in a folder of its own.
+    configDir: context.env.ROUGHBOOK_CONFIG_DIR ? context.configDir : undefined
   });
   let ok = true;
   for (const target of targets) {

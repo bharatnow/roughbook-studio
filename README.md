@@ -179,7 +179,8 @@ there is one); to `~/.codeium/windsurf/mcp_config.json` for Windsurf; and throug
 It keeps what else the file holds, leaves a file with comments alone and prints the entry to
 paste, and `--print` only prints. The entry starts this Node with this install's `cli.js`, which
 needs no shell or PATH on any OS (`npx -y roughbook mcp` when the studio runs from npx's cache);
-run it again after moving Node. A run's prompt ends by telling the agent to call `get_checks` and then `finish_run` with the run's id when it has the tools, to hand back to you when it does not, and that the app's dev server is yours to run, never its to start or stop, naming where the iteration renders (`--dev-url`, `ROUGHBOOK_DEV_URL` or `http://localhost:3000`); after an editor run, the studio says to install the server if that editor does not have it.
+run it again after moving Node. When `ROUGHBOOK_CONFIG_DIR` is set, the entry sets it too, so the
+agents' server uses the same sign-in. A run's prompt ends by telling the agent to call `get_checks` and then `finish_run` with the run's id when it has the tools, to hand back to you when it does not, and that the app's dev server is yours to run, never its to start or stop, naming where the iteration renders (`--dev-url`, `ROUGHBOOK_DEV_URL` or `http://localhost:3000`); after an editor run, the studio says to install the server if that editor does not have it.
 
 A terminal agent's run opens it in a terminal: Windows Terminal or a
 console window on Windows, Terminal or iTerm on macOS (`ROUGHBOOK_TERMINAL=iterm`), and

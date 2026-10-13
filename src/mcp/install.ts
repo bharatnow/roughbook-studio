@@ -14,8 +14,12 @@ import type { RunAgent } from '../runs/types.js';
 /** The name the server is registered under. */
 export const SERVER_NAME = 'roughbook';
 
-/** How an editor starts the studio's MCP server. */
-export type ServerCommand = { command: string; args: string[] };
+/**
+ * How an editor starts the studio's MCP server, and the variables it starts it with: only
+ * `ROUGHBOOK_CONFIG_DIR`, when this studio keeps its own settings folder, so the agents' server
+ * reads the same sign-in.
+ */
+export type ServerCommand = { command: string; args: string[]; env?: Record<string, string> };
 
 type JsonObject = Record<string, unknown>;
 
@@ -51,8 +55,13 @@ function pathFor(platform: NodeJS.Platform) {
 
 const plain = (server: ServerCommand): JsonObject => ({
   command: server.command,
-  args: server.args
+  args: server.args,
+  ...(server.env && { env: server.env })
 });
+
+/** `--env KEY=value` for each variable, between the name and `--`, as both agents take them. */
+const envOptions = (server: ServerCommand): string[] =>
+  Object.entries(server.env ?? {}).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
 
 export const MCP_TARGETS: McpTarget[] = [
   {
@@ -67,6 +76,7 @@ export const MCP_TARGETS: McpTarget[] = [
       '--scope',
       'user',
       SERVER_NAME,
+      ...envOptions(server),
       '--',
       server.command,
       ...server.args
@@ -78,7 +88,15 @@ export const MCP_TARGETS: McpTarget[] = [
     agents: ['codex'],
     kind: 'cli',
     remove: ['mcp', 'remove', SERVER_NAME],
-    add: server => ['mcp', 'add', SERVER_NAME, '--', server.command, ...server.args]
+    add: server => [
+      'mcp',
+      'add',
+      SERVER_NAME,
+      ...envOptions(server),
+      '--',
+      server.command,
+      ...server.args
+    ]
   },
   {
     id: 'cursor',
@@ -162,7 +180,9 @@ export function thisStudio(): { cli: string; tsx: string | null } {
 
 /**
  * How an editor starts this studio's server: this Node with this install's script, which needs
- * no shell or PATH on any OS; or npx, when this copy is npx's own temporary one.
+ * no shell or PATH on any OS; or npx, when this copy is npx's own temporary one. `configDir` is
+ * the settings folder `ROUGHBOOK_CONFIG_DIR` gave this studio, when it gave one; without it the
+ * server reads the default folder, as before.
  */
 export function serverCommand(options: {
   platform: NodeJS.Platform;
@@ -170,19 +190,25 @@ export function serverCommand(options: {
   cli: string;
   tsx: string | null;
   devUrl?: string;
+  configDir?: string;
 }): ServerCommand {
   const extra = options.devUrl ? ['--dev-url', options.devUrl] : [];
+  const env = options.configDir ? { env: { ROUGHBOOK_CONFIG_DIR: options.configDir } } : {};
   if (/[\\/]_npx[\\/]/.test(options.cli)) {
     // npx is a .cmd script on Windows, which only a shell can start.
     const npx = ['npx', '-y', SERVER_NAME, 'mcp', ...extra];
     return options.platform === 'win32'
-      ? { command: 'cmd', args: ['/c', ...npx] }
-      : { command: npx[0]!, args: npx.slice(1) };
+      ? { command: 'cmd', args: ['/c', ...npx], ...env }
+      : { command: npx[0]!, args: npx.slice(1), ...env };
   }
   if (options.cli.endsWith('.ts') && options.tsx) {
-    return { command: options.node, args: ['--import', options.tsx, options.cli, 'mcp', ...extra] };
+    return {
+      command: options.node,
+      args: ['--import', options.tsx, options.cli, 'mcp', ...extra],
+      ...env
+    };
   }
-  return { command: options.node, args: [options.cli, 'mcp', ...extra] };
+  return { command: options.node, args: [options.cli, 'mcp', ...extra], ...env };
 }
 
 /** The entry as it would sit in the target's file, for showing or pasting. */

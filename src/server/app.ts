@@ -139,7 +139,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       await studio.agents(true);
       return studio.state();
     }),
-    route('GET', '/api/project', () => studio.project()),
+    // ?fresh when the designer came back to the page, so it shows what changed meanwhile.
+    route('GET', '/api/project', request =>
+      studio.project(new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.has('fresh'))
+    ),
     route('GET', '/api/runs', () => studio.runs()),
     route('POST', '/api/runs', async request =>
       studio.startRuns((await readBody(request)) as unknown as RunBody)
@@ -221,6 +224,9 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
         // A request the page made wrong is not a failure worth counting.
         if (!(error instanceof BadRequest)) await studio.reportError(error);
         return sendJson(response, status, { ok: false, ...body });
+      } finally {
+        // Whatever the page did may have changed the project, so the next read reaches the backend.
+        if (request.method !== 'GET') studio.projectChanged();
       }
     }
     return sendJson(response, 404, { ok: false, error: 'NOT_FOUND', message: 'No such route.' });

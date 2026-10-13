@@ -7,7 +7,7 @@ import { ALL_AGENTS } from '../agents/index.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import type { AgentAdapter, AgentEvent, Detection, TerminalAdapter } from '../agents/types.js';
 import type { StudioApi } from '../api/client.js';
-import type { AssetScope } from '../api/types.js';
+import type { AssetScope, ProjectTree, RatingSummary } from '../api/types.js';
 import { describeError } from '../api/errors.js';
 import { outboxFor, type Outbox } from '../api/outbox.js';
 import { finishWithScreenshots } from '../commands/done.js';
@@ -25,12 +25,11 @@ import type { PtySupport } from '../launch/pty.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { ITERATION, SLUG, listIterations, writePreviewRegistry } from '../repo/preview.js';
-import { assessRun, startRuns } from '../runs/lifecycle.js';
+import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
 import { pullAdvice, pullSketch } from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
 import { assertTarget, iterationExists } from '../runs/slots.js';
-import { revertFile } from '../runs/snapshot.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
 import { SIZES } from '../screenshot/browser.js';
@@ -38,6 +37,7 @@ import { screenshotPath } from '../screenshot/iteration.js';
 import { EVENT_CATALOG } from '../telemetry/catalog.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
+import { ProjectCache } from './projectCache.js';
 import { Terminals, type TerminalInfo } from './terminals.js';
 
 export type LocalStudioOptions = {
@@ -287,6 +287,7 @@ export class LocalStudio {
   private readonly jobs = new Map<string, HeadlessJob>();
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
+  private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
 
   constructor(private readonly options: LocalStudioOptions) {
     this.terminals = options.pty.ok ? new Terminals(options.pty.pty) : null;
@@ -363,10 +364,24 @@ export class LocalStudio {
     });
   }
 
-  /** The project from the backend, and which of its iterations are in this repo. */
-  async project() {
+  /**
+   * The project from the backend, as last read unless it is due again (see projectCache.ts), and
+   * which of its iterations are in this repo. `fresh` when the designer came back to the page.
+   */
+  async project(fresh = false) {
     const { api, link } = this.options;
-    const tree = await api.project(link.orgId, link.project);
+    const local = this.local();
+    const tree = await this.cache.project(() => api.project(link.orgId, link.project), fresh);
+    return { tree, local };
+  }
+
+  /** The page did something, or the outbox was sent: the project is read again when next asked. */
+  projectChanged(): void {
+    this.cache.invalidate();
+  }
+
+  /** The iterations in this repo and their screenshots, read from disk on every ask. */
+  private local() {
     const iterations = listIterations(this.repoRoot);
     const screenshots: Record<string, string[]> = {};
     for (const key of iterations) {
@@ -376,12 +391,18 @@ export class LocalStudio {
       );
       if (sizes.length) screenshots[key] = sizes;
     }
-    return { tree, local: { iterations, screenshots } };
+    // An iteration pulled or started from the CLI is new on the backend too.
+    this.cache.notice('iterations', JSON.stringify(iterations));
+    return { iterations, screenshots };
   }
 
   async runs(): Promise<RunView[]> {
     const terminals = this.terminals?.list() ?? [];
-    return (await listRuns(this.repoRoot)).map(run => {
+    const runs = await listRuns(this.repoRoot);
+    // A run started or finished anywhere, here, by the CLI or by an agent through MCP, changes the
+    // project on the backend.
+    this.cache.notice('runs', JSON.stringify(runs.map(run => [run.runId, run.status])));
+    return runs.map(run => {
       const job = this.jobs.get(run.runId);
       return {
         ...run,
@@ -615,7 +636,7 @@ export class LocalStudio {
     if (!run.outOfScope.includes(name)) {
       throw new BadRequest(`${name} is not among the files this run changed outside its folder.`);
     }
-    return { file: name, result: await revertFile(this.repoRoot, run.runId, name) };
+    return { file: name, result: await putBack(this.repoRoot, run, name) };
   }
 
   async prompt(runId: string) {
@@ -643,7 +664,9 @@ export class LocalStudio {
   async ratings(page: string, component: string) {
     if (!SLUG.test(page) || !SLUG.test(component)) throw new BadRequest('Not a component.');
     const { api, link } = this.options;
-    return api.ratings(link.orgId, link.project, page, component);
+    return this.cache.ratings(`${page}/${component}`, () =>
+      api.ratings(link.orgId, link.project, page, component)
+    );
   }
 
   /** The component's web sketches that can be pulled, from the backend. */
@@ -794,7 +817,8 @@ export class LocalStudio {
   /** Sends what waits in the outbox; quiet when the server cannot be reached. */
   async flushOutbox(): Promise<void> {
     try {
-      await this.outbox.flush(this.options.api);
+      const { sent } = await this.outbox.flush(this.options.api);
+      if (sent.size) this.projectChanged();
     } catch {
       // Tried again on the next tick.
     }

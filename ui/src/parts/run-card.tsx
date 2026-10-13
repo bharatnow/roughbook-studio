@@ -195,22 +195,26 @@ export function RunCard({ run }: { run: RunView }) {
               {run.outOfScope.map(file => (
                 <li key={file} className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-graphite">{file}</span>
-                  <button
-                    type="button"
-                    className="text-violet hover:underline disabled:opacity-50"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      act(`revert:${file}`, async () => {
-                        const { result } = await post<{ result: string }>(
-                          `/api/runs/${run.runId}/revert`,
-                          { file }
-                        );
-                        return `${file}: ${REVERTED[result] ?? result}.`;
-                      })
-                    }
-                  >
-                    Put it back
-                  </button>
+                  {run.putBack?.includes(file) ? (
+                    <span className="text-steel">Put back</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-violet hover:underline disabled:opacity-50"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        act(`revert:${file}`, async () => {
+                          const { result } = await post<{ result: string }>(
+                            `/api/runs/${run.runId}/revert`,
+                            { file }
+                          );
+                          return `${file}: ${REVERTED[result] ?? result}.`;
+                        })
+                      }
+                    >
+                      Put it back
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

@@ -82,6 +82,8 @@ export type RunRecord = {
   outOfScope: string[];
   /** Files changed outside it that the designer said were their own work, so not counted. */
   mine?: string[];
+  /** Files of `outOfScope` put back since, with roughbook revert or the local UI's Put it back. */
+  putBack?: string[];
   /** Who finished it: the agent through MCP, roughbook done, the local UI, or the agent exiting. */
   finishedBy?: FinishedBy;
   /** Whether the result reached the backend, or waits in the outbox. */

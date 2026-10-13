@@ -130,6 +130,8 @@ export type RunView = {
   warnings: Finding[];
   outOfScope: string[];
   mine?: string[];
+  /** Files of outOfScope put back since, from here or with roughbook revert. */
+  putBack?: string[];
   finishedBy?: 'agent' | 'done' | 'local-ui' | 'headless';
   reported: 'sent' | 'queued' | null;
   terminal: TerminalInfo | null;

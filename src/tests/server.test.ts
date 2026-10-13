@@ -12,14 +12,23 @@ import { after, before, describe, it } from 'node:test';
 import { WebSocket } from 'ws';
 import type { Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
+import { outboxFor } from '../api/outbox.js';
 import type { CommandContext } from '../commands/context.js';
+import { main } from '../commands/index.js';
 import { saveCredentials } from '../config/credentials.js';
 import { saveSettings } from '../config/settings.js';
 import type { PtyModule } from '../launch/pty.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
 import { handoffLine } from '../runs/slots.js';
+import { listRuns, saveRun } from '../runs/store.js';
 import type { StartedRun } from '../runs/types.js';
 import { createLocalServer } from '../server/app.js';
+import {
+  FIRST_WAIT_MS,
+  FRESH_ENOUGH_MS,
+  LONGEST_WAIT_MS,
+  ProjectCache
+} from '../server/projectCache.js';
 import { LocalStudio } from '../server/studio.js';
 import { Terminals } from '../server/terminals.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -590,21 +599,30 @@ describe('the local server', () => {
   it('finishes a run, flags a write outside it, and puts it back', async () => {
     const [run] = (await api('GET', '/api/runs')).json.data;
     fs.writeFileSync(path.join(repo, 'rough/home/hero/iteration-01/index.tsx'), ITERATION_SOURCE);
-    fs.writeFileSync(
-      path.join(repo, 'src/app/stray.ts'),
-      "export const stray = 'written by the agent';\n"
-    );
+    for (const name of ['stray', 'other']) {
+      fs.writeFileSync(
+        path.join(repo, 'src', 'app', `${name}.ts`),
+        `export const ${name} = 'written by the agent';\n`
+      );
+    }
+    const strays = ['src/app/other.ts', 'src/app/stray.ts'];
 
     // Before Done, the local UI asks what changed outside the iteration, to say whose it was.
     const checks = await api('GET', `/api/runs/${run.runId}/checks`);
-    assert.deepEqual(checks.json.data.outOfScope, ['src/app/stray.ts']);
+    assert.deepEqual(checks.json.data.outOfScope, strays);
     assert.equal((await api('POST', `/api/runs/${run.runId}/done`, { mine: 'src' })).status, 400);
     const done = await api('POST', `/api/runs/${run.runId}/done`, {});
     assert.equal(done.status, 200, JSON.stringify(done.json));
-    assert.deepEqual(done.json.data.run.outOfScope, ['src/app/stray.ts']);
+    assert.deepEqual(done.json.data.run.outOfScope, strays);
     assert.equal(done.json.data.run.outcome, 'completed_with_warnings');
     assert.equal(done.json.data.run.finishedBy, 'local-ui');
 
+    // The run card reads each run's putBack, so it stops offering Put it back for those files.
+    const putBack = async () =>
+      (await api('GET', '/api/runs')).json.data.find(
+        (item: { runId: string }) => item.runId === run.runId
+      ).putBack;
+    assert.equal(await putBack(), undefined);
     assert.equal(
       (await api('POST', `/api/runs/${run.runId}/revert`, { file: 'src/app/page.tsx' })).status,
       400
@@ -614,6 +632,15 @@ describe('the local server', () => {
     });
     assert.equal(reverted.json.data.result, 'removed');
     assert.ok(!fs.existsSync(path.join(repo, 'src/app/stray.ts')));
+    assert.deepEqual(await putBack(), ['src/app/stray.ts']);
+
+    // Put back with roughbook revert instead, while the local UI is open.
+    const io = recordingIo();
+    const cli = ['revert', 'home/hero/iteration-01', 'src/app/other.ts'];
+    const env = { ROUGHBOOK_CONFIG_DIR: path.join(root, 'config') };
+    assert.equal(await main(cli, { cwd: repo, env, io }), 0, io.errors.join('\n'));
+    assert.deepEqual(io.lines, ['src/app/other.ts: Removed: the run created it.']);
+    assert.deepEqual(await putBack(), strays);
 
     // The agent quits; Stop ends a session that is still going.
     pty.spawned.at(-1)!.exit(0);
@@ -866,6 +893,184 @@ describe('the local server', () => {
     ]);
     assert.deepEqual(launch[0]!.env, { ELECTRON_RUN_AS_NODE: '1' });
     assert.deepEqual(copied.slice(before.copied), [launched.instructions[0]]);
+  });
+
+  it('asks the backend for the project and its ratings only when they may have changed', async () => {
+    const reads = (ending: string) =>
+      backend.requests.filter(request => request.method === 'GET' && request.url.endsWith(ending))
+        .length;
+    const projectReads = () => reads(PROJECT);
+    const ratingsReads = () => reads('/components/hero/ratings');
+    const ask = async (pathname: string) => {
+      const answer = await api('GET', pathname);
+      assert.equal(answer.status, 200, JSON.stringify(answer.json));
+      return answer.json.data;
+    };
+    await ask('/api/runs');
+
+    // The page's own action may have changed it; then one read serves every ask.
+    await api('POST', '/api/agents/default', { agent: null });
+    const before = { project: projectReads(), ratings: ratingsReads() };
+    const asks = await Promise.all([1, 2, 3].map(() => ask('/api/project')));
+    assert.equal(asks[0].tree.slug, 'site');
+    for (let index = 0; index < 5; index += 1) await ask('/api/project');
+    await ask('/api/project?fresh');
+    assert.equal(projectReads() - before.project, 1);
+    await ask('/api/ratings/home/hero');
+    await ask('/api/ratings/home/hero');
+    assert.equal(ratingsReads() - before.ratings, 1);
+
+    // A run finished by the CLI or by an agent through MCP, seen in the run list.
+    const [newest] = await listRuns(repo);
+    const finished = { ...newest!, runId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' };
+    await saveRun(repo, { ...finished, status: 'finished', finishedAt: new Date().toISOString() });
+    await ask('/api/runs');
+    await ask('/api/project');
+    await ask('/api/project');
+    assert.equal(projectReads() - before.project, 2);
+    await ask('/api/ratings/home/hero');
+    assert.equal(ratingsReads() - before.ratings, 2);
+
+    // An iteration pulled or started from the CLI, seen on disk.
+    const pulled = path.join(repo, 'rough', 'home', 'hero', 'iteration-77');
+    fs.mkdirSync(pulled, { recursive: true });
+    fs.writeFileSync(path.join(pulled, 'index.tsx'), ITERATION_SOURCE);
+    assert.ok((await ask('/api/project')).local.iterations.includes('home/hero/iteration-77'));
+    assert.equal(projectReads() - before.project, 3);
+
+    // A decision that waited in the outbox, offline, reaching the backend.
+    const offline = new StudioApi({
+      server: BACKEND,
+      token: 'rbi_token',
+      userAgent: 'test',
+      fetch: async () => {
+        throw new TypeError('fetch failed');
+      }
+    });
+    const status = `${PROJECT}/pages/home/components/hero/iterations/iteration-01/status`;
+    const queued = await outboxFor(repo).send(offline, status, { status: 'promising' });
+    assert.equal(queued.status, 'queued');
+    await ask('/api/project');
+    assert.equal(projectReads() - before.project, 3);
+    await studio.flushOutbox();
+    await ask('/api/project');
+    assert.equal(projectReads() - before.project, 4);
+    fs.rmSync(pulled, { recursive: true });
+    fs.rmSync(path.join(repo, 'rough', '.roughbook', 'runs', `${finished.runId}.json`));
+  });
+});
+
+describe("the local server's copy of the project", () => {
+  type Tree = { version: number };
+  function setup() {
+    const clock = { now: 0 };
+    const cache = new ProjectCache<Tree, string>(() => clock.now);
+    const backend = { tree: { version: 1 } as Tree, reads: 0 };
+    const read = async () => {
+      backend.reads += 1;
+      return backend.tree;
+    };
+    return { clock, cache, backend, read };
+  }
+
+  it('asks again after 30 seconds, twice as long after each read that found nothing new', async () => {
+    const { clock, cache, backend, read } = setup();
+    assert.equal(FIRST_WAIT_MS, 30_000);
+    assert.equal(LONGEST_WAIT_MS, 120_000);
+    // When each read happens, from the first: the wait goes 30 s, 60 s, 120 s, then stays.
+    const readsAt: number[] = [];
+    for (clock.now = 0; clock.now <= 600_000; clock.now += 1000) {
+      const before = backend.reads;
+      await cache.project(read);
+      if (backend.reads > before) readsAt.push(clock.now);
+    }
+    assert.deepEqual(readsAt, [0, 30_000, 90_000, 210_000, 330_000, 450_000, 570_000]);
+
+    // Something new: back to 30 seconds.
+    backend.tree = { version: 2 };
+    clock.now = 690_000;
+    assert.deepEqual(await cache.project(read), { version: 2 });
+    clock.now = 719_999;
+    await cache.project(read);
+    assert.equal(backend.reads, 8);
+    clock.now = 720_000;
+    await cache.project(read);
+    assert.equal(backend.reads, 9);
+  });
+
+  it('asks at once when something may have changed, and when the designer comes back', async () => {
+    const { clock, cache, backend, read } = setup();
+    await cache.project(read);
+    cache.invalidate();
+    await cache.project(read);
+    assert.equal(backend.reads, 2);
+
+    // The same runs as before change nothing; different ones do.
+    cache.notice('runs', 'a');
+    cache.notice('runs', 'a');
+    await cache.project(read);
+    assert.equal(backend.reads, 2);
+    cache.notice('runs', 'b');
+    await cache.project(read);
+    assert.equal(backend.reads, 3);
+
+    // Coming back to the page: read again, unless it was read in the last five seconds.
+    clock.now = FRESH_ENOUGH_MS - 1;
+    await cache.project(read, true);
+    assert.equal(backend.reads, 3);
+    clock.now = FRESH_ENOUGH_MS;
+    await cache.project(read, true);
+    assert.equal(backend.reads, 4);
+  });
+
+  it('shares one read among every ask, and never lets an older read replace a newer one', async () => {
+    const { cache } = setup();
+    const answers: ((tree: Tree) => void)[] = [];
+    let reads = 0;
+    const slow = () => {
+      reads += 1;
+      return new Promise<Tree>(resolve => answers.push(resolve));
+    };
+    const first = [cache.project(slow), cache.project(slow), cache.project(slow, true)];
+    assert.equal(reads, 1);
+    // Changed while the first read was under way: that read may have missed it.
+    cache.invalidate();
+    const second = cache.project(slow);
+    assert.equal(reads, 2);
+    answers[1]!({ version: 2 });
+    answers[0]!({ version: 1 });
+    assert.deepEqual(await Promise.all(first), [{ version: 1 }, { version: 1 }, { version: 1 }]);
+    assert.deepEqual(await second, { version: 2 });
+    assert.deepEqual(await cache.project(slow), { version: 2 });
+    assert.equal(reads, 2);
+  });
+
+  it('asks again after a failed read, rather than answering with the last project', async () => {
+    const { cache, backend, read } = setup();
+    await cache.project(read);
+    cache.invalidate();
+    await assert.rejects(
+      cache.project(() => Promise.reject(new Error('offline'))),
+      /offline/
+    );
+    assert.deepEqual(await cache.project(read), { version: 1 });
+    assert.equal(backend.reads, 2);
+  });
+
+  it("reads a component's ratings once per read of the project, and again after a failure", async () => {
+    const { cache, read } = setup();
+    let reads = 0;
+    const ratings = async () => `ratings ${++reads}`;
+    await cache.project(read);
+    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 1');
+    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 1');
+    assert.equal(await cache.ratings('home/footer', ratings), 'ratings 2');
+    cache.invalidate();
+    await cache.project(read);
+    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 3');
+
+    await assert.rejects(cache.ratings('home/cta', () => Promise.reject(new Error('offline'))));
+    assert.equal(await cache.ratings('home/cta', ratings), 'ratings 4');
   });
 });
 

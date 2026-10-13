@@ -397,12 +397,19 @@ describe('roughbook run, done and revert', () => {
 
     assert.equal(await studio.run(['revert', 'home/hero/iteration-07', 'package.json']), 1);
     assert.match(studio.io.errors.at(-1)!, /not among the files/);
+    const putBack = async () => (await listRuns(studio.repo))[0]!.putBack;
+    assert.equal(await putBack(), undefined);
     assert.equal(
       await studio.run(['revert', 'home/hero/iteration-07', 'src/app/page.tsx']),
       0,
       studio.io.errors.join('\n')
     );
     assert.equal(read(studio.repo, 'src/app/page.tsx'), page);
+    // Kept on the run, so the local UI's card shows it put back rather than offering it again.
+    assert.deepEqual(await putBack(), ['src/app/page.tsx']);
+    assert.equal(await studio.run(['revert', 'home/hero/iteration-07', 'src/app/page.tsx']), 0);
+    assert.equal(studio.io.lines.at(-1), 'src/app/page.tsx: Already as it was before the run.');
+    assert.deepEqual(await putBack(), ['src/app/page.tsx']);
 
     assert.equal(await studio.run(['done']), 0);
     assert.equal(studio.io.lines.at(-1), 'No run is open in this repo.');
@@ -1079,6 +1086,14 @@ describe('roughbook mcp', () => {
 
   it("adds itself to each editor's user settings and through each agent's own mcp add", async () => {
     const studio = await setup({});
+    // An ordinary install: no settings folder of its own, so the entries name no variables.
+    const install = (...argv: string[]) =>
+      main(['mcp', 'install', ...argv], {
+        cwd: studio.repo,
+        env: {},
+        io: studio.io,
+        ...studio.overrides
+      });
     const server = serverCommand({ platform: 'win32', node: process.execPath, ...thisStudio() });
     const home = (...parts: string[]) => path.join(studio.home, ...parts);
     const readJsonFile = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -1092,7 +1107,7 @@ describe('roughbook mcp', () => {
     write(studio.home, '.gemini/antigravity/mcp_config.json', '');
 
     const editors = ['cursor', 'vscode', 'antigravity', 'windsurf'];
-    assert.equal(await studio.run(['mcp', 'install', ...editors]), 0, studio.io.errors.join('\n'));
+    assert.equal(await install(...editors), 0, studio.io.errors.join('\n'));
     const entry = { command: server.command, args: server.args };
     assert.deepEqual(readJsonFile(cursorFile), {
       mcpServers: { other: { command: 'x' }, roughbook: entry }
@@ -1107,19 +1122,19 @@ describe('roughbook mcp', () => {
     assert.ok(server.args.includes('mcp'));
 
     studio.io.lines.length = 0;
-    assert.equal(await studio.run(['mcp', 'install', 'cursor']), 0);
+    assert.equal(await install('cursor'), 0);
     assert.ok(studio.io.lines.includes(`Cursor: roughbook already in ${cursorFile}`));
 
     // --print shows the entry and writes nothing.
     fs.rmSync(windsurfFile);
-    assert.equal(await studio.run(['mcp', 'install', 'windsurf', '--print']), 0);
+    assert.equal(await install('windsurf', '--print'), 0);
     assert.ok(!fs.existsSync(windsurfFile));
     assert.ok(studio.io.lines.includes(`Windsurf: in ${windsurfFile}`));
 
     // A file with comments is left alone, with the entry to paste.
     const commented = '// mine\n{ "servers": {} }\n';
     write(studio.home, 'AppData/Roaming/Code/User/mcp.json', commented);
-    assert.equal(await studio.run(['mcp', 'install', 'vscode']), 1);
+    assert.equal(await install('vscode'), 1);
     assert.equal(fs.readFileSync(vscodeFile, 'utf8'), commented);
     assert.ok(
       studio.io.lines.includes(
@@ -1129,7 +1144,7 @@ describe('roughbook mcp', () => {
 
     // Claude Code is told with its own command; Codex, not here, gets the line to run.
     studio.io.lines.length = 0;
-    assert.equal(await studio.run(['mcp', 'install', 'claude-code', 'codex']), 1);
+    assert.equal(await install('claude-code', 'codex'), 1);
     assert.deepEqual(
       studio.commands.map(item => [item.executable.command, ...item.args]),
       [
@@ -1150,17 +1165,87 @@ describe('roughbook mcp', () => {
     assert.ok(studio.io.lines.includes('Claude Code: added roughbook with claude mcp add.'));
     assert.ok(studio.io.lines.includes('Codex was not found here. Once it is installed, run:'));
 
-    assert.equal(await studio.run(['mcp', 'install', 'other']), 1);
+    assert.equal(await install('other'), 1);
     assert.match(studio.io.errors.at(-1)!, /Unknown editor other\. Choose one of: claude-code/);
 
     // With none named, each one found here: Claude Code and Cursor in this test.
     studio.detections.cursor = cursorFound();
     studio.commands.length = 0;
     fs.rmSync(cursorFile);
-    assert.equal(await studio.run(['mcp', 'install']), 0, studio.io.lines.join('\n'));
+    assert.equal(await install(), 0, studio.io.lines.join('\n'));
     assert.equal(studio.commands.length, 2);
     assert.ok(fs.existsSync(cursorFile));
     assert.match(studio.io.lines.at(-1)!, /^Restart each one, or reload its window/);
+  });
+
+  it('gives every entry the settings folder the studio was started with', async () => {
+    const studio = await setup({});
+    studio.detections.codex = detection('codex', true);
+    // A folder of its own, with a space in it, as ROUGHBOOK_CONFIG_DIR names it.
+    const configDir = path.join(studio.home, 'Roughbook settings');
+    const env = { ROUGHBOOK_CONFIG_DIR: configDir };
+    const install = (...argv: string[]) =>
+      main(['mcp', 'install', ...argv], {
+        cwd: studio.repo,
+        env,
+        io: studio.io,
+        ...studio.overrides
+      });
+    const server = serverCommand({ platform: 'win32', node: process.execPath, ...thisStudio() });
+    const entry = { command: server.command, args: server.args, env };
+    const readJsonFile = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
+    const cursorFile = path.join(studio.home, '.cursor', 'mcp.json');
+    // What an ordinary install wrote before is brought up to date.
+    write(
+      studio.home,
+      '.cursor/mcp.json',
+      JSON.stringify({ mcpServers: { roughbook: { command: server.command, args: server.args } } })
+    );
+    write(studio.home, '.gemini/antigravity/mcp_config.json', '');
+
+    const all = ['cursor', 'vscode', 'antigravity', 'windsurf', 'claude-code', 'codex'];
+    assert.equal(await install(...all), 0, studio.io.lines.join('\n'));
+    assert.ok(studio.io.lines.includes(`Cursor: roughbook updated in ${cursorFile}`));
+    assert.deepEqual(readJsonFile(cursorFile), { mcpServers: { roughbook: entry } });
+    assert.deepEqual(
+      readJsonFile(path.join(studio.home, 'AppData', 'Roaming', 'Code', 'User', 'mcp.json')),
+      { servers: { roughbook: { type: 'stdio', ...entry } } }
+    );
+    for (const file of [
+      path.join(studio.home, '.gemini', 'config', 'mcp_config.json'),
+      path.join(studio.home, '.gemini', 'antigravity', 'mcp_config.json'),
+      path.join(studio.home, '.codeium', 'windsurf', 'mcp_config.json')
+    ]) {
+      assert.deepEqual(readJsonFile(file), { mcpServers: { roughbook: entry } }, file);
+    }
+    const variable = `ROUGHBOOK_CONFIG_DIR=${configDir}`;
+    const command = [server.command, ...server.args];
+    assert.deepEqual(
+      studio.commands.map(item => item.args),
+      [
+        ['mcp', 'remove', '--scope', 'user', 'roughbook'],
+        ['mcp', 'add', '--scope', 'user', 'roughbook', '--env', variable, '--', ...command],
+        ['mcp', 'remove', 'roughbook'],
+        ['mcp', 'add', 'roughbook', '--env', variable, '--', ...command]
+      ]
+    );
+
+    // --print shows it in each one's own form, quoted where it has a space.
+    studio.io.lines.length = 0;
+    studio.commands.length = 0;
+    assert.equal(await install('claude-code', 'codex', 'vscode', '--print'), 0);
+    assert.equal(studio.commands.length, 0);
+    const lines = studio.io.lines.map(line => line.trim());
+    assert.ok(
+      lines.some(line =>
+        line.startsWith(`claude mcp add --scope user roughbook --env "${variable}" -- `)
+      ),
+      lines.join('\n')
+    );
+    assert.ok(
+      lines.some(line => line.startsWith(`codex mcp add roughbook --env "${variable}" -- `))
+    );
+    assert.ok(lines.includes(`"ROUGHBOOK_CONFIG_DIR": ${JSON.stringify(configDir)}`));
   });
 
   it("adds a CLI's server to the file its editor reads, and counts the CLI as found", async () => {

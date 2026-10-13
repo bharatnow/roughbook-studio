@@ -40,6 +40,17 @@ export function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Whether the page can be seen: false in a background tab or a minimised window. */
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+  return visible;
+}
+
 export function StudioDataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StudioState | null>(null);
   const [project, setProject] = useState<ProjectView | null>(null);
@@ -56,9 +67,10 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshProject = useCallback(async () => {
+  /** `fresh` when the designer came back to the page, so the server asks the backend again. */
+  const refreshProject = useCallback(async (fresh = false) => {
     try {
-      setProject(await get<ProjectView>('/api/project'));
+      setProject(await get<ProjectView>(fresh ? '/api/project?fresh' : '/api/project'));
       setProblem(null);
     } catch (error) {
       setProblem(describe(error));
@@ -86,23 +98,36 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  // Runs change while an agent works: often while one is open, rarely otherwise.
+  // Runs change while an agent works: often while one is open, rarely otherwise. The project is
+  // the local server's copy of the backend's, so asking for it here is cheap: the server decides
+  // when to ask the backend again (src/server/projectCache.ts). A hidden page asks for nothing.
+  const visible = usePageVisible();
   const anyOpen = runs.some(run => run.status === 'started');
   useEffect(() => {
-    const every = anyOpen ? 2000 : 10_000;
-    const timer = window.setInterval(() => void refreshRuns(), every);
+    if (!visible) return;
+    const timer = window.setInterval(() => void refreshRuns(), anyOpen ? 2000 : 10_000);
     return () => window.clearInterval(timer);
-  }, [anyOpen, refreshRuns]);
+  }, [visible, anyOpen, refreshRuns]);
 
   useEffect(() => {
+    if (!visible) return;
     const timer = window.setInterval(() => void refreshProject(), anyOpen ? 5000 : 20_000);
-    const onFocus = () => void refresh();
-    window.addEventListener('focus', onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
+    return () => window.clearInterval(timer);
+  }, [visible, anyOpen, refreshProject]);
+
+  // Coming back from the terminal, the editor or the web: what changed meanwhile.
+  useEffect(() => {
+    const back = () => {
+      if (document.visibilityState === 'hidden') return;
+      void Promise.all([refreshProject(true), refreshRuns(), refreshState()]);
     };
-  }, [anyOpen, refresh, refreshProject]);
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [refreshProject, refreshRuns, refreshState]);
 
   const value = useMemo<StudioData>(
     () => ({
