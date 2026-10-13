@@ -191,7 +191,10 @@ async function setup(routes: Record<string, Route>, options: { headless?: boolea
     screenshot: async (_repo, devUrl, target): Promise<Shots> => {
       shots.push(`${devUrl} ${target.iteration}`);
       return {
-        files: { desktop: `rough/.screenshots/home/hero/${target.iteration}/desktop.png` },
+        files: {
+          desktop: `rough/.screenshots/home/hero/${target.iteration}/desktop.png`,
+          mobile: `rough/.screenshots/home/hero/${target.iteration}/mobile.png`
+        },
         warning: null
       };
     }
@@ -334,7 +337,8 @@ describe('roughbook run, done and revert', () => {
       agent: 'claude-code',
       mode: 'interactive',
       kind: 'generate',
-      directions: [{ direction: 'Quiet editorial' }, { direction: 'Loud poster' }]
+      directions: [{ direction: 'Quiet editorial' }, { direction: 'Loud poster' }],
+      screenshots: true
     });
     assert.equal(studio.plans.length, 1);
     const plan = studio.plans[0]!;
@@ -634,10 +638,12 @@ describe('roughbook screenshot', () => {
       'http://localhost:3000 iteration-07',
       'http://localhost:3123 iteration-07'
     ]);
+    // Both images, for the agent the prompt sent here to look at (D7).
     assert.ok(
       studio.io.lines.includes(
-        'home/hero/iteration-07: rough/.screenshots/home/hero/iteration-07/desktop.png'
-      )
+        'home/hero/iteration-07: rough/.screenshots/home/hero/iteration-07/desktop.png, rough/.screenshots/home/hero/iteration-07/mobile.png'
+      ),
+      studio.io.lines.join('\n')
     );
     // The preview route can render it: the registry lists it.
     assert.match(read(studio.repo, 'rough/preview-registry.ts'), /"home\/hero\/iteration-07"/);
@@ -956,7 +962,8 @@ describe('roughbook mcp', () => {
     assert.equal(finished.json.outcome, 'completed_with_warnings');
     assert.deepEqual(finished.json.changedOutsideFolder, ['src/app/stray.ts']);
     assert.deepEqual(finished.json.screenshots, [
-      'rough/.screenshots/home/hero/iteration-07/desktop.png'
+      'rough/.screenshots/home/hero/iteration-07/desktop.png',
+      'rough/.screenshots/home/hero/iteration-07/mobile.png'
     ]);
     assert.equal(finished.json.reported, 'sent');
     assert.equal(finished.json.finishedBy, 'agent');

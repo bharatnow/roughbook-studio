@@ -6,7 +6,9 @@ export type Check =
   | { kind: 'approved-headline'; version: number; headline: string }
   | { kind: 'changed-from-parent'; parent: string }
   /** The craft floor: placeholder copy, transition: all, img alt, icon button names, focus. Warnings. */
-  | { kind: 'craft-floor' };
+  | { kind: 'craft-floor' }
+  /** The model tells to look for, and the fonts the Design System chose (detector.ts). */
+  | { kind: 'detector'; tells: string[]; fonts: string[] };
 
 export type RunKind = 'generate' | 'fork' | 'refine';
 export type RunAgent =
@@ -32,6 +34,8 @@ export type StartRunRequest = {
   mode: RunMode;
   /** Skills installed where the run happens, from rough/roughbook.json. */
   skills?: string[];
+  /** This studio can take the iteration's screenshots, so its prompt says when to look. */
+  screenshots?: boolean;
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }

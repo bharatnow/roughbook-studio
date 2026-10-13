@@ -144,7 +144,7 @@ describe('starting runs', () => {
     const { repo, api, requests } = await setup([started('iteration-03', RUN_A)]);
     const skills = ['design-taste-frontend', 'impeccable'];
     await startRuns(repo, api, { ...LINK, skills }, GENERATE);
-    assert.deepEqual(requests[0]!.body, { ...GENERATE, skills });
+    assert.deepEqual(requests[0]!.body, { ...GENERATE, skills, screenshots: true });
 
     write(
       repo,
@@ -176,7 +176,8 @@ describe('starting runs', () => {
       new URL(requests[0]!.url).pathname,
       `/v1/api/studio/orgs/${ORG}/projects/site/runs`
     );
-    assert.deepEqual(requests[0]!.body, GENERATE);
+    // It can take screenshots, so the prompt tells the agent when to look (D7).
+    assert.deepEqual(requests[0]!.body, { ...GENERATE, screenshots: true });
     assert.equal(read(repo, 'rough/home/hero/iteration-03/index.tsx'), PLACEHOLDER_INDEX);
     // Prompt files are written with \n line endings whatever the server sent, and end with how the
     // run finishes, since the designer drives this one.

@@ -140,6 +140,8 @@ export function describeCheck(check: Check, run: RunRecord): string {
       return `The iteration differs from ${check.parent}, and its source no longer names ${check.parent} as itself.`;
     case 'craft-floor':
       return 'The source has no lorem ipsum or stand-in names, no transition-all or transition: all, alt text on every img, a name on every icon-only button, and a focus-visible style wherever the outline is removed. Warnings only.';
+    case 'detector':
+      return `The source shows none of these model tells: ${check.tells.join(', ')}. Warnings only.`;
     default:
       return `A check this studio does not know yet (${(check as { kind: string }).kind}); update the studio to read it.`;
   }

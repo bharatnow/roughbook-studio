@@ -89,11 +89,12 @@ export async function startRuns(
       );
     }
   }
-  const started = await api.startRuns(
-    link.orgId,
-    link.project,
-    link.skills?.length ? { ...request, skills: link.skills } : request
-  );
+  // This studio takes screenshots (roughbook screenshot), so the prompt says when to look (D7).
+  const started = await api.startRuns(link.orgId, link.project, {
+    ...request,
+    ...(link.skills?.length ? { skills: link.skills } : {}),
+    screenshots: true
+  });
   for (const run of started) {
     assertTarget(request.page, request.component, run.iteration);
     // The folder is the studio's to decide; one the server names elsewhere is refused.
