@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
-import type { RepoLink } from '../repo/link.js';
+import { readRepoLink, renderRepoLink, type RepoLink } from '../repo/link.js';
 import { applyChecks, headlineAppearsIn, importsFromRough } from '../runs/checks.js';
 import { finishRun, inScope, isMine, startRuns } from '../runs/lifecycle.js';
 import {
@@ -140,6 +140,25 @@ describe('whose change', () => {
 });
 
 describe('starting runs', () => {
+  it('sends the skills rough/roughbook.json names with every run, and only skill names', async () => {
+    const { repo, api, requests } = await setup([started('iteration-03', RUN_A)]);
+    const skills = ['design-taste-frontend', 'impeccable'];
+    await startRuns(repo, api, { ...LINK, skills }, GENERATE);
+    assert.deepEqual(requests[0]!.body, { ...GENERATE, skills });
+
+    write(
+      repo,
+      'rough/roughbook.json',
+      renderRepoLink({
+        ...LINK,
+        skills: ['impeccable', '../secrets', 'C:/Users', 'Taste Skill', 7] as string[]
+      })
+    );
+    assert.deepEqual((await readRepoLink(repo))?.skills, ['impeccable']);
+    write(repo, 'rough/roughbook.json', renderRepoLink(LINK));
+    assert.equal('skills' in (await readRepoLink(repo))!, false);
+  });
+
   it('writes a placeholder slot and a prompt file for each run, and records them', async () => {
     const { repo, api, requests } = await setup([
       started('iteration-03', RUN_A),

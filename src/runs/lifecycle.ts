@@ -89,7 +89,11 @@ export async function startRuns(
       );
     }
   }
-  const started = await api.startRuns(link.orgId, link.project, request);
+  const started = await api.startRuns(
+    link.orgId,
+    link.project,
+    link.skills?.length ? { ...request, skills: link.skills } : request
+  );
   for (const run of started) {
     assertTarget(request.page, request.component, run.iteration);
     // The folder is the studio's to decide; one the server names elsewhere is refused.

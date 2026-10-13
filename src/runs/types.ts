@@ -30,6 +30,8 @@ export type StartRunRequest = {
   component: string;
   agent: RunAgent;
   mode: RunMode;
+  /** Skills installed where the run happens, from rough/roughbook.json. */
+  skills?: string[];
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }

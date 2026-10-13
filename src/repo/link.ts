@@ -13,7 +13,14 @@ export type RepoLink = {
   roughCommitted: boolean;
   /** The App Router folder previews render through, or null when the repo has none. */
   appDir: string | null;
+  /**
+   * Agent skills installed where this repo's runs happen, such as design-taste-frontend. Every
+   * local prompt names them, below the brief, the Design System and the methods. Optional.
+   */
+  skills?: string[];
 };
+
+const SKILL = /^[a-z0-9][a-z0-9-]{0,59}$/;
 
 /** `rough/.roughbook/link.json`: this machine's link record on the server. Never committed. */
 export type LocalLink = { linkId: string; installId: string; linkedAt: string };
@@ -26,7 +33,14 @@ export async function readRepoLink(repoRoot: string): Promise<RepoLink | null> {
       `rough/${LINK_FILE} is not one this studio can read. Run roughbook init again.`
     );
   }
-  return link;
+  // Skill names only, at most ten: never a path or anything else from this machine.
+  const skills = Array.isArray(link.skills)
+    ? link.skills
+        .filter((skill): skill is string => typeof skill === 'string' && SKILL.test(skill))
+        .slice(0, 10)
+    : [];
+  const { skills: _given, ...rest } = link;
+  return skills.length ? { ...rest, skills } : rest;
 }
 
 /** Ensures the linked repo's link file reads, for commands that need its project. */
