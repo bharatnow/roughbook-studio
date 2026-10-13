@@ -4,7 +4,9 @@
 export type Check =
   | { kind: 'entry-file'; file: string }
   | { kind: 'approved-headline'; version: number; headline: string }
-  | { kind: 'changed-from-parent'; parent: string };
+  | { kind: 'changed-from-parent'; parent: string }
+  /** The craft floor: placeholder copy, transition: all, img alt, icon button names, focus. Warnings. */
+  | { kind: 'craft-floor' };
 
 export type RunKind = 'generate' | 'fork' | 'refine';
 export type RunAgent =

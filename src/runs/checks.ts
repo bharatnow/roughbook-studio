@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { iterationDir } from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { craftFloorFindings } from './craftFloor.js';
 import { isPlaceholder } from './slots.js';
 import type { Check, Finding } from './types.js';
 
@@ -102,6 +103,8 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
       });
     }
   }
+  if (checks.some(check => check.kind === 'craft-floor'))
+    warnings.push(...craftFloorFindings(files));
   return { failure: null, warnings };
 }
 
