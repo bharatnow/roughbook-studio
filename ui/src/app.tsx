@@ -1,26 +1,21 @@
 import { StudioDataProvider } from './data';
 import { StudioUiHost } from './host';
+import { ChromeProvider } from './parts/chrome';
+import { Missing } from './parts/missing';
 import { Shell } from './parts/shell';
 import { useRoute } from './router';
+import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
-import { ComponentScreen } from './screens/component';
 import { IterationScreen } from './screens/iteration';
-import { Overview } from './screens/overview';
-import { TerminalScreen } from './screens/terminal';
 
 function Screen() {
   const route = useRoute();
   switch (route.screen) {
-    case 'overview':
+    case 'canvas':
+      // One element for every canvas address, so the canvas keeps its state as the address moves.
       return (
-        <Shell>
-          <Overview />
-        </Shell>
-      );
-    case 'component':
-      return (
-        <Shell>
-          <ComponentScreen page={route.page} component={route.component} />
+        <Shell fill>
+          <CanvasScreen focus={route.focus} session={route.session} />
         </Shell>
       );
     case 'compare':
@@ -40,21 +35,10 @@ function Screen() {
           />
         </Shell>
       );
-    case 'terminal':
-      return (
-        <Shell>
-          <TerminalScreen id={route.id} />
-        </Shell>
-      );
     default:
       return (
         <Shell>
-          <p className="text-sm text-slate">
-            Nothing here.{' '}
-            <a href="#/" className="text-violet hover:underline">
-              Back to the project
-            </a>
-          </p>
+          <Missing back>Nothing here.</Missing>
         </Shell>
       );
   }
@@ -63,9 +47,11 @@ function Screen() {
 export function App() {
   return (
     <StudioDataProvider>
-      <StudioUiHost>
-        <Screen />
-      </StudioUiHost>
+      <ChromeProvider>
+        <StudioUiHost>
+          <Screen />
+        </StudioUiHost>
+      </ChromeProvider>
     </StudioDataProvider>
   );
 }

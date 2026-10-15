@@ -2,7 +2,7 @@
 // 127.0.0.1; a request must name this server as its Host (a web page that points its own domain
 // at 127.0.0.1 cannot reach it), and every API call carries the token made at each start, which
 // reaches the page in the URL's fragment and never leaves the machine.
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
 /** The WebSocket subprotocol that carries the token, since a socket cannot send a header. */
@@ -17,6 +17,17 @@ export function sameToken(given: string | undefined, expected: string): boolean 
   const a = Buffer.from(given);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * The key an <img> on the page puts in a screenshot's address, since an image cannot send the
+ * token. It reads screenshots and nothing else, and the page gets it only with the token.
+ */
+export function imageKey(token: string): string {
+  return createHash('sha256')
+    .update(`roughbook-screenshots:${token}`)
+    .digest('base64url')
+    .slice(0, 32);
 }
 
 /** The origins this server is reached at. */

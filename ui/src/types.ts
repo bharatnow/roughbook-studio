@@ -23,6 +23,8 @@ export type StudioState = {
   agents: AgentView[];
   defaultAgent: string | null;
   outbox: { pending: number; dropped: { path: string; code: string; droppedAt: string }[] };
+  /** What a card's <img> puts in a screenshot's address, since it cannot send the token. */
+  shotKey?: string;
 };
 
 export type Feedback = {
@@ -45,6 +47,10 @@ export type Iteration = {
   methods: string[];
   metaMissing: boolean;
   generation: { mode: string };
+  /** When it was made, where the backend says. */
+  created?: string | null;
+  /** Where it was made: a web sketch, or a studio (this repo's or another designer's). */
+  origin?: 'sketch' | 'local';
   refinement: { preset: string } | null;
   feedback: Feedback;
 };
@@ -80,17 +86,6 @@ export type ProjectView = {
     pages: Page[];
   };
   local: { iterations: string[]; screenshots: Record<string, string[]> };
-};
-
-/** A web sketch the component has, as `GET /api/sketches/:page/:component` lists it. */
-export type PullableSketch = {
-  id: string;
-  number: number;
-  name: string;
-  direction: string;
-  status: string;
-  parent: string | null;
-  created: string | null;
 };
 
 export type Finding = { code: string; message: string };

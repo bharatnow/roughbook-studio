@@ -12,11 +12,27 @@ type Message =
  * One agent session in xterm.js. The session belongs to its run, so this page can close and come
  * back: it gets everything printed so far, then the rest as it comes.
  */
-export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: number) => void }) {
+export function TerminalView({
+  id,
+  autoFocus = false,
+  onFocused,
+  onExit
+}: {
+  id: string;
+  /** Take the keyboard once open, unless a drawer has it. */
+  autoFocus?: boolean;
+  /** It took the keyboard. */
+  onFocused?: () => void;
+  onExit?: (exitCode: number) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [link, setLink] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  /** Counts the designer's "Join again", which opens a new socket to the same session. */
+  const [attempt, setAttempt] = useState(0);
   const exited = useRef(onExit);
   exited.current = onExit;
+  const focused = useRef(onFocused);
+  focused.current = onFocused;
 
   useEffect(() => {
     const element = box.current;
@@ -67,7 +83,10 @@ export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: n
       }
     });
     observer.observe(element);
-    term.focus();
+    if (autoFocus && !document.querySelector('[role=dialog][aria-modal=true]')) {
+      term.focus();
+      focused.current?.();
+    }
 
     return () => {
       observer.disconnect();
@@ -76,14 +95,25 @@ export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: n
       socket.close();
       term.dispose();
     };
-  }, [id]);
+    // Joining again, or the dock's own tabs, leave the keyboard where it is.
+  }, [id, attempt]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {link === 'closed' ? (
-        <p className="border-b border-ash bg-cloud px-3 py-2 text-xs text-slate">
-          Not connected. The session keeps running; reload the page to join it again.
-        </p>
+        <div role="status" className="flex items-center gap-3 px-1 pb-2 text-xs text-graphite">
+          Not connected.
+          <button
+            type="button"
+            onClick={() => {
+              setLink('connecting');
+              setAttempt(value => value + 1);
+            }}
+            className="min-h-6 text-violet hover:underline"
+          >
+            Join again
+          </button>
+        </div>
       ) : null}
       <div className="min-h-0 flex-1 rounded-card bg-onyx p-3">
         <div ref={box} className="h-full w-full" />

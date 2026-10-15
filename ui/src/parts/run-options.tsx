@@ -1,4 +1,4 @@
-import { InteractiveResultPanel } from '@roughbook/ui';
+import { HelpTip, InteractiveResultPanel } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { post } from '../api';
 import { describe, useStudio } from '../data';
@@ -15,6 +15,9 @@ type EditorLaunched = Extract<Launched, { kind: 'editor' }>;
 
 const selectClass =
   'h-9 rounded-control border border-ash bg-canvas px-2 text-sm text-graphite outline-none focus:border-violet disabled:opacity-50';
+
+const chipSelectClass =
+  'h-7 max-w-44 rounded-full border border-transparent bg-transparent px-2 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet';
 
 /** An editor's runs are always the designer's, in the editor; a terminal agent starts with you. */
 function modeFor(agent: AgentView | undefined): RunChoice['mode'] {
@@ -45,18 +48,64 @@ export function useRunChoice(state: StudioState | null): [RunChoice, (next: RunC
   return [choice, setChoice];
 }
 
+/** Where a terminal agent runs: one choice for the mode and the terminal. */
+type Where = 'builtin' | 'external' | 'headless';
+
+const WHERE_WORDS: Record<Where, string> = {
+  builtin: 'Built-in terminal',
+  external: 'Your terminal',
+  headless: 'Unattended'
+};
+
+function whereOf(choice: RunChoice): Where {
+  return choice.mode === 'headless' ? 'headless' : choice.terminal;
+}
+
+/** What each choice means, and why one is not offered, for the HelpTip beside them. */
+function RunHelp({ state, agent }: { state: StudioState; agent: AgentView | undefined }) {
+  if (agent?.kind === 'editor') {
+    return (
+      <>
+        {agent.id === 'other'
+          ? 'Opens the prompt with your default app and copies the instruction for your agent.'
+          : `Opens the repo and the prompt in ${agent.name} and copies the instruction for its agent.`}
+      </>
+    );
+  }
+  const headless = agent?.headless;
+  return (
+    <>
+      <strong className="font-medium">Built-in terminal</strong>: the agent works here, with you.{' '}
+      <strong className="font-medium">Your terminal</strong>: it opens in your own terminal app.{' '}
+      <strong className="font-medium">Unattended</strong>: it works on its own and finishes when it
+      exits.
+      {headless && !headless.ready ? (
+        <span className="mt-2 block">Unattended: {headless.reason}</span>
+      ) : null}
+      {!state.terminal.builtin ? <span className="mt-2 block">{state.terminal.reason}</span> : null}
+    </>
+  );
+}
+
+/**
+ * The agent and where it runs. `compact` is the prompt's chip: the two selects named for a screen
+ * reader rather than labelled, with the help beside them.
+ */
 export function RunOptions({
   state,
   choice,
-  onChange
+  onChange,
+  compact = false
 }: {
   state: StudioState;
   choice: RunChoice;
   onChange: (next: RunChoice) => void;
+  compact?: boolean;
 }) {
   const found = state.agents.filter(agent => agent.found);
   const agent = found.find(item => item.id === choice.agent);
   const headless = agent?.headless;
+  const select = compact ? chipSelectClass : selectClass;
   if (!found.length) {
     return (
       <p className="text-sm text-danger">
@@ -65,74 +114,80 @@ export function RunOptions({
       </p>
     );
   }
+  const agentSelect = (
+    <select
+      aria-label={compact ? 'Agent' : undefined}
+      value={choice.agent}
+      onChange={event => {
+        const next = found.find(item => item.id === event.target.value);
+        onChange({ ...choice, agent: event.target.value, mode: modeFor(next) });
+      }}
+      className={select}
+    >
+      {found.map(item => (
+        <option key={item.id} value={item.id}>
+          {item.name}
+          {item.version && !compact ? ` ${item.version}` : ''}
+        </option>
+      ))}
+    </select>
+  );
+  const whereSelect =
+    agent?.kind === 'editor' ? null : (
+      <select
+        aria-label={compact ? 'Where it runs' : undefined}
+        value={whereOf(choice)}
+        onChange={event => {
+          const where = event.target.value as Where;
+          onChange(
+            where === 'headless'
+              ? { ...choice, mode: 'headless' }
+              : { ...choice, mode: 'interactive', terminal: where }
+          );
+        }}
+        className={select}
+      >
+        {(Object.keys(WHERE_WORDS) as Where[]).map(where => (
+          <option
+            key={where}
+            value={where}
+            disabled={
+              (where === 'builtin' && !state.terminal.builtin) ||
+              (where === 'headless' && !headless?.ready)
+            }
+          >
+            {WHERE_WORDS[where]}
+          </option>
+        ))}
+      </select>
+    );
+  const help = (
+    <HelpTip label="About where the agent runs">
+      <RunHelp state={state} agent={agent} />
+    </HelpTip>
+  );
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-0.5">
+        {agentSelect}
+        {whereSelect}
+        {help}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1">
         <span className="text-xs text-steel">Agent</span>
-        <select
-          value={choice.agent}
-          onChange={event => {
-            const next = found.find(item => item.id === event.target.value);
-            onChange({ ...choice, agent: event.target.value, mode: modeFor(next) });
-          }}
-          className={selectClass}
-        >
-          {found.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-              {item.version ? ` ${item.version}` : ''}
-            </option>
-          ))}
-        </select>
+        {agentSelect}
       </label>
-      {agent?.kind === 'editor' ? (
-        <p className="basis-full text-xs text-steel">
-          {agent.id === 'other'
-            ? 'Opens the prompt with your default app and copies the instruction for your agent.'
-            : `Opens the repo and the prompt in ${agent.name} and copies the instruction for its agent.`}
-        </p>
-      ) : (
-        <>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-steel">How</span>
-            <select
-              value={choice.mode}
-              onChange={event =>
-                onChange({ ...choice, mode: event.target.value as RunChoice['mode'] })
-              }
-              className={selectClass}
-            >
-              <option value="interactive">In a terminal, with you</option>
-              <option value="headless" disabled={!headless?.ready}>
-                Unattended{headless && !headless.ready ? ' (not available)' : ''}
-              </option>
-            </select>
-          </label>
-          {choice.mode === 'interactive' ? (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-steel">Where</span>
-              <select
-                value={choice.terminal}
-                onChange={event =>
-                  onChange({ ...choice, terminal: event.target.value as RunChoice['terminal'] })
-                }
-                className={selectClass}
-              >
-                <option value="builtin" disabled={!state.terminal.builtin}>
-                  Here, in the built-in terminal
-                </option>
-                <option value="external">In your own terminal</option>
-              </select>
-            </label>
-          ) : null}
-          {headless && !headless.ready && choice.mode === 'interactive' ? (
-            <p className="basis-full text-xs text-steel">Unattended: {headless.reason}</p>
-          ) : null}
-          {!state.terminal.builtin ? (
-            <p className="basis-full text-xs text-steel">{state.terminal.reason}</p>
-          ) : null}
-        </>
-      )}
+      {whereSelect ? (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-steel">Where</span>
+          {whereSelect}
+        </label>
+      ) : null}
+      <span className="pb-1.5">{help}</span>
     </div>
   );
 }
@@ -153,8 +208,11 @@ export function useStartRuns() {
   const [busy, setBusy] = useState(false);
   const [launched, setLaunched] = useState<Launched | null>(null);
 
-  /** The runs' launch, or null when they could not start (the notice says why). */
-  async function start(body: Record<string, unknown>, choice: RunChoice): Promise<Launched | null> {
+  /** The runs and their launch, or null when they could not start (the notice says why). */
+  async function start(
+    body: Record<string, unknown>,
+    choice: RunChoice
+  ): Promise<{ runs: RunView[]; launched: Launched } | null> {
     setBusy(true);
     setLaunched(null);
     try {
@@ -172,15 +230,16 @@ export function useStartRuns() {
       setLaunched(result.launched);
       const names = result.runs.map(run => run.iteration).join(', ');
       if (result.launched.kind === 'builtin' && result.launched.terminals[0]) {
+        // The canvas, with the session in its dock and the run's card selected.
         navigate(`/terminals/${result.launched.terminals[0].id}`);
       } else if (result.launched.kind === 'external') {
         say({ tone: 'info', text: `Started ${names} in ${result.launched.terminal}.` });
       } else if (result.launched.kind === 'headless') {
-        say({ tone: 'info', text: `Started ${names} unattended. Its progress shows below.` });
+        say({ tone: 'info', text: `Started ${names} unattended.` });
       } else if (result.launched.kind === 'editor') {
         say({ tone: 'info', text: `Started ${names}. ${openedIn(result.launched)}` });
       }
-      return result.launched;
+      return result;
     } catch (error) {
       say({ tone: 'error', text: describe(error) });
       return null;
@@ -196,22 +255,24 @@ export function useStartRuns() {
 function EditorHandoff({ launched }: { launched: EditorLaunched }) {
   const [copied, setCopied] = useState<number | null>(launched.copied ? 0 : null);
   const agent = launched.editor === 'Your own editor' ? 'your agent' : `${launched.editor}'s agent`;
+  const many = launched.instructions.length > 1;
   return (
     <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-sm">
-      <p className="text-graphite">{openedIn(launched)}</p>
-      <p className="mt-1 text-xs text-slate">
-        Paste {launched.instructions.length > 1 ? 'each line' : 'this'} into a new chat with {agent}
-        {launched.instructions.length > 1 ? ', one chat per iteration' : ''}
-        {launched.mcp?.ready
-          ? '. It checks and finishes the run itself through the Roughbook MCP tools, or press Done on the run.'
-          : ', then press Done on the run when it has finished.'}
-      </p>
-      {launched.mcp?.ready === false && (
-        <p className="mt-1 text-xs text-slate">
-          Run <code className="font-mono text-graphite">{launched.mcp.install}</code> once, so{' '}
-          {agent} can check and finish runs itself.
-        </p>
-      )}
+      <div className="text-graphite">
+        {openedIn(launched)} Paste {many ? 'each line' : 'this'} into a new chat with {agent}.{' '}
+        <HelpTip label="About finishing an editor's run">
+          {many ? 'One chat per iteration. ' : ''}
+          {launched.mcp?.ready
+            ? 'It checks and finishes the run itself through the Roughbook MCP tools, or press Done on the run.'
+            : 'Press Done on the run when it has finished.'}
+          {launched.mcp?.ready === false ? (
+            <span className="mt-2 block">
+              Run <code className="font-mono">{launched.mcp.install}</code> once, so {agent} can
+              check and finish runs itself.
+            </span>
+          ) : null}
+        </HelpTip>
+      </div>
       <ul className="mt-2 flex flex-col gap-2">
         {launched.instructions.map((instruction, index) => (
           <li key={instruction} className="flex flex-wrap items-center gap-2">

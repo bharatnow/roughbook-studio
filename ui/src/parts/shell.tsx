@@ -1,6 +1,10 @@
+import { ChevronLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStudio } from '../data';
-import { endedLabel, type Component, type TerminalInfo } from '../types';
+import { useChrome } from './chrome';
+import { Dock } from './dock';
+import { StudioPalette } from './palette';
+import { StatusButton } from './status';
 
 /** What the studio has to say, in the corner of every screen until dismissed. */
 function Notice() {
@@ -26,11 +30,95 @@ function Notice() {
 }
 
 /**
- * The bar every screen shares: the project, the dev server, and what waits in the outbox.
- * `bare` leaves the screen the whole page, for the stage, which has its own bar.
+ * The one bar (ROUGHBOOK-QUIET-UI-PLAN.md, U5): the logo, the breadcrumb the canvas moves with its
+ * selection, the palette, and one status dot whose popover holds the dev server, the outbox and
+ * the version. A narrow window shows the breadcrumb's last item with the way back.
  */
-export function Shell({ children, bare = false }: { children: ReactNode; bare?: boolean }) {
+function Bar() {
   const { state, project, problem } = useStudio();
+  const { crumbs } = useChrome();
+  const trail = [
+    { href: '#/', label: project?.tree.name ?? state?.project.slug ?? 'Project' },
+    ...crumbs
+  ];
+  const last = trail[trail.length - 1]!;
+  const back = trail[trail.length - 2];
+  return (
+    <header className="sticky top-0 z-30 border-b border-ash bg-cloud/95 backdrop-blur">
+      <div className="flex h-12 items-center gap-3 px-4">
+        <a href="#/" className="flex shrink-0 items-center gap-2 max-md:hidden">
+          <span className="font-display text-base tracking-tight text-graphite">Roughbook</span>
+          <span className="rounded-full bg-violet/10 px-2 py-0.5 font-mono text-[11px] text-violet">
+            studio
+          </span>
+        </a>
+        <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+          <ol className="flex min-w-0 items-center gap-1.5 text-sm max-md:hidden">
+            {trail.map((crumb, index) => (
+              <li key={crumb.href} className="flex min-w-0 items-center gap-1.5">
+                {index ? (
+                  <span aria-hidden className="text-fog">
+                    /
+                  </span>
+                ) : null}
+                {index === trail.length - 1 ? (
+                  <h1 aria-current="page" className="truncate text-graphite">
+                    {crumb.label}
+                  </h1>
+                ) : (
+                  <a href={crumb.href} className="truncate text-slate hover:text-graphite">
+                    {crumb.label}
+                  </a>
+                )}
+              </li>
+            ))}
+          </ol>
+          <div className="flex min-w-0 items-center gap-1 text-sm md:hidden">
+            {back ? (
+              <a
+                href={back.href}
+                aria-label={`Back to ${back.label}`}
+                className="-ml-2 inline-flex size-9 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite"
+              >
+                <ChevronLeft className="size-4" strokeWidth={1.5} />
+              </a>
+            ) : null}
+            <h1 className="truncate text-graphite">{last.label}</h1>
+          </div>
+        </nav>
+        <div className="flex shrink-0 items-center gap-1">
+          <StudioPalette />
+          <StatusButton />
+        </div>
+      </div>
+      {problem ? (
+        <p
+          role="alert"
+          className="border-t border-ash bg-canvas px-4 py-2 text-center text-sm text-danger"
+        >
+          {problem}
+        </p>
+      ) : null}
+    </header>
+  );
+}
+
+/**
+ * Every screen's frame. `fill` gives the screen the rest of the window, with the terminal dock at
+ * its foot, for the canvas; `bare` leaves it the whole page, for the stage, which has its own bar.
+ */
+export function Shell({
+  children,
+  bare = false,
+  fill = false
+}: {
+  children: ReactNode;
+  bare?: boolean;
+  fill?: boolean;
+}) {
+  const { terminals } = useStudio();
+  const { dock } = useChrome();
+  const docked = dock.open && terminals.length > 0;
   if (bare) {
     return (
       <>
@@ -39,119 +127,21 @@ export function Shell({ children, bare = false }: { children: ReactNode; bare?: 
       </>
     );
   }
+  if (fill) {
+    return (
+      <div data-dock={docked ? 'open' : undefined} className="flex h-[100dvh] flex-col">
+        <Bar />
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <Dock />
+        <Notice />
+      </div>
+    );
+  }
   return (
     <div className="min-h-[100dvh]">
-      <header className="sticky top-0 z-30 border-b border-ash bg-cloud/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
-          <a href="#/" className="font-display text-base tracking-tight text-graphite">
-            Roughbook
-          </a>
-          <span className="rounded-full bg-violet/10 px-2 py-0.5 font-mono text-[11px] text-violet">
-            studio
-          </span>
-          <a href="#/" className="truncate text-sm text-slate hover:text-graphite">
-            {project?.tree.name ?? state?.project.slug ?? ''}
-          </a>
-          <span className="ml-auto flex flex-wrap items-center gap-3 font-mono text-[11px] text-steel">
-            {state ? <span>previews from {state.devUrl}</span> : null}
-            {state?.outbox.pending ? (
-              <span className="text-violet">{state.outbox.pending} waiting to send</span>
-            ) : null}
-            {state ? <span>v{state.version}</span> : null}
-          </span>
-        </div>
-        {problem ? (
-          <p
-            role="alert"
-            className="border-t border-ash bg-canvas px-4 py-2 text-center text-sm text-danger"
-          >
-            {problem}
-          </p>
-        ) : null}
-      </header>
+      <Bar />
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
       <Notice />
     </div>
-  );
-}
-
-/** What the brief says, read-only: it is edited on the web. */
-export function BriefSummary({
-  component,
-  webHref
-}: {
-  component: Component;
-  webHref: string | null;
-}) {
-  const approved = component.copy.versions.find(item => item.number === component.copy.approved);
-  return (
-    <section className="rounded-card border border-ash bg-canvas p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-display text-base tracking-tight text-graphite">Brief</h2>
-        {webHref ? (
-          <a
-            href={webHref}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm text-violet hover:underline"
-          >
-            Edit on the web
-          </a>
-        ) : null}
-      </div>
-      <dl className="mt-3 flex flex-col gap-2 text-sm">
-        {component.messages.primary ? (
-          <div>
-            <dt className="text-xs text-steel">Must say</dt>
-            <dd className="text-graphite">{component.messages.primary}</dd>
-          </div>
-        ) : null}
-        {component.userQuestion ? (
-          <div>
-            <dt className="text-xs text-steel">The visitor asks</dt>
-            <dd className="text-graphite">{component.userQuestion}</dd>
-          </div>
-        ) : null}
-        {approved ? (
-          <div>
-            <dt className="text-xs text-steel">Approved copy, version {approved.number}</dt>
-            <dd className="font-display text-graphite">{approved.headline}</dd>
-            {approved.supporting.map(line => (
-              <dd key={line} className="text-slate">
-                {line}
-              </dd>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-steel">
-            No approved copy yet; iterations use placeholder text.
-          </p>
-        )}
-        {component.brief ? <p className="text-slate">{component.brief}</p> : null}
-      </dl>
-    </section>
-  );
-}
-
-/** The built-in terminal's sessions: runs' agents and promotions. */
-export function Sessions({ sessions }: { sessions: TerminalInfo[] }) {
-  if (!sessions.length) return null;
-  return (
-    <section>
-      <h2 className="font-display text-base tracking-tight text-graphite">Sessions</h2>
-      <ul className="mt-3 flex flex-col gap-2">
-        {sessions.map(session => (
-          <li key={session.id}>
-            <a
-              href={`#/terminals/${session.id}`}
-              className="flex items-center justify-between gap-3 rounded-control border border-ash bg-canvas px-3 py-2 text-sm text-graphite hover:border-mist"
-            >
-              <span className="truncate">{session.title}</span>
-              <span className="font-mono text-[11px] text-steel">{endedLabel(session)}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }

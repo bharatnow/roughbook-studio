@@ -101,7 +101,7 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
         ecmaFeatures: { jsx: true },
-        project: './ui/tsconfig.json',
+        project: ['./ui/tsconfig.json', './ui/tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname
       }
     },

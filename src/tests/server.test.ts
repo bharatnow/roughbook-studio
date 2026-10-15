@@ -660,6 +660,45 @@ describe('the local server', () => {
     assert.equal(shots.length, before + 1);
   });
 
+  it("serves a screenshot to the page's own <img> with the image key, and to no one else", async () => {
+    const file = path.join(repo, 'rough', '.screenshots', 'home', 'hero', 'iteration-01');
+    fs.mkdirSync(file, { recursive: true });
+    fs.writeFileSync(path.join(file, 'desktop.png'), 'PNG-SHOT');
+    const shot = '/api/iterations/home/hero/iteration-01/screenshots/desktop';
+    const host = `127.0.0.1:${port}`;
+    const { shotKey } = (await api('GET', '/api/state')).json.data;
+    assert.match(shotKey, /^[\w-]{32}$/);
+    assert.notEqual(shotKey, LOCAL_TOKEN);
+
+    const withToken = await raw(port, 'GET', shot, {
+      host,
+      authorization: `Bearer ${LOCAL_TOKEN}`
+    });
+    assert.equal(withToken.status, 200);
+    assert.equal(withToken.body.toString(), 'PNG-SHOT');
+    // An <img> cannot send a header, so the page puts the key in its address.
+    const keyed = await raw(port, 'GET', `${shot}?key=${shotKey}`, { host });
+    assert.equal(keyed.status, 200);
+    assert.equal(keyed.headers['content-type'], 'image/png');
+    assert.equal(keyed.headers['cache-control'], 'private, no-cache');
+    // Unchanged since the card last drew it.
+    const again = await raw(port, 'GET', `${shot}?key=${shotKey}`, {
+      host,
+      'if-none-match': String(keyed.headers.etag)
+    });
+    assert.equal(again.status, 304);
+    assert.equal(again.body.length, 0);
+
+    assert.equal((await raw(port, 'GET', shot, { host })).status, 401);
+    assert.equal((await raw(port, 'GET', `${shot}?key=nearly-the-key`, { host })).status, 401);
+    // The key reads screenshots and nothing else.
+    assert.equal((await raw(port, 'GET', `/api/state?key=${shotKey}`, { host })).status, 401);
+    assert.equal(
+      (await raw(port, 'GET', `${shot}?key=${shotKey}`, { host: `evil.example:${port}` })).status,
+      403
+    );
+  });
+
   it("sends the local UI's decisions through the outbox in the backend's shapes", async () => {
     const decide = (body: unknown) =>
       api('POST', '/api/iterations/home/hero/iteration-01/decisions', body);

@@ -1,25 +1,13 @@
-import { formatRelativeTime } from '@roughbook/ui';
+import { Drawer, formatRelativeTime } from '@roughbook/ui';
 import { useState } from 'react';
 import { get, post } from '../api';
 import { describe, useStudio } from '../data';
+import { finishedBy, runRunning, runWord } from '../runs';
+import { useDialogFocus } from './dialog-focus';
 import type { RunView } from '../types';
 
 const button =
   'inline-flex h-8 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50';
-
-const OUTCOMES: Record<string, string> = {
-  completed: 'Completed',
-  completed_with_warnings: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Cancelled'
-};
-
-const FINISHED_BY: Record<string, string> = {
-  agent: 'Finished by the agent, through the Roughbook MCP tools.',
-  done: 'Finished with roughbook done.',
-  'local-ui': 'Finished with Done here.',
-  headless: 'Finished when the agent exited.'
-};
 
 const REVERTED: Record<string, string> = {
   restored: 'put back as it was before the run',
@@ -28,13 +16,24 @@ const REVERTED: Record<string, string> = {
   cannot: 'not kept by the studio; restore it from git or your editor'
 };
 
-/** One run: while it goes, how to reach it and finish it; after, what the checks found. */
-export function RunCard({ run }: { run: RunView }) {
+/** The agent's name as the studio found it, or its id. */
+export function useAgentName(id: string): string {
+  const { state } = useStudio();
+  return state?.agents.find(agent => agent.id === id)?.name ?? id;
+}
+
+/** What changed outside the iteration, and which of it the designer says was their own work. */
+type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'cancelled' };
+
+/**
+ * What can be done to a run: Done (which first asks whose the files changed outside its iteration
+ * were), It failed, Cancel it, Stop, Copy prompt, and Put it back for a file after. For the run
+ * card and for a making card's toolbar on the canvas.
+ */
+export function useRunOps(run: RunView) {
   const { refresh, say } = useStudio();
   const [busy, setBusy] = useState<string | null>(null);
-  const open = run.status === 'started';
-  const running = run.terminal?.status === 'running' || run.headless?.status === 'running';
-  const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
+  const [review, setReview] = useState<WhoseChanges | null>(null);
 
   async function act(name: string, work: () => Promise<string | null>) {
     setBusy(name);
@@ -49,38 +48,89 @@ export function RunCard({ run }: { run: RunView }) {
     }
   }
 
-  const [review, setReview] = useState<WhoseChanges | null>(null);
-
-  /** Done: first what changed outside the iteration, for the designer to say whose it was. */
-  const finish = (outcome?: 'failed' | 'cancelled') =>
-    act('done', async () => {
-      const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
-      if (outOfScope.length) {
-        setReview({ files: outOfScope, mine: [], outcome });
+  return {
+    busy,
+    review,
+    setReview,
+    finish: (outcome?: 'failed' | 'cancelled') =>
+      act('done', async () => {
+        const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
+        if (outOfScope.length) {
+          setReview({ files: outOfScope, mine: [], outcome });
+          return null;
+        }
+        await post(`/api/runs/${run.runId}/done`, outcome ? { outcome } : {});
         return null;
-      }
-      await post(`/api/runs/${run.runId}/done`, outcome ? { outcome } : {});
-      return null;
-    });
+      }),
+    complete: (choice: WhoseChanges) =>
+      act('done', async () => {
+        await post(`/api/runs/${run.runId}/done`, {
+          ...(choice.outcome ? { outcome: choice.outcome } : {}),
+          mine: choice.mine
+        });
+        setReview(null);
+        return null;
+      }),
+    stop: () =>
+      act('stop', async () => {
+        await post(`/api/runs/${run.runId}/stop`);
+        return 'Stopped the agent.';
+      }),
+    copyPrompt: () =>
+      act('copy', async () => {
+        const { prompt } = await get<{ prompt: string }>(`/api/runs/${run.runId}/prompt`);
+        await navigator.clipboard.writeText(prompt);
+        return 'The prompt is on the clipboard.';
+      }),
+    putBack: (file: string) =>
+      act(`revert:${file}`, async () => {
+        const { result } = await post<{ result: string }>(`/api/runs/${run.runId}/revert`, {
+          file
+        });
+        return `${file}: ${REVERTED[result] ?? result}.`;
+      })
+  };
+}
 
-  const complete = (choice: WhoseChanges) =>
-    act('done', async () => {
-      await post(`/api/runs/${run.runId}/done`, {
-        ...(choice.outcome ? { outcome: choice.outcome } : {}),
-        mine: choice.mine
-      });
-      setReview(null);
-      return null;
-    });
+export type RunOps = ReturnType<typeof useRunOps>;
+
+/**
+ * One run: while it goes, how to reach it and finish it; after, how it ended in a word and what the
+ * checks found. `compact` leaves out which iteration it made, for the inspector of that iteration;
+ * `terminal={false}` its way to the terminal, for the dock that shows it.
+ */
+export function RunCard({
+  run,
+  compact = false,
+  terminal = true
+}: {
+  run: RunView;
+  compact?: boolean;
+  terminal?: boolean;
+}) {
+  const agent = useAgentName(run.agent);
+  const ops = useRunOps(run);
+  const { busy, review, setReview } = ops;
+  const open = run.status === 'started';
+  const running = runRunning(run);
+  const by = finishedBy(run);
+  const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
 
   return (
-    <li className="rounded-card border border-ash bg-canvas p-3">
+    <div className={compact ? 'text-sm' : 'rounded-card border border-ash bg-canvas p-3'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-xs text-graphite">{label}</p>
-          <p className="text-xs text-steel">
-            {run.agent} · {run.mode} · started {formatRelativeTime(run.startedAt)}
-          </p>
+          {compact ? null : <span className="block font-mono text-xs text-graphite">{label}</span>}
+          <span className={compact ? 'block text-graphite' : 'block text-xs text-steel'}>
+            {agent} · {run.mode} · {formatRelativeTime(run.startedAt)}
+            {by ? <span title={by.sentence}> · {by.word}</span> : null}
+            {run.reported === 'queued' ? (
+              <span title="The result waits in the outbox until the server can be reached.">
+                {' '}
+                · queued
+              </span>
+            ) : null}
+          </span>
         </div>
         <span
           className={`inline-flex h-5 items-center rounded-full px-2 font-mono text-[11px] ${
@@ -91,11 +141,7 @@ export function RunCard({ run }: { run: RunView }) {
                 : 'bg-frost text-slate'
           }`}
         >
-          {open
-            ? running
-              ? 'Working'
-              : 'Waiting for Done'
-            : (OUTCOMES[run.outcome ?? ''] ?? 'Finished')}
+          {runWord(run)}
         </span>
       </div>
 
@@ -113,34 +159,28 @@ export function RunCard({ run }: { run: RunView }) {
           review={review}
           busy={busy !== null}
           onChange={mine => setReview({ ...review, mine })}
-          onFinish={() => void complete(review)}
+          onFinish={() => void ops.complete(review)}
           onBack={() => setReview(null)}
         />
       ) : open ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {run.terminal ? (
+          {run.terminal && terminal ? (
             <a href={`#/terminals/${run.terminal.id}`} className={button}>
-              {run.terminal.status === 'running' ? 'Open the terminal' : 'See the session'}
+              Terminal
             </a>
           ) : null}
           <button
             type="button"
             className={button}
             disabled={busy !== null}
-            onClick={() =>
-              act('copy', async () => {
-                const { prompt } = await get<{ prompt: string }>(`/api/runs/${run.runId}/prompt`);
-                await navigator.clipboard.writeText(prompt);
-                return 'The prompt is on the clipboard.';
-              })
-            }
+            onClick={() => void ops.copyPrompt()}
           >
             Copy prompt
           </button>
           <button
             type="button"
             disabled={busy !== null || run.headless?.status === 'running'}
-            onClick={() => void finish()}
+            onClick={() => void ops.finish()}
             className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
           >
             {busy === 'done' ? 'Checking' : 'Done'}
@@ -150,12 +190,7 @@ export function RunCard({ run }: { run: RunView }) {
               type="button"
               className={button}
               disabled={busy !== null}
-              onClick={() =>
-                act('stop', async () => {
-                  await post(`/api/runs/${run.runId}/stop`);
-                  return 'Stopped the agent.';
-                })
-              }
+              onClick={() => void ops.stop()}
             >
               Stop
             </button>
@@ -165,7 +200,7 @@ export function RunCard({ run }: { run: RunView }) {
                 type="button"
                 className={button}
                 disabled={busy !== null}
-                onClick={() => void finish('failed')}
+                onClick={() => void ops.finish('failed')}
               >
                 It failed
               </button>
@@ -173,70 +208,72 @@ export function RunCard({ run }: { run: RunView }) {
                 type="button"
                 className={button}
                 disabled={busy !== null}
-                onClick={() => void finish('cancelled')}
+                onClick={() => void ops.finish('cancelled')}
               >
                 Cancel it
               </button>
             </>
           )}
         </div>
-      ) : (
-        <div className="mt-2 flex flex-col gap-1 text-xs">
-          {run.finishedBy ? <p className="text-steel">{FINISHED_BY[run.finishedBy]}</p> : null}
-          {run.failure ? <p className="text-danger">{run.failure.message}</p> : null}
+      ) : run.failure || run.warnings.length || run.outOfScope.length || run.mine?.length ? (
+        <ul className="mt-2 flex flex-col gap-1 text-xs">
+          {run.failure ? <li className="text-danger">{run.failure.message}</li> : null}
           {run.warnings.map(warning => (
-            <p key={warning.code + warning.message} className="text-slate">
+            <li key={warning.code + warning.message} className="text-slate">
               <span className="font-mono text-[10px] text-steel">{warning.code}</span>{' '}
               {warning.message}
-            </p>
+            </li>
           ))}
-          {run.outOfScope.length ? (
-            <ul className="mt-1 flex flex-col gap-1">
-              {run.outOfScope.map(file => (
-                <li key={file} className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-graphite">{file}</span>
-                  {run.putBack?.includes(file) ? (
-                    <span className="text-steel">Put back</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-violet hover:underline disabled:opacity-50"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        act(`revert:${file}`, async () => {
-                          const { result } = await post<{ result: string }>(
-                            `/api/runs/${run.runId}/revert`,
-                            { file }
-                          );
-                          return `${file}: ${REVERTED[result] ?? result}.`;
-                        })
-                      }
-                    >
-                      Put it back
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {run.outOfScope.map(file => (
+            <li key={file} className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-graphite">{file}</span>
+              {run.putBack?.includes(file) ? (
+                <span className="text-steel">Put back</span>
+              ) : (
+                <button
+                  type="button"
+                  className="min-h-6 text-violet hover:underline disabled:opacity-50"
+                  disabled={busy !== null}
+                  onClick={() => void ops.putBack(file)}
+                >
+                  Put it back
+                </button>
+              )}
+            </li>
+          ))}
           {run.mine?.length ? (
-            <p className="text-steel">
+            <li className="text-steel">
               Yours, not counted: <span className="font-mono">{run.mine.join(', ')}</span>
-            </p>
+            </li>
           ) : null}
-          {run.reported === 'queued' ? (
-            <p className="text-steel">
-              The result waits in the outbox until the server can be reached.
-            </p>
-          ) : null}
-        </div>
-      )}
-    </li>
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
-/** What changed outside the iteration, and which of it the designer says was their own work. */
-type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'cancelled' };
+/** Before Done, as a drawer: for a making card's Done on the canvas, which has no card to grow. */
+export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) {
+  const { review, setReview, busy } = ops;
+  useDialogFocus(review !== null);
+  return (
+    <Drawer
+      open={review !== null}
+      onClose={() => setReview(null)}
+      title={`Finish ${run.iteration}`}
+    >
+      {review ? (
+        <WhoseChangesPanel
+          review={review}
+          busy={busy !== null}
+          onChange={mine => setReview({ ...review, mine })}
+          onFinish={() => void ops.complete(review)}
+          onBack={() => setReview(null)}
+        />
+      ) : null}
+    </Drawer>
+  );
+}
 
 /** Before Done: the files changed outside the iteration, each to tick as the designer's own. */
 function WhoseChangesPanel({
@@ -263,7 +300,8 @@ function WhoseChangesPanel({
     <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-xs">
       <p className="text-graphite">
         {count} {count === 1 ? 'file' : 'files'} changed outside the iteration while the run was
-        open. Tick what was your own work; the rest counts as the agent's and can be put back after.
+        open. Tick what was your own work; the rest counts as the agent&apos;s and can be put back
+        after.
       </p>
       <div className="mt-1 flex gap-3">
         <button

@@ -2,6 +2,8 @@ import { CompareView, latestHumanReview, reviewSummary, type Review } from '@rou
 import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
 import { findComponent, localIterations, useStudio } from '../data';
+import { useChrome } from '../parts/chrome';
+import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 
 /** Each candidate's latest review in one line, as the web's Compare shows it. */
@@ -41,13 +43,20 @@ export function CompareScreen({
   const summaries = useSummaries(page, component, ids);
   const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
-  if (!project) return <p className="text-sm text-slate">Loading…</p>;
-  if (!found)
-    return (
-      <p className="text-sm text-slate">
-        There is no {page}/{component} in this project.
-      </p>
-    );
+  const { setCrumbs } = useChrome();
+  const pageName = found?.page.name;
+  const componentName = found?.component.name;
+  useEffect(() => {
+    if (!pageName || !componentName) return;
+    setCrumbs([
+      { href: `#/${page}`, label: pageName },
+      { href: `#/${page}/${component}`, label: componentName },
+      { href: window.location.hash, label: 'Compare' }
+    ]);
+    return () => setCrumbs([]);
+  }, [page, component, pageName, componentName, setCrumbs]);
+  if (!project) return <Missing>Loading…</Missing>;
+  if (!found) return <Missing back>There is no {`${page}/${component}`} in this project.</Missing>;
   const here = localIterations(project, page, found.component);
   const candidates = ids
     .map(id => here.find(item => item.id === id))
@@ -58,7 +67,6 @@ export function CompareScreen({
       project={project.tree.slug}
       page={page}
       component={component}
-      componentName={found.component.name}
       base={`/${page}/${component}`}
       candidates={candidates}
       reviewSummaries={summaries}

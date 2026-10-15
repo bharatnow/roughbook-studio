@@ -1,19 +1,27 @@
 import {
   AppPreview,
+  GENERATION_STATE_LABELS,
+  HelpTip,
+  IterationInspector,
   IterationNotesForm,
+  REFINEMENT_PRESETS,
   RatingForm,
   RejectDrawer,
   ReviewButton,
   SelectConfirmDrawer,
   Stage,
+  decisionOf,
   describeIterationState,
   describeRating,
+  generationStateOf,
+  iterationStatusLabel,
   latestHumanReview,
   reviewSummary
 } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
+import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
@@ -49,6 +57,10 @@ function useScreenshot(
   return url;
 }
 
+function presetLabel(preset: string): string {
+  return REFINEMENT_PRESETS.find(item => item.value === preset)?.label ?? preset;
+}
+
 export function IterationScreen({
   page,
   component,
@@ -75,9 +87,9 @@ export function IterationScreen({
 
   const found = findComponent(project, page, component);
   const iteration = found?.component.iterations.find(item => item.id === id);
-  if (!project || !state) return <p className="text-sm text-slate">Loading…</p>;
+  if (!project || !state) return <Missing>Loading…</Missing>;
   if (!found || !iteration || !project.local.iterations.includes(key)) {
-    return <p className="text-sm text-slate">{key} is not in this repo.</p>;
+    return <Missing back>{key} is not in this repo.</Missing>;
   }
 
   const record = found.component;
@@ -87,6 +99,10 @@ export function IterationScreen({
     item => item.page === page && item.component === component && item.iteration === id
   );
   const target = { project: project.tree.slug, page, component, iterationId: id };
+  const parentHere = iteration.parent
+    ? project.local.iterations.includes(`${page}/${component}/${iteration.parent}`)
+    : false;
+  const latestReview = reviewSummary(latestHumanReview(reviews));
 
   async function takeScreenshots() {
     setShooting(true);
@@ -111,8 +127,9 @@ export function IterationScreen({
   return (
     <>
       <Stage
-        backHref={`${base}/iterations`}
-        backLabel={`${record.name} iterations`}
+        backHref={`${base}/iterations#${id}`}
+        backLabel="Back to canvas"
+        backOnEscape
         kicker={`${record.name} / ${id}`}
         title={iteration.name}
         note={[iteration.direction, describeIterationState(iteration)].filter(Boolean).join(' · ')}
@@ -122,7 +139,7 @@ export function IterationScreen({
           viewHref: null,
           editorUnavailable: 'Open it from the repo in your editor.'
         }}
-        parentHref={iteration.parent ? `${base}/${iteration.parent}` : null}
+        parentHref={iteration.parent && parentHere ? `${base}/${iteration.parent}` : null}
         parentLabel={iteration.parent ? `From ${iteration.parent}` : null}
         selected={selected}
         extraActions={
@@ -153,50 +170,33 @@ export function IterationScreen({
           </>
         }
         inspector={
-          <div className="flex flex-col gap-5 text-sm">
-            {iteration.hypothesis ? (
-              <div>
-                <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">
-                  Tests
-                </p>
-                <p className="mt-1 text-graphite">{iteration.hypothesis}</p>
-              </div>
-            ) : null}
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">Rating</p>
-              <p className="mt-1 text-xs text-slate">
-                {describeRating(rating) ?? 'Not rated yet.'}
-              </p>
-            </div>
-            {run ? (
-              <div>
-                <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">Run</p>
-                <ul className="mt-1">
-                  <RunCard run={run} />
-                </ul>
-              </div>
-            ) : null}
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">
-                Screenshots
-              </p>
-              <p className="mt-1 text-xs text-slate">
-                {taken
-                  ? 'Shown here when the dev server is not running.'
-                  : 'None yet. They are shown here when the dev server is not running.'}
-              </p>
-              <button
-                type="button"
-                className={`${action} mt-2 disabled:opacity-50`}
-                disabled={shooting}
-                onClick={() => void takeScreenshots()}
-              >
-                {shooting ? 'Taking screenshots' : taken ? 'Take them again' : 'Take screenshots'}
-              </button>
-            </div>
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.08em] text-steel uppercase">Notes</p>
-              <div className="mt-1">
+          <IterationInspector
+            direction={iteration.direction}
+            hypothesis={iteration.hypothesis}
+            latestReview={latestReview}
+            rating={describeRating(rating)}
+            decision={iterationStatusLabel(decisionOf(iteration.status))}
+            generation={GENERATION_STATE_LABELS[generationStateOf(iteration)]}
+            created={iteration.created ?? null}
+            tags={iteration.tags}
+            methods={iteration.methods}
+            refinement={
+              iteration.refinement ? { preset: presetLabel(iteration.refinement.preset) } : null
+            }
+            parent={
+              iteration.parent
+                ? {
+                    label: iteration.parent,
+                    href: parentHere ? `${base}/${iteration.parent}` : null
+                  }
+                : null
+            }
+            whySelected={iteration.feedback.selectionReason}
+            whyRejected={iteration.feedback.rejectionReason}
+            likes={iteration.feedback.likes}
+            dislikes={iteration.feedback.dislikes}
+            controls={{
+              notes: (
                 <IterationNotesForm
                   project={project.tree.slug}
                   page={page}
@@ -204,14 +204,30 @@ export function IterationScreen({
                   iterationId={id}
                   designerNotes={iteration.feedback.designerNotes}
                 />
-              </div>
-            </div>
-            {reviewSummary(latestHumanReview(reviews)) ? (
-              <p className="text-xs text-slate">
-                Your latest review: {reviewSummary(latestHumanReview(reviews))}
-              </p>
-            ) : null}
-          </div>
+              ),
+              madeBy: run ? <RunCard run={run} compact /> : null,
+              screenshots: (
+                <span className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={`${action} disabled:opacity-50`}
+                    disabled={shooting}
+                    onClick={() => void takeScreenshots()}
+                  >
+                    {shooting
+                      ? 'Taking screenshots'
+                      : taken
+                        ? 'Take them again'
+                        : 'Take screenshots'}
+                  </button>
+                  <HelpTip label="About screenshots">
+                    The desktop and phone screenshots stay in this repo. The stage shows the desktop
+                    one when the dev server is not running.
+                  </HelpTip>
+                </span>
+              )
+            }}
+          />
         }
       >
         <AppPreview
@@ -234,7 +250,7 @@ export function IterationScreen({
         number={iteration.number}
         componentName={record.name}
         selected={selected}
-        latestReviewSummary={reviewSummary(latestHumanReview(reviews))}
+        latestReviewSummary={latestReview}
         rating={rating?.mine ?? null}
       />
       <RejectDrawer

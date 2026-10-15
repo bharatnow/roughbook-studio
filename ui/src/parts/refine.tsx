@@ -1,6 +1,7 @@
 import {
   Drawer,
   Field,
+  HelpTip,
   MAX_REFINE_OBSERVATIONS,
   REFINEMENT_PRESETS,
   buildObservationOptions,
@@ -77,7 +78,7 @@ export function RefineForm({
           choice
         );
         // The commands to paste stay on screen; anything else has opened somewhere.
-        if (started && started.kind !== 'manual') onStarted?.();
+        if (started && started.launched.kind !== 'manual') onStarted?.();
       }}
     >
       <Field label="Refinement">
@@ -126,25 +127,26 @@ export function RefineForm({
           })}
         </fieldset>
       ) : null}
-      <Field label="Keep recognizable from the parent (optional)">
+      <Field label="What stays">
         <textarea
           rows={2}
           value={preserve}
           onChange={event => setPreserve(event.target.value)}
+          placeholder="The composition, and the headline's size."
           className={areaClass}
         />
       </Field>
-      <Field label="Instruction (optional)">
+      <Field label="What should change">
         <textarea
           rows={3}
           value={intent}
           onChange={event => setIntent(event.target.value)}
-          placeholder="Keep the composition; make the supporting line shorter."
+          placeholder="Make the supporting line shorter."
           className={areaClass}
         />
       </Field>
       <RunOptions state={state} choice={choice} onChange={setChoice} />
-      <div>
+      <div className="flex items-center gap-1">
         <button
           type="submit"
           disabled={busy || !choice.agent}
@@ -152,10 +154,10 @@ export function RefineForm({
         >
           {busy ? 'Starting' : `Refine ${parent}`}
         </button>
+        <HelpTip label="About refinements">
+          A refinement is always a new iteration. {parent} stays exactly as it is.
+        </HelpTip>
       </div>
-      <p className="rounded-control border border-ash bg-frost px-3 py-2 text-xs text-slate">
-        A refinement is always a new iteration. {parent} stays exactly as it is.
-      </p>
       <LaunchResult launched={launched} />
     </form>
   );
