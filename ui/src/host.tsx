@@ -11,7 +11,9 @@ import { iterationPath, post } from './api';
 import { describe, useStudio } from './data';
 import { navigate } from './router';
 
-function Anchor({ href, ...rest }: LinkProps) {
+/** The screens are in the fragment. `prefetch` is for hosts that load pages ahead; an anchor drops it. */
+function Anchor({ href, prefetch, ...rest }: LinkProps) {
+  void prefetch;
   return <a href={`#${href}`} {...rest} />;
 }
 
