@@ -23,6 +23,8 @@ export type StudioState = {
   agents: AgentView[];
   defaultAgent: string | null;
   outbox: { pending: number; dropped: { path: string; code: string; droppedAt: string }[] };
+  /** What a card's <img> puts in a screenshot's address, since it cannot send the token. */
+  shotKey?: string;
 };
 
 export type Feedback = {
