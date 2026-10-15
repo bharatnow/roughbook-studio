@@ -18,7 +18,7 @@
     "lint:fix": "eslint \"src/**/*.ts\" \"ui/**/*.{ts,tsx}\" --fix",
     "format": "prettier --write . && eslint \"src/**/*.ts\" \"ui/**/*.{ts,tsx}\" --fix",
     "format:check": "prettier --check .",
-    "type-check": "tsc --noEmit && tsc --noEmit -p ui",
+    "type-check": "tsc --noEmit && tsc --noEmit -p ui && tsc --noEmit -p ui/tsconfig.test.json",
     "prepare": "husky",
     "pre-commit": "lint-staged",
     "build:ui": "vite build --config ui/vite.config.ts",
