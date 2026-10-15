@@ -23,7 +23,8 @@ export function iteration(id: string, extra: Partial<Iteration> = {}): Iteration
     methods: [],
     metaMissing: false,
     generation: { mode: 'manual' },
-    created: `2026-10-${id.slice(-2)}T09:00:00.000Z`,
+    // An hour apart, in number order, all before the runs below.
+    created: new Date(Date.UTC(2026, 9, 1, Number(id.slice(-2)))).toISOString(),
     origin: 'local',
     refinement: null,
     feedback: FEEDBACK,
