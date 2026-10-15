@@ -12,7 +12,16 @@ type Message =
  * One agent session in xterm.js. The session belongs to its run, so this page can close and come
  * back: it gets everything printed so far, then the rest as it comes.
  */
-export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: number) => void }) {
+export function TerminalView({
+  id,
+  autoFocus = false,
+  onExit
+}: {
+  id: string;
+  /** Take the keyboard once open, unless a drawer has it. */
+  autoFocus?: boolean;
+  onExit?: (exitCode: number) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [link, setLink] = useState<'connecting' | 'open' | 'closed'>('connecting');
   /** Counts the designer's "Join again", which opens a new socket to the same session. */
@@ -69,7 +78,7 @@ export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: n
       }
     });
     observer.observe(element);
-    term.focus();
+    if (autoFocus && !document.querySelector('[role=dialog][aria-modal=true]')) term.focus();
 
     return () => {
       observer.disconnect();
@@ -78,6 +87,7 @@ export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: n
       socket.close();
       term.dispose();
     };
+    // Joining again, or the dock's own tabs, leave the keyboard where it is.
   }, [id, attempt]);
 
   return (

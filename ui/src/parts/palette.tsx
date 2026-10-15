@@ -16,8 +16,7 @@ export function useAppCommands() {
         else navigate(run.href);
         return true;
       case 'status':
-        // After the palette has given the keyboard back, so the popover keeps it.
-        window.requestAnimationFrame(() => setStatusOpen(true));
+        setStatusOpen(true);
         return true;
       case 'default-agent':
         void makeDefault(run.agent);

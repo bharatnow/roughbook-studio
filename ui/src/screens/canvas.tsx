@@ -47,6 +47,7 @@ import { studioCommands, type StudioCommand } from '../commands';
 import { describe, findComponent, useStudio } from '../data';
 import { BriefDrawer } from '../parts/brief';
 import { useChrome } from '../parts/chrome';
+import { useDialogFocus } from '../parts/dialog-focus';
 import { Missing } from '../parts/missing';
 import { useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
@@ -196,23 +197,31 @@ function StudioCanvasView({
     const address = addressFor(key);
     if (window.location.hash !== address) window.history.replaceState(null, '', address);
   };
-  // A new address (a link, the breadcrumb, a command) selects its item.
+  // A new address (a link, the breadcrumb, a command) selects its item; a session's selects its
+  // run's card, below.
   const first = useRef(true);
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
-    controls.current?.select(keyForFocus(focus));
-  }, [focus]);
+    if (!session) controls.current?.select(keyForFocus(focus));
+  }, [focus, session]);
 
-  // What a pull or a prompt started, once the canvas has its card.
-  const pending = useRef<string | null>(null);
+  // What a pull, a prompt or a session's address names: selected at once, or once the canvas has
+  // its card. The keyboard goes to it unless a terminal has just taken it.
+  const latest = useRef(canvas);
+  latest.current = canvas;
+  const pending = useRef<{ key: string; focus: boolean } | null>(null);
+  const selectWhenThere = (key: string, focus: boolean) => {
+    if (latest.current.cards[key]) controls.current?.select(key, { focus });
+    else pending.current = { key, focus };
+  };
   useEffect(() => {
-    const key = pending.current;
-    if (key && canvas.cards[key]) {
+    const wanted = pending.current;
+    if (wanted && canvas.cards[wanted.key]) {
       pending.current = null;
-      controls.current?.select(key, { focus: true });
+      controls.current?.select(wanted.key, { focus: wanted.focus });
     }
   }, [canvas]);
 
@@ -241,7 +250,7 @@ function StudioCanvasView({
     showSession(session);
     const runId = terminals.find(item => item.id === session)?.runId;
     const run = runs.find(item => item.runId === runId);
-    if (run) pending.current = `iteration:${run.page}/${run.component}/${run.iteration}`;
+    if (run) selectWhenThere(`iteration:${run.page}/${run.component}/${run.iteration}`, false);
   }, [session, runsReady, terminals, runs, showSession]);
 
   // Closed until a run starts: a session that starts after the canvas opened opens the dock.
@@ -301,12 +310,13 @@ function StudioCanvasView({
     null
   );
   const [launched, setLaunched] = useState<Launched | null>(null);
+  useDialogFocus(Boolean(brief || promote || refine || launched));
   const [promptMode, setPromptMode] = useState('new');
   const [pulling, setPulling] = useState<string | null>(null);
 
   function promptFor(next: string) {
     setPromptMode(next);
-    window.requestAnimationFrame(() => document.getElementById(PROMPT_FIELD)?.focus());
+    document.getElementById(PROMPT_FIELD)?.focus();
   }
 
   async function pull(page: string, component: string, sketch: string) {
@@ -319,8 +329,8 @@ function StudioCanvasView({
         tone: 'info',
         text: [`Pulled ${sketch} into rough/ as ${pulled.iteration}.`, ...pulled.advice].join(' ')
       });
-      pending.current = `iteration:${page}/${component}/${pulled.iteration}`;
       await refresh();
+      selectWhenThere(`iteration:${page}/${component}/${pulled.iteration}`, true);
     } catch (error) {
       say({ tone: 'error', text: describe(error) });
     } finally {
@@ -529,9 +539,12 @@ function StudioCanvasView({
       mode={promptMode}
       onModeChange={setPromptMode}
       fieldId={PROMPT_FIELD}
-      onStarted={started => {
-        const made = started[0];
-        if (made) pending.current = `iteration:${made.page}/${made.component}/${made.iteration}`;
+      onStarted={({ runs: made, launched: how }) => {
+        const first = made[0];
+        // A built-in terminal has the keyboard; its session's address selects the card.
+        if (first && how.kind !== 'builtin') {
+          selectWhenThere(`iteration:${first.page}/${first.component}/${first.iteration}`, true);
+        }
       }}
       onLaunched={setLaunched}
       onRefineOptions={() => {

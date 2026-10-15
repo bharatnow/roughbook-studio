@@ -48,8 +48,8 @@ export function StudioPrompt({
   mode: string;
   onModeChange: (mode: string) => void;
   fieldId: string;
-  /** With the runs it started, to select the first. */
-  onStarted: (runs: RunView[]) => void;
+  /** With the runs it started and how, to select the first. */
+  onStarted: (started: { runs: RunView[]; launched: Launched }) => void;
   /** A launch that left something to do: commands to paste, or an editor's instructions. */
   onLaunched: (launched: Launched) => void;
   /** The refine drawer, with presets, observations and what to keep. */
@@ -149,7 +149,7 @@ export function StudioPrompt({
     }
     setField(value => ({ key: value.key + 1, value: '' }));
     onModeChange('new');
-    onStarted(started.runs);
+    onStarted(started);
     if (started.launched.kind === 'manual' || started.launched.kind === 'editor') {
       onLaunched(started.launched);
     }

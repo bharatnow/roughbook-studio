@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { get, post } from '../api';
 import { describe, useStudio } from '../data';
 import { finishedBy, runRunning, runWord } from '../runs';
+import { useDialogFocus } from './dialog-focus';
 import type { RunView } from '../types';
 
 const button =
@@ -95,9 +96,18 @@ export type RunOps = ReturnType<typeof useRunOps>;
 
 /**
  * One run: while it goes, how to reach it and finish it; after, how it ended in a word and what the
- * checks found. `compact` leaves out which iteration it made, for the inspector of that iteration.
+ * checks found. `compact` leaves out which iteration it made, for the inspector of that iteration;
+ * `terminal={false}` its way to the terminal, for the dock that shows it.
  */
-export function RunCard({ run, compact = false }: { run: RunView; compact?: boolean }) {
+export function RunCard({
+  run,
+  compact = false,
+  terminal = true
+}: {
+  run: RunView;
+  compact?: boolean;
+  terminal?: boolean;
+}) {
   const agent = useAgentName(run.agent);
   const ops = useRunOps(run);
   const { busy, review, setReview } = ops;
@@ -154,7 +164,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
         />
       ) : open ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {run.terminal ? (
+          {run.terminal && terminal ? (
             <a href={`#/terminals/${run.terminal.id}`} className={button}>
               Terminal
             </a>
@@ -245,6 +255,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
 /** Before Done, as a drawer: for a making card's Done on the canvas, which has no card to grow. */
 export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) {
   const { review, setReview, busy } = ops;
+  useDialogFocus(review !== null);
   return (
     <Drawer
       open={review !== null}

@@ -40,6 +40,8 @@ export function StatusButton() {
 
   useEffect(() => {
     if (!open) return;
+    // Opened from the palette: the keyboard comes here, and Tab goes on into the popover.
+    if (!root.current?.contains(document.activeElement)) button.current?.focus();
     function onPointer(event: PointerEvent) {
       if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
     }

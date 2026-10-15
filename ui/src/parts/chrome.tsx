@@ -28,9 +28,13 @@ type Chrome = {
   /** The bar's status popover. */
   statusOpen: boolean;
   setStatusOpen: (open: boolean) => void;
-  /** The terminal dock at the foot: closed until a run starts, then one tab per session. */
-  dock: { open: boolean; session: string | null };
-  showSession: (id: string | null) => void;
+  /**
+   * The terminal dock at the foot: closed until a run starts, then one tab per session. `focus`:
+   * the shown session's terminal takes the keyboard, as when a run or a command opened it.
+   */
+  dock: { open: boolean; session: string | null; focus: boolean };
+  /** Shows a session (or the last one shown, for null); `focus` false for the dock's own tabs. */
+  showSession: (id: string | null, focus?: boolean) => void;
   closeDock: () => void;
 };
 
@@ -47,9 +51,10 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const palette = useRef<PaletteSource | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [dock, setDock] = useState<Chrome['dock']>({ open: false, session: null });
+  const [dock, setDock] = useState<Chrome['dock']>({ open: false, session: null, focus: false });
   const showSession = useCallback(
-    (id: string | null) => setDock(current => ({ open: true, session: id ?? current.session })),
+    (id: string | null, focus = true) =>
+      setDock(current => ({ open: true, session: id ?? current.session, focus })),
     []
   );
   const closeDock = useCallback(() => setDock(current => ({ ...current, open: false })), []);

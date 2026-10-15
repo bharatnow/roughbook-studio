@@ -1,6 +1,6 @@
 import { StatusDot, cn } from '@roughbook/ui';
 import { X } from 'lucide-react';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { post } from '../api';
 import { describe, useStudio } from '../data';
 import { endedLabel } from '../types';
@@ -22,6 +22,13 @@ export function Dock() {
   const { dock, showSession, closeDock } = useChrome();
   const [busy, setBusy] = useState(false);
   const tabs = useRef<HTMLDivElement>(null);
+  /** The tab the arrow keys moved to, for the keyboard to follow once it is drawn selected. */
+  const moved = useRef<string | null>(null);
+  useEffect(() => {
+    if (!moved.current) return;
+    tabs.current?.querySelector<HTMLElement>(`[data-session="${moved.current}"]`)?.focus();
+    moved.current = null;
+  });
   if (!dock.open || !terminals.length) return null;
   const active = terminals.find(item => item.id === dock.session) ?? terminals.at(-1)!;
   const run = active.runId ? runs.find(item => item.runId === active.runId) : undefined;
@@ -46,16 +53,14 @@ export function Dock() {
       terminals[(at + (event.key === 'ArrowRight' ? 1 : -1) + terminals.length) % terminals.length];
     if (!next) return;
     event.preventDefault();
-    showSession(next.id);
-    window.requestAnimationFrame(() =>
-      tabs.current?.querySelector<HTMLElement>(`[data-session="${next.id}"]`)?.focus()
-    );
+    moved.current = next.id;
+    showSession(next.id, false);
   }
 
   return (
     <section
       aria-label="Terminals"
-      className="z-30 flex shrink-0 flex-col border-t border-ash bg-canvas max-md:fixed max-md:inset-x-0 max-md:top-12 max-md:bottom-0 md:h-[min(45dvh,440px)]"
+      className="z-30 flex shrink-0 flex-col border-t border-ash bg-canvas max-md:fixed max-md:inset-x-0 max-md:top-12 max-md:bottom-0 md:h-[min(40dvh,400px)]"
     >
       <div className="flex h-11 items-center gap-1 border-b border-ash px-2">
         <div
@@ -76,7 +81,7 @@ export function Dock() {
                 aria-selected={selected}
                 aria-controls="dock-panel"
                 tabIndex={selected ? 0 : -1}
-                onClick={() => showSession(session.id)}
+                onClick={() => showSession(session.id, false)}
                 className={cn(
                   'inline-flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-control px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-violet',
                   selected ? 'bg-frost text-graphite' : 'text-slate hover:text-graphite'
@@ -125,11 +130,16 @@ export function Dock() {
       </div>
       <div id="dock-panel" role="tabpanel" className="flex min-h-0 flex-1 gap-3 p-2">
         <div className="min-h-0 min-w-0 flex-1">
-          <TerminalView key={active.id} id={active.id} onExit={() => void refreshRuns()} />
+          <TerminalView
+            key={active.id}
+            id={active.id}
+            autoFocus={dock.focus}
+            onExit={() => void refreshRuns()}
+          />
         </div>
         {run ? (
           <aside aria-label="Its run" className="hidden w-72 shrink-0 overflow-y-auto lg:block">
-            <RunCard run={run} />
+            <RunCard run={run} terminal={false} />
           </aside>
         ) : null}
       </div>
