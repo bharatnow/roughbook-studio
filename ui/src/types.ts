@@ -45,6 +45,10 @@ export type Iteration = {
   methods: string[];
   metaMissing: boolean;
   generation: { mode: string };
+  /** When it was made, where the backend says. */
+  created?: string | null;
+  /** Where it was made: a web sketch, or a studio (this repo's or another designer's). */
+  origin?: 'sketch' | 'local';
   refinement: { preset: string } | null;
   feedback: Feedback;
 };

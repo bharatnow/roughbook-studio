@@ -1,6 +1,8 @@
+import { HelpTip } from '@roughbook/ui';
 import { useState } from 'react';
 import { post } from '../api';
 import { describe, useStudio } from '../data';
+import { Missing } from '../parts/missing';
 import { RunCard } from '../parts/run-card';
 import { TerminalView } from '../parts/terminal-view';
 import { endedLabel } from '../types';
@@ -13,16 +15,7 @@ export function TerminalScreen({ id }: { id: string }) {
   const run = session?.runId ? runs.find(item => item.runId === session.runId) : undefined;
   const back = run ? `#/${run.page}/${run.component}/iterations` : '#/';
 
-  if (!session) {
-    return (
-      <p className="text-sm text-slate">
-        This session has ended and was let go.{' '}
-        <a href="#/" className="text-violet hover:underline">
-          Back to the project
-        </a>
-      </p>
-    );
-  }
+  if (!session) return <Missing back>This session has ended.</Missing>;
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] flex-col gap-4 lg:flex-row">
@@ -63,19 +56,19 @@ export function TerminalScreen({ id }: { id: string }) {
       </div>
       {run ? (
         <aside className="w-full shrink-0 lg:w-80">
-          <ul>
-            <RunCard run={run} />
-          </ul>
-          <p className="mt-3 text-xs text-steel">
-            When the agent says it has finished, press Done: the studio checks the iteration, lists
-            any file changed outside it, and takes screenshots.
-          </p>
-          <a
-            href={`#/${run.page}/${run.component}/${run.iteration}`}
-            className="mt-3 inline-flex text-sm text-violet hover:underline"
-          >
-            Look at {run.iteration}
-          </a>
+          <RunCard run={run} />
+          <div className="mt-3 flex items-center gap-1">
+            <a
+              href={`#/${run.page}/${run.component}/${run.iteration}`}
+              className="inline-flex text-sm text-violet hover:underline"
+            >
+              Look at {run.iteration}
+            </a>
+            <HelpTip label="About finishing a run">
+              When the agent says it has finished, press Done: the studio checks the iteration,
+              lists any file changed outside it, and takes screenshots.
+            </HelpTip>
+          </div>
         </aside>
       ) : null}
     </div>

@@ -1,6 +1,7 @@
 import { StudioDataProvider } from './data';
 import { StudioUiHost } from './host';
 import { Shell } from './parts/shell';
+import { Missing } from './parts/missing';
 import { useRoute } from './router';
 import { CompareScreen } from './screens/compare';
 import { ComponentScreen } from './screens/component';
@@ -49,12 +50,7 @@ function Screen() {
     default:
       return (
         <Shell>
-          <p className="text-sm text-slate">
-            Nothing here.{' '}
-            <a href="#/" className="text-violet hover:underline">
-              Back to the project
-            </a>
-          </p>
+          <Missing back>Nothing here.</Missing>
         </Shell>
       );
   }

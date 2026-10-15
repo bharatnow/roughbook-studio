@@ -1,6 +1,8 @@
+import { HelpTip } from '@roughbook/ui';
 import { useState } from 'react';
 import { post } from '../api';
 import { describe, localIterations, useStudio } from '../data';
+import { Missing } from '../parts/missing';
 import { Sessions } from '../parts/shell';
 import type { StudioState } from '../types';
 
@@ -9,7 +11,14 @@ function Agents({ state }: { state: StudioState }) {
   const [busy, setBusy] = useState(false);
   return (
     <section className="rounded-card border border-ash bg-canvas p-4">
-      <h2 className="font-display text-base tracking-tight text-graphite">Agents</h2>
+      <h2 className="flex items-center gap-1 font-display text-base tracking-tight text-graphite">
+        Agents
+        <HelpTip label="About agents">
+          {state.terminal.builtin
+            ? 'Sessions open here, in the built-in terminal, or in your own.'
+            : state.terminal.reason}
+        </HelpTip>
+      </h2>
       <ul className="mt-3 flex flex-col gap-3">
         {state.agents.map(agent => (
           <li key={agent.id} className="text-sm">
@@ -44,35 +53,34 @@ function Agents({ state }: { state: StudioState }) {
               )}
             </div>
             {agent.found ? (
-              <p className="text-xs text-steel">
+              <span className="block text-xs text-steel">
                 {agent.signIn ?? (agent.signedIn === false ? 'Not signed in' : 'Signed in')}
                 {' · '}
                 {agent.headless.ready ? 'can run unattended' : 'terminal only'}
-              </p>
+              </span>
             ) : null}
           </li>
         ))}
       </ul>
-      <p className="mt-4 text-xs text-steel">
-        {state.terminal.builtin
-          ? 'Sessions open here, in the built-in terminal, or in your own.'
-          : state.terminal.reason}
-      </p>
     </section>
   );
 }
 
 export function Overview() {
   const { state, project, terminals } = useStudio();
-  if (!project || !state) return <p className="text-sm text-slate">Loading the project…</p>;
+  if (!project || !state) return <Missing>Loading the project…</Missing>;
   const webHref = state.webUrl ? `${state.webUrl}/projects/${project.tree.slug}` : null;
 
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h1 className="font-display text-2xl tracking-tight text-graphite">
+          <h1 className="flex items-center gap-1 font-display text-2xl tracking-tight text-graphite">
             {project.tree.name}
+            <HelpTip label="About this project's iterations">
+              Iterations in this repo&apos;s <span className="font-mono">rough/</span>, rendered by
+              the app&apos;s own dev server. Their code stays here; decisions go to the project.
+            </HelpTip>
           </h1>
           {webHref ? (
             <a
@@ -85,10 +93,6 @@ export function Overview() {
             </a>
           ) : null}
         </div>
-        <p className="mt-1 text-sm text-slate">
-          Iterations in this repo&apos;s <span className="font-mono">rough/</span>, rendered by the
-          app&apos;s own dev server. Their code stays here; decisions go to the project.
-        </p>
         {project.tree.pages.map(page => (
           <section key={page.slug} className="mt-8">
             <h2 className="font-mono text-[11px] tracking-[0.12em] text-steel uppercase">

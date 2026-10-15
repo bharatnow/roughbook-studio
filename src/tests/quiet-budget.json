@@ -1,16 +1,6 @@
 {
-  "ui/src/app.tsx": 1,
   "ui/src/main.tsx": 1,
-  "ui/src/parts/refine.tsx": 1,
-  "ui/src/parts/run-card.tsx": 5,
-  "ui/src/parts/run-options.tsx": 5,
+  "ui/src/parts/missing.tsx": 1,
   "ui/src/parts/run-panel.tsx": 1,
-  "ui/src/parts/shell.tsx": 2,
-  "ui/src/parts/sketches.tsx": 4,
-  "ui/src/parts/terminal-view.tsx": 1,
-  "ui/src/screens/compare.tsx": 2,
-  "ui/src/screens/component.tsx": 3,
-  "ui/src/screens/iteration.tsx": 10,
-  "ui/src/screens/overview.tsx": 4,
-  "ui/src/screens/terminal.tsx": 2
+  "ui/src/parts/shell.tsx": 2
 }

@@ -7,6 +7,7 @@ import {
 } from '@roughbook/ui';
 import { useState } from 'react';
 import { findComponent, localIterations, useStudio } from '../data';
+import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
@@ -37,13 +38,8 @@ export function ComponentScreen({ page, component }: { page: string; component: 
   const [showRejected, setShowRejected] = useState(false);
   const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
-  if (!project || !state) return <p className="text-sm text-slate">Loading…</p>;
-  if (!found)
-    return (
-      <p className="text-sm text-slate">
-        There is no {page}/{component} in this project.
-      </p>
-    );
+  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!found) return <Missing back>There is no {`${page}/${component}`} in this project.</Missing>;
 
   const record = found.component;
   const base = `/${page}/${component}`;
@@ -84,7 +80,9 @@ export function ComponentScreen({ page, component }: { page: string; component: 
               <h2 className="font-display text-base tracking-tight text-graphite">Runs</h2>
               <ul className="mt-3 flex flex-col gap-2">
                 {[...open, ...recent].map(run => (
-                  <RunCard key={run.runId} run={run} />
+                  <li key={run.runId}>
+                    <RunCard run={run} />
+                  </li>
                 ))}
               </ul>
             </section>
@@ -124,15 +122,7 @@ export function ComponentScreen({ page, component }: { page: string; component: 
             </button>
           </div>
         </div>
-        {!here.length ? (
-          <p className="mt-4 text-sm text-slate">
-            None in this repo yet. Start a run above; each iteration gets its own folder in{' '}
-            <span className="font-mono">
-              rough/{page}/{component}/
-            </span>
-            .
-          </p>
-        ) : (
+        {!here.length ? null : (
           <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2">
             {shown.map(iteration => {
               const run = mine.find(item => item.iteration === iteration.id);

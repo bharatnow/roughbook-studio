@@ -1,6 +1,7 @@
 import {
   Drawer,
   Field,
+  HelpTip,
   MAX_REFINE_OBSERVATIONS,
   REFINEMENT_PRESETS,
   buildObservationOptions,
@@ -144,7 +145,7 @@ export function RefineForm({
         />
       </Field>
       <RunOptions state={state} choice={choice} onChange={setChoice} />
-      <div>
+      <div className="flex items-center gap-1">
         <button
           type="submit"
           disabled={busy || !choice.agent}
@@ -152,10 +153,10 @@ export function RefineForm({
         >
           {busy ? 'Starting' : `Refine ${parent}`}
         </button>
+        <HelpTip label="About refinements">
+          A refinement is always a new iteration. {parent} stays exactly as it is.
+        </HelpTip>
       </div>
-      <p className="rounded-control border border-ash bg-frost px-3 py-2 text-xs text-slate">
-        A refinement is always a new iteration. {parent} stays exactly as it is.
-      </p>
       <LaunchResult launched={launched} />
     </form>
   );

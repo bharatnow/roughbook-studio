@@ -15,6 +15,8 @@ type Message =
 export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: number) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [link, setLink] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  /** Counts the designer's "Join again", which opens a new socket to the same session. */
+  const [attempt, setAttempt] = useState(0);
   const exited = useRef(onExit);
   exited.current = onExit;
 
@@ -76,14 +78,24 @@ export function TerminalView({ id, onExit }: { id: string; onExit?: (exitCode: n
       socket.close();
       term.dispose();
     };
-  }, [id]);
+  }, [id, attempt]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {link === 'closed' ? (
-        <p className="border-b border-ash bg-cloud px-3 py-2 text-xs text-slate">
-          Not connected. The session keeps running; reload the page to join it again.
-        </p>
+        <div role="status" className="flex items-center gap-3 px-1 pb-2 text-xs text-graphite">
+          Not connected.
+          <button
+            type="button"
+            onClick={() => {
+              setLink('connecting');
+              setAttempt(value => value + 1);
+            }}
+            className="min-h-6 text-violet hover:underline"
+          >
+            Join again
+          </button>
+        </div>
       ) : null}
       <div className="min-h-0 flex-1 rounded-card bg-onyx p-3">
         <div ref={box} className="h-full w-full" />
