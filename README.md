@@ -63,17 +63,22 @@ A file the studio did not write is never replaced; it is listed for you to chang
 ## Local UI
 
 `roughbook start` serves the local UI on `127.0.0.1` (port 4848, or `--port`, which is kept
-for next time) and opens it. It shows each component's iterations rendered live by the app's own
-dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`), with the last
-screenshot when the dev server is not answering; Compare; the review drawer, notes, select, reject
-and refine; a run panel for new directions, forks and refinements with the agent of your choice;
-each run's Done, its report, and Put it back for files changed outside it; the component's web
-sketches, each with Pull; and Deliver. The brief is read-only here, with a link to edit it on the web. While it runs, it keeps
+for next time) and opens it. It opens on the project's canvas, as the web does: pages as sections,
+components as frames, and each iteration in `rough/` as a card with its last screenshot, beside
+the web sketches not pulled yet (each with Pull) and the runs an agent is making now. A prompt at
+the foot starts new directions, forks and refinements with the agent of your choice; the
+selection's toolbar has each run's Done, Stop and Copy prompt, Compare (or Shift-click), the
+component's brief (read-only here, with a link to edit it on the web) and Promote; and ⌘K or
+Ctrl K finds every command. An iteration opens on its stage, rendered live by the app's own dev
+server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`) with the last screenshot when
+the dev server is not answering, with the review drawer, notes, select, reject and refine, and its
+run's report with Put it back for files changed outside it. One status dot in the bar holds the
+dev server, the outbox, the agents and the version. While it runs, it keeps
 `rough/preview-registry.ts` in step with the iteration folders and sends what waits in the
 outbox.
 
-Runs open in the **built-in terminal** in the page (xterm.js on `node-pty`), or in your own
-terminal if you choose. A session runs the agent itself, never a shell, and belongs to its run:
+Runs open in the **built-in terminal**, a dock at the foot of the canvas with one tab per session
+(xterm.js on `node-pty`), or in your own terminal if you choose. A session runs the agent itself, never a shell, and belongs to its run:
 closing or reloading the page leaves it running, and joining again replays what it printed. It is
 used on Windows, macOS and glibc Linux, where `node-pty` installs and starts; elsewhere, and with
 `ROUGHBOOK_TERMINAL=external`, runs open in your own terminal. It comes as `@lydell/node-pty`,
@@ -82,7 +87,8 @@ none to run or warn about.
 
 The server answers only `127.0.0.1` and `localhost` as its Host, and its API and terminal only
 the page it opened: a token made at each start reaches the page in the link's fragment, and every
-call carries it. Iterations load the project's and library's asset files from
+call carries it. A card's `<img>`, which cannot send it, reads its screenshot with a key derived
+from the token that reads screenshots and nothing else. Iterations load the project's and library's asset files from
 `http://127.0.0.1:<port>/api/files/…`, which this server fetches from the backend with your
 sign-in; prompts name that address, so keep the port.
 
