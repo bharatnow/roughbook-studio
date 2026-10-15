@@ -10,6 +10,7 @@ import type { AssetScope } from '../api/types.js';
 import {
   bearerToken,
   hostAllowed,
+  imageKey,
   localOrigins,
   offeredToken,
   originAllowed,
@@ -128,9 +129,10 @@ function contentSecurityPolicy(port: number, devUrl: string): string {
 export function createLocalServer(options: LocalServerOptions): http.Server {
   const { studio, port, token } = options;
   const devOrigin = new URL(options.devUrl).origin;
+  const shotKey = imageKey(token);
 
   const routes: Route[] = [
-    route('GET', '/api/state', () => studio.state()),
+    route('GET', '/api/state', async () => ({ ...(await studio.state()), shotKey })),
     route('POST', '/api/agents/default', async request => {
       await studio.setDefaultAgent((await readBody(request)).agent ?? null);
       return studio.state();
@@ -267,16 +269,17 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }
   }
 
-  function screenshot(
-    request: IncomingMessage,
-    response: ServerResponse,
-    pathname: string
-  ): boolean {
+  /**
+   * A screenshot, for the page's own fetch with the token or for a card's <img> with the image
+   * key. A card asks again each time it is drawn, and is answered 304 while the file is the same.
+   */
+  function screenshot(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
     const match = /^\/api\/iterations\/([^/]+)\/([^/]+)\/([^/]+)\/screenshots\/([a-z]+)$/.exec(
-      pathname
+      url.pathname
     );
     if (!match || request.method !== 'GET') return false;
-    if (!sameToken(bearerToken(request), token)) {
+    const key = url.searchParams.get('key') ?? undefined;
+    if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {
       sendJson(response, 401, { error: 'UNAUTHORIZED' });
       return true;
     }
@@ -293,7 +296,14 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       response.writeHead(404).end();
       return true;
     }
-    response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+    const stat = fs.statSync(file);
+    const etag = `"${Math.round(stat.mtimeMs).toString(36)}-${stat.size.toString(36)}"`;
+    const headers = { 'cache-control': 'private, no-cache', etag };
+    if (request.headers['if-none-match'] === etag) {
+      response.writeHead(304, headers).end();
+      return true;
+    }
+    response.writeHead(200, { 'content-type': 'image/png', ...headers });
     fs.createReadStream(file).pipe(response);
     return true;
   }
@@ -344,12 +354,13 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       response.writeHead(403, { 'content-type': 'text/plain' }).end('Not this host.');
       return;
     }
-    const pathname = new URL(request.url ?? '/', `http://127.0.0.1:${port}`).pathname;
+    const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`);
+    const pathname = url.pathname;
     if (pathname.startsWith('/api/files/') && request.method === 'GET') {
       void assetFile(request, response, pathname);
       return;
     }
-    if (screenshot(request, response, pathname)) return;
+    if (screenshot(request, response, url)) return;
     if (pathname.startsWith('/api/')) {
       void api(request, response, pathname);
       return;
