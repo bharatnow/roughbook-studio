@@ -2,6 +2,7 @@ import { CompareView, latestHumanReview, reviewSummary, type Review } from '@rou
 import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
 import { findComponent, localIterations, useStudio } from '../data';
+import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 
@@ -42,6 +43,18 @@ export function CompareScreen({
   const summaries = useSummaries(page, component, ids);
   const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
+  const { setCrumbs } = useChrome();
+  const pageName = found?.page.name;
+  const componentName = found?.component.name;
+  useEffect(() => {
+    if (!pageName || !componentName) return;
+    setCrumbs([
+      { href: `#/${page}`, label: pageName },
+      { href: `#/${page}/${component}`, label: componentName },
+      { href: window.location.hash, label: 'Compare' }
+    ]);
+    return () => setCrumbs([]);
+  }, [page, component, pageName, componentName, setCrumbs]);
   if (!project) return <Missing>Loading…</Missing>;
   if (!found) return <Missing back>There is no {`${page}/${component}`} in this project.</Missing>;
   const here = localIterations(project, page, found.component);

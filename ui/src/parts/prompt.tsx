@@ -1,7 +1,7 @@
 import { HelpTip, PromptBar } from '@roughbook/ui';
 import { focusForKey } from '@roughbook/ui/canvas';
 import { SlidersHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { canvasEntry } from '../canvas-actions';
 import type { StudioCanvas } from '../canvas-input';
 import { useStudio } from '../data';
@@ -59,7 +59,12 @@ export function StudioPrompt({
   const [choice, setChoice] = useRunChoice(state);
   const { start } = useStartRuns();
   const [answer, setAnswer] = useState<{ message: string; tone: 'status' | 'error' } | null>(null);
-  const [field, setField] = useState({ key: 0, value: '' });
+  // Each send draws the form anew: React resets a form after its action, which would leave the
+  // mode's radios at the ones first drawn. A refusal puts the words and the keyboard back.
+  const [field, setField] = useState({ key: 0, value: '', refused: false });
+  useEffect(() => {
+    if (field.refused) document.getElementById(fieldId)?.focus();
+  }, [field, fieldId]);
 
   const at = partsOf(selection);
   const entry = canvasEntry(canvas.input, selection);
@@ -103,7 +108,7 @@ export function StudioPrompt({
     const refuse = (message: string) => {
       setAnswer({ message, tone: 'error' });
       // The form empties itself after its action; the words come back.
-      setField(value => ({ key: value.key + 1, value: text }));
+      setField(value => ({ key: value.key + 1, value: text, refused: true }));
     };
     if (!state || !choice.agent) return refuse('No coding agent or editor was found.');
     if (!at.page || !at.component) return refuse('Select a component first.');
@@ -144,10 +149,10 @@ export function StudioPrompt({
     const started = await start(body, choice);
     if (!started) {
       // The notice says why; the words wait for another try.
-      setField(value => ({ key: value.key + 1, value: text }));
+      setField(value => ({ key: value.key + 1, value: text, refused: true }));
       return;
     }
-    setField(value => ({ key: value.key + 1, value: '' }));
+    setField(value => ({ key: value.key + 1, value: '', refused: false }));
     onModeChange('new');
     onStarted(started);
     if (started.launched.kind === 'manual' || started.launched.kind === 'editor') {
@@ -158,6 +163,7 @@ export function StudioPrompt({
   if (!state) return null;
   return (
     <PromptBar
+      key={field.key}
       action={send}
       modes={modes}
       mode={current}

@@ -15,11 +15,14 @@ type Message =
 export function TerminalView({
   id,
   autoFocus = false,
+  onFocused,
   onExit
 }: {
   id: string;
   /** Take the keyboard once open, unless a drawer has it. */
   autoFocus?: boolean;
+  /** It took the keyboard. */
+  onFocused?: () => void;
   onExit?: (exitCode: number) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -28,6 +31,8 @@ export function TerminalView({
   const [attempt, setAttempt] = useState(0);
   const exited = useRef(onExit);
   exited.current = onExit;
+  const focused = useRef(onFocused);
+  focused.current = onFocused;
 
   useEffect(() => {
     const element = box.current;
@@ -78,7 +83,10 @@ export function TerminalView({
       }
     });
     observer.observe(element);
-    if (autoFocus && !document.querySelector('[role=dialog][aria-modal=true]')) term.focus();
+    if (autoFocus && !document.querySelector('[role=dialog][aria-modal=true]')) {
+      term.focus();
+      focused.current?.();
+    }
 
     return () => {
       observer.disconnect();

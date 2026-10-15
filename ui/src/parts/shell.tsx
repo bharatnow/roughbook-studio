@@ -116,6 +116,9 @@ export function Shell({
   bare?: boolean;
   fill?: boolean;
 }) {
+  const { terminals } = useStudio();
+  const { dock } = useChrome();
+  const docked = dock.open && terminals.length > 0;
   if (bare) {
     return (
       <>
@@ -126,9 +129,9 @@ export function Shell({
   }
   if (fill) {
     return (
-      <div className="flex h-[100dvh] flex-col">
+      <div data-dock={docked ? 'open' : undefined} className="flex h-[100dvh] flex-col">
         <Bar />
-        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         <Dock />
         <Notice />
       </div>

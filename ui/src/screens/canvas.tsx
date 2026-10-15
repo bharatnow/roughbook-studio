@@ -189,8 +189,12 @@ function StudioCanvasView({
   // --- the selection, and the address it moves --------------------------------------------------
 
   const routeKey = keyForFocus(focus);
-  const returning = kept.view !== undefined && kept.selection === routeKey;
-  const [selection, setSelectionState] = useState<string | null>(routeKey);
+  // Back from the stage or Compare to what was selected: the same view, and the keyboard on it.
+  const returning = kept.selection !== undefined && kept.selection === routeKey;
+  const [selection, setSelectionState] = useState<string | null>(() => {
+    kept.selection = routeKey;
+    return routeKey;
+  });
   const select = (key: string | null) => {
     setSelectionState(key);
     kept.selection = key;
@@ -567,7 +571,7 @@ function StudioCanvasView({
           key: routeKey,
           cards: focus.kind === 'iterations' || focus.kind === 'iteration'
         }}
-        defaultView={returning ? kept.view : null}
+        defaultView={returning ? (kept.view ?? null) : null}
         onViewChange={view => (kept.view = view)}
         defaultUnfolded={unfolded}
         onUnfoldedChange={next => {

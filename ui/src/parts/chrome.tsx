@@ -35,6 +35,8 @@ type Chrome = {
   dock: { open: boolean; session: string | null; focus: boolean };
   /** Shows a session (or the last one shown, for null); `focus` false for the dock's own tabs. */
   showSession: (id: string | null, focus?: boolean) => void;
+  /** The terminal took the keyboard: a dock drawn again later leaves it where it is. */
+  focusTaken: () => void;
   closeDock: () => void;
 };
 
@@ -57,6 +59,7 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       setDock(current => ({ open: true, session: id ?? current.session, focus })),
     []
   );
+  const focusTaken = useCallback(() => setDock(current => ({ ...current, focus: false })), []);
   const closeDock = useCallback(() => setDock(current => ({ ...current, open: false })), []);
   const value = useMemo<Chrome>(
     () => ({
@@ -67,9 +70,10 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       setStatusOpen,
       dock,
       showSession,
+      focusTaken,
       closeDock
     }),
-    [crumbs, statusOpen, dock, showSession, closeDock]
+    [crumbs, statusOpen, dock, showSession, focusTaken, closeDock]
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

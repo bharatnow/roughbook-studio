@@ -19,12 +19,16 @@ const control =
  */
 export function Dock() {
   const { terminals, runs, refreshRuns, say } = useStudio();
-  const { dock, showSession, closeDock } = useChrome();
+  const { dock, showSession, focusTaken, closeDock } = useChrome();
   const [busy, setBusy] = useState(false);
   const tabs = useRef<HTMLDivElement>(null);
   /** The tab the arrow keys moved to, for the keyboard to follow once it is drawn selected. */
   const moved = useRef<string | null>(null);
   useEffect(() => {
+    // The selected tab in sight, in a strip too narrow for them all.
+    tabs.current
+      ?.querySelector<HTMLElement>('[aria-selected=true]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     if (!moved.current) return;
     tabs.current?.querySelector<HTMLElement>(`[data-session="${moved.current}"]`)?.focus();
     moved.current = null;
@@ -134,6 +138,7 @@ export function Dock() {
             key={active.id}
             id={active.id}
             autoFocus={dock.focus}
+            onFocused={focusTaken}
             onExit={() => void refreshRuns()}
           />
         </div>

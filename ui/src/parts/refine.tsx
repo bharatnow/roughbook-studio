@@ -127,20 +127,21 @@ export function RefineForm({
           })}
         </fieldset>
       ) : null}
-      <Field label="Keep recognizable from the parent (optional)">
+      <Field label="What stays">
         <textarea
           rows={2}
           value={preserve}
           onChange={event => setPreserve(event.target.value)}
+          placeholder="The composition, and the headline's size."
           className={areaClass}
         />
       </Field>
-      <Field label="Instruction (optional)">
+      <Field label="What should change">
         <textarea
           rows={3}
           value={intent}
           onChange={event => setIntent(event.target.value)}
-          placeholder="Keep the composition; make the supporting line shorter."
+          placeholder="Make the supporting line shorter."
           className={areaClass}
         />
       </Field>

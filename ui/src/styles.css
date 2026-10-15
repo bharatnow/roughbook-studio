@@ -12,3 +12,11 @@ html.studio {
 body {
   margin: 0;
 }
+
+/* The canvas's list pins its prompt to the window's foot; with the dock open on a desktop, the
+   prompt sits on the dock rather than over it (the dock's height is in parts/dock.tsx). */
+@media (min-width: 768px) {
+  [data-dock='open'] [data-studio-canvas] [data-canvas-overlay].fixed {
+    bottom: min(40dvh, 400px);
+  }
+}
