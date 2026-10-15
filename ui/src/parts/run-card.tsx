@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { get, post } from '../api';
 import { describe, useStudio } from '../data';
 import { finishedBy, runRunning, runWord } from '../runs';
-import { useDialogFocus } from './dialog-focus';
 import type { RunView } from '../types';
 
 const button =
@@ -255,7 +254,6 @@ export function RunCard({
 /** Before Done, as a drawer: for a making card's Done on the canvas, which has no card to grow. */
 export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) {
   const { review, setReview, busy } = ops;
-  useDialogFocus(review !== null);
   return (
     <Drawer
       open={review !== null}

@@ -47,7 +47,6 @@ import { studioCommands, type StudioCommand } from '../commands';
 import { describe, findComponent, useStudio } from '../data';
 import { BriefDrawer } from '../parts/brief';
 import { useChrome } from '../parts/chrome';
-import { useDialogFocus } from '../parts/dialog-focus';
 import { Missing } from '../parts/missing';
 import { useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
@@ -314,7 +313,6 @@ function StudioCanvasView({
     null
   );
   const [launched, setLaunched] = useState<Launched | null>(null);
-  useDialogFocus(Boolean(brief || promote || refine || launched));
   const [promptMode, setPromptMode] = useState('new');
   const [pulling, setPulling] = useState<string | null>(null);
 
