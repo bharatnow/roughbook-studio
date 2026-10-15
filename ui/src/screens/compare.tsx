@@ -54,7 +54,6 @@ export function CompareScreen({
       project={project.tree.slug}
       page={page}
       component={component}
-      componentName={found.component.name}
       base={`/${page}/${component}`}
       candidates={candidates}
       reviewSummaries={summaries}

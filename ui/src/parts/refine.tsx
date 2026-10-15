@@ -78,7 +78,7 @@ export function RefineForm({
           choice
         );
         // The commands to paste stay on screen; anything else has opened somewhere.
-        if (started && started.kind !== 'manual') onStarted?.();
+        if (started && started.launched.kind !== 'manual') onStarted?.();
       }}
     >
       <Field label="Refinement">

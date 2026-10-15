@@ -127,8 +127,9 @@ export function IterationScreen({
   return (
     <>
       <Stage
-        backHref={`${base}/iterations`}
-        backLabel={`${record.name} iterations`}
+        backHref={`${base}/iterations#${id}`}
+        backLabel="Back to canvas"
+        backOnEscape
         kicker={`${record.name} / ${id}`}
         title={iteration.name}
         note={[iteration.direction, describeIterationState(iteration)].filter(Boolean).join(' · ')}

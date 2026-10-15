@@ -1,6 +1,4 @@
 {
   "ui/src/main.tsx": 1,
-  "ui/src/parts/missing.tsx": 1,
-  "ui/src/parts/run-panel.tsx": 1,
-  "ui/src/parts/shell.tsx": 2
+  "ui/src/parts/missing.tsx": 1
 }

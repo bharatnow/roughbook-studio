@@ -88,17 +88,6 @@ export type ProjectView = {
   local: { iterations: string[]; screenshots: Record<string, string[]> };
 };
 
-/** A web sketch the component has, as `GET /api/sketches/:page/:component` lists it. */
-export type PullableSketch = {
-  id: string;
-  number: number;
-  name: string;
-  direction: string;
-  status: string;
-  parent: string | null;
-  created: string | null;
-};
-
 export type Finding = { code: string; message: string };
 
 export type TerminalInfo = {

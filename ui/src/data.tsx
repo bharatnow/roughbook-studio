@@ -17,6 +17,8 @@ type StudioData = {
   project: ProjectView | null;
   runs: RunView[];
   terminals: TerminalInfo[];
+  /** The runs and terminals have been read once, so a session seen after is a new one. */
+  runsReady: boolean;
   /** Why the project could not be read, such as the server being out of reach. */
   problem: string | null;
   notice: Notice;
@@ -56,6 +58,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
   const [project, setProject] = useState<ProjectView | null>(null);
   const [runs, setRuns] = useState<RunView[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
+  const [runsReady, setRunsReady] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -85,6 +88,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       ]);
       setRuns(nextRuns);
       setTerminals(nextTerminals);
+      setRunsReady(true);
     } catch {
       // The next tick tries again; the project read reports the problem.
     }
@@ -135,6 +139,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       project,
       runs,
       terminals,
+      runsReady,
       problem,
       notice,
       say: setNotice,
@@ -142,7 +147,18 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       refreshRuns,
       refreshState
     }),
-    [state, project, runs, terminals, problem, notice, refresh, refreshRuns, refreshState]
+    [
+      state,
+      project,
+      runs,
+      terminals,
+      runsReady,
+      problem,
+      notice,
+      refresh,
+      refreshRuns,
+      refreshState
+    ]
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

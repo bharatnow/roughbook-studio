@@ -1,4 +1,4 @@
-import { formatRelativeTime } from '@roughbook/ui';
+import { Drawer, formatRelativeTime } from '@roughbook/ui';
 import { useState } from 'react';
 import { get, post } from '../api';
 import { describe, useStudio } from '../data';
@@ -21,18 +21,18 @@ export function useAgentName(id: string): string {
   return state?.agents.find(agent => agent.id === id)?.name ?? id;
 }
 
+/** What changed outside the iteration, and which of it the designer says was their own work. */
+type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'cancelled' };
+
 /**
- * One run: while it goes, how to reach it and finish it; after, how it ended in a word and what the
- * checks found. `compact` leaves out which iteration it made, for the inspector of that iteration.
+ * What can be done to a run: Done (which first asks whose the files changed outside its iteration
+ * were), It failed, Cancel it, Stop, Copy prompt, and Put it back for a file after. For the run
+ * card and for a making card's toolbar on the canvas.
  */
-export function RunCard({ run, compact = false }: { run: RunView; compact?: boolean }) {
+export function useRunOps(run: RunView) {
   const { refresh, say } = useStudio();
-  const agent = useAgentName(run.agent);
   const [busy, setBusy] = useState<string | null>(null);
-  const open = run.status === 'started';
-  const running = runRunning(run);
-  const by = finishedBy(run);
-  const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
+  const [review, setReview] = useState<WhoseChanges | null>(null);
 
   async function act(name: string, work: () => Promise<string | null>) {
     setBusy(name);
@@ -47,29 +47,64 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
     }
   }
 
-  const [review, setReview] = useState<WhoseChanges | null>(null);
-
-  /** Done: first what changed outside the iteration, for the designer to say whose it was. */
-  const finish = (outcome?: 'failed' | 'cancelled') =>
-    act('done', async () => {
-      const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
-      if (outOfScope.length) {
-        setReview({ files: outOfScope, mine: [], outcome });
+  return {
+    busy,
+    review,
+    setReview,
+    finish: (outcome?: 'failed' | 'cancelled') =>
+      act('done', async () => {
+        const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
+        if (outOfScope.length) {
+          setReview({ files: outOfScope, mine: [], outcome });
+          return null;
+        }
+        await post(`/api/runs/${run.runId}/done`, outcome ? { outcome } : {});
         return null;
-      }
-      await post(`/api/runs/${run.runId}/done`, outcome ? { outcome } : {});
-      return null;
-    });
+      }),
+    complete: (choice: WhoseChanges) =>
+      act('done', async () => {
+        await post(`/api/runs/${run.runId}/done`, {
+          ...(choice.outcome ? { outcome: choice.outcome } : {}),
+          mine: choice.mine
+        });
+        setReview(null);
+        return null;
+      }),
+    stop: () =>
+      act('stop', async () => {
+        await post(`/api/runs/${run.runId}/stop`);
+        return 'Stopped the agent.';
+      }),
+    copyPrompt: () =>
+      act('copy', async () => {
+        const { prompt } = await get<{ prompt: string }>(`/api/runs/${run.runId}/prompt`);
+        await navigator.clipboard.writeText(prompt);
+        return 'The prompt is on the clipboard.';
+      }),
+    putBack: (file: string) =>
+      act(`revert:${file}`, async () => {
+        const { result } = await post<{ result: string }>(`/api/runs/${run.runId}/revert`, {
+          file
+        });
+        return `${file}: ${REVERTED[result] ?? result}.`;
+      })
+  };
+}
 
-  const complete = (choice: WhoseChanges) =>
-    act('done', async () => {
-      await post(`/api/runs/${run.runId}/done`, {
-        ...(choice.outcome ? { outcome: choice.outcome } : {}),
-        mine: choice.mine
-      });
-      setReview(null);
-      return null;
-    });
+export type RunOps = ReturnType<typeof useRunOps>;
+
+/**
+ * One run: while it goes, how to reach it and finish it; after, how it ended in a word and what the
+ * checks found. `compact` leaves out which iteration it made, for the inspector of that iteration.
+ */
+export function RunCard({ run, compact = false }: { run: RunView; compact?: boolean }) {
+  const agent = useAgentName(run.agent);
+  const ops = useRunOps(run);
+  const { busy, review, setReview } = ops;
+  const open = run.status === 'started';
+  const running = runRunning(run);
+  const by = finishedBy(run);
+  const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
 
   return (
     <div className={compact ? 'text-sm' : 'rounded-card border border-ash bg-canvas p-3'}>
@@ -114,7 +149,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
           review={review}
           busy={busy !== null}
           onChange={mine => setReview({ ...review, mine })}
-          onFinish={() => void complete(review)}
+          onFinish={() => void ops.complete(review)}
           onBack={() => setReview(null)}
         />
       ) : open ? (
@@ -128,20 +163,14 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
             type="button"
             className={button}
             disabled={busy !== null}
-            onClick={() =>
-              act('copy', async () => {
-                const { prompt } = await get<{ prompt: string }>(`/api/runs/${run.runId}/prompt`);
-                await navigator.clipboard.writeText(prompt);
-                return 'The prompt is on the clipboard.';
-              })
-            }
+            onClick={() => void ops.copyPrompt()}
           >
             Copy prompt
           </button>
           <button
             type="button"
             disabled={busy !== null || run.headless?.status === 'running'}
-            onClick={() => void finish()}
+            onClick={() => void ops.finish()}
             className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
           >
             {busy === 'done' ? 'Checking' : 'Done'}
@@ -151,12 +180,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
               type="button"
               className={button}
               disabled={busy !== null}
-              onClick={() =>
-                act('stop', async () => {
-                  await post(`/api/runs/${run.runId}/stop`);
-                  return 'Stopped the agent.';
-                })
-              }
+              onClick={() => void ops.stop()}
             >
               Stop
             </button>
@@ -166,7 +190,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
                 type="button"
                 className={button}
                 disabled={busy !== null}
-                onClick={() => void finish('failed')}
+                onClick={() => void ops.finish('failed')}
               >
                 It failed
               </button>
@@ -174,7 +198,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
                 type="button"
                 className={button}
                 disabled={busy !== null}
-                onClick={() => void finish('cancelled')}
+                onClick={() => void ops.finish('cancelled')}
               >
                 Cancel it
               </button>
@@ -200,15 +224,7 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
                   type="button"
                   className="min-h-6 text-violet hover:underline disabled:opacity-50"
                   disabled={busy !== null}
-                  onClick={() =>
-                    act(`revert:${file}`, async () => {
-                      const { result } = await post<{ result: string }>(
-                        `/api/runs/${run.runId}/revert`,
-                        { file }
-                      );
-                      return `${file}: ${REVERTED[result] ?? result}.`;
-                    })
-                  }
+                  onClick={() => void ops.putBack(file)}
                 >
                   Put it back
                 </button>
@@ -226,8 +242,27 @@ export function RunCard({ run, compact = false }: { run: RunView; compact?: bool
   );
 }
 
-/** What changed outside the iteration, and which of it the designer says was their own work. */
-type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'cancelled' };
+/** Before Done, as a drawer: for a making card's Done on the canvas, which has no card to grow. */
+export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) {
+  const { review, setReview, busy } = ops;
+  return (
+    <Drawer
+      open={review !== null}
+      onClose={() => setReview(null)}
+      title={`Finish ${run.iteration}`}
+    >
+      {review ? (
+        <WhoseChangesPanel
+          review={review}
+          busy={busy !== null}
+          onChange={mine => setReview({ ...review, mine })}
+          onFinish={() => void ops.complete(review)}
+          onBack={() => setReview(null)}
+        />
+      ) : null}
+    </Drawer>
+  );
+}
 
 /** Before Done: the files changed outside the iteration, each to tick as the designer's own. */
 function WhoseChangesPanel({

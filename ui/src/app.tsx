@@ -1,27 +1,21 @@
 import { StudioDataProvider } from './data';
 import { StudioUiHost } from './host';
-import { Shell } from './parts/shell';
+import { ChromeProvider } from './parts/chrome';
 import { Missing } from './parts/missing';
+import { Shell } from './parts/shell';
 import { useRoute } from './router';
+import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
-import { ComponentScreen } from './screens/component';
 import { IterationScreen } from './screens/iteration';
-import { Overview } from './screens/overview';
-import { TerminalScreen } from './screens/terminal';
 
 function Screen() {
   const route = useRoute();
   switch (route.screen) {
-    case 'overview':
+    case 'canvas':
+      // One element for every canvas address, so the canvas keeps its state as the address moves.
       return (
-        <Shell>
-          <Overview />
-        </Shell>
-      );
-    case 'component':
-      return (
-        <Shell>
-          <ComponentScreen page={route.page} component={route.component} />
+        <Shell fill>
+          <CanvasScreen focus={route.focus} session={route.session} />
         </Shell>
       );
     case 'compare':
@@ -41,12 +35,6 @@ function Screen() {
           />
         </Shell>
       );
-    case 'terminal':
-      return (
-        <Shell>
-          <TerminalScreen id={route.id} />
-        </Shell>
-      );
     default:
       return (
         <Shell>
@@ -59,9 +47,11 @@ function Screen() {
 export function App() {
   return (
     <StudioDataProvider>
-      <StudioUiHost>
-        <Screen />
-      </StudioUiHost>
+      <ChromeProvider>
+        <StudioUiHost>
+          <Screen />
+        </StudioUiHost>
+      </ChromeProvider>
     </StudioDataProvider>
   );
 }

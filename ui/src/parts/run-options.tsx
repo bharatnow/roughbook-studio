@@ -208,8 +208,11 @@ export function useStartRuns() {
   const [busy, setBusy] = useState(false);
   const [launched, setLaunched] = useState<Launched | null>(null);
 
-  /** The runs' launch, or null when they could not start (the notice says why). */
-  async function start(body: Record<string, unknown>, choice: RunChoice): Promise<Launched | null> {
+  /** The runs and their launch, or null when they could not start (the notice says why). */
+  async function start(
+    body: Record<string, unknown>,
+    choice: RunChoice
+  ): Promise<{ runs: RunView[]; launched: Launched } | null> {
     setBusy(true);
     setLaunched(null);
     try {
@@ -227,15 +230,16 @@ export function useStartRuns() {
       setLaunched(result.launched);
       const names = result.runs.map(run => run.iteration).join(', ');
       if (result.launched.kind === 'builtin' && result.launched.terminals[0]) {
+        // The canvas, with the session in its dock and the run's card selected.
         navigate(`/terminals/${result.launched.terminals[0].id}`);
       } else if (result.launched.kind === 'external') {
         say({ tone: 'info', text: `Started ${names} in ${result.launched.terminal}.` });
       } else if (result.launched.kind === 'headless') {
-        say({ tone: 'info', text: `Started ${names} unattended. Its progress shows below.` });
+        say({ tone: 'info', text: `Started ${names} unattended.` });
       } else if (result.launched.kind === 'editor') {
         say({ tone: 'info', text: `Started ${names}. ${openedIn(result.launched)}` });
       }
-      return result.launched;
+      return result;
     } catch (error) {
       say({ tone: 'error', text: describe(error) });
       return null;
