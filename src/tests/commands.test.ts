@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { main } from '../commands/index.js';
 import { readCredentials, saveCredentials } from '../config/credentials.js';
+import { DEFAULT_SERVER } from '../config/server.js';
 import { openerFor } from '../launch/open.js';
 import { currentOs } from '../launch/platform.js';
 import { readLocalLink } from '../repo/link.js';
@@ -92,10 +93,12 @@ describe('roughbook login', () => {
     const me = api.requests.find(request => request.url.endsWith('/me'))!;
     assert.equal(me.headers.authorization, `Bearer ${TOKEN}`);
 
+    // Told nothing, it signs in to the hosted API.
+    assert.ok(api.requests.every(request => request.url.startsWith(`${DEFAULT_SERVER}/`)));
     const saved = await readCredentials(configDir);
     assert.deepEqual(
       [saved?.server, saved?.token, saved?.installId, saved?.signedInAs],
-      [SERVER, TOKEN, 'install-1', 'alice@example.test']
+      [DEFAULT_SERVER, TOKEN, 'install-1', 'alice@example.test']
     );
   });
 
