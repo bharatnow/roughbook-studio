@@ -67,6 +67,11 @@ export class StudioApi {
     return new StudioApi({ ...this.config, token });
   }
 
+  /** The same token at another server, already checked by normalizeServer. */
+  atServer(server: string): StudioApi {
+    return new StudioApi({ ...this.config, server });
+  }
+
   /** The same client, giving up sooner: for what must not hold a command up. */
   withTimeout(timeoutMs: number): StudioApi {
     return new StudioApi({ ...this.config, timeoutMs });

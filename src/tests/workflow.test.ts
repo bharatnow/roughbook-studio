@@ -15,7 +15,7 @@ import type { Promotion } from '../api/types.js';
 import { outboxFor } from '../api/outbox.js';
 import { main, type MainOptions } from '../commands/index.js';
 import { parseComponent, parseIteration } from '../commands/shared.js';
-import { saveCredentials } from '../config/credentials.js';
+import { readCredentials, saveCredentials } from '../config/credentials.js';
 import { readSettings } from '../config/settings.js';
 import type { Launch } from '../launch/open.js';
 import type { Executable } from '../launch/which.js';
@@ -295,11 +295,27 @@ describe('roughbook agents', () => {
       agents: [{ id: 'claude-code', version: '2.1.286', signedIn: true, headless: false }]
     });
     assert.doesNotMatch(JSON.stringify(beat.body), /tools|claude\.exe/);
+    // The backend gave no other address: the sign-in stays where it is.
+    assert.equal((await readCredentials(studio.configDir))?.server, SERVER);
 
     assert.equal(await studio.run(['agents', '--default', 'codex']), 1);
     assert.match(studio.io.errors.at(-1)!, /Codex/);
     assert.equal(await studio.run(['agents', '--default', 'vim']), 1);
     assert.match(studio.io.errors.at(-1)!, /Unknown agent vim/);
+  });
+});
+
+describe('the heartbeat', () => {
+  it('moves the saved sign-in to the address the backend gives, once it answers there', async () => {
+    const moved = 'https://api.moved.example';
+    const studio = await setup({
+      'POST /heartbeat': () => ok({ seenAt: 'now' }),
+      'GET /me': () => ok({ user: { id: 'u1', email: 'dana@example.test' }, apiUrl: moved })
+    });
+    assert.equal(await studio.run(['agents']), 0);
+    const saved = await readCredentials(studio.configDir);
+    assert.deepEqual([saved?.server, saved?.token], [moved, 'rbi_token']);
+    assert.ok(studio.requests.some(request => request.url === `${moved}/v1/api/studio/me`));
   });
 });
 

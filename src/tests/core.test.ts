@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { StudioApi } from '../api/client.js';
 import { ApiError, OfflineError, describeError } from '../api/errors.js';
-import { normalizeServer, resolveServer } from '../config/server.js';
+import { announcedServer, normalizeServer, resolveServer } from '../config/server.js';
 import { userConfigDir } from '../config/userDir.js';
 import {
   clearCredentials,
@@ -134,6 +134,27 @@ describe('configuration', () => {
       resolveServer(undefined, {}, 'https://saved.example.com'),
       'https://saved.example.com'
     );
+  });
+
+  it('follows the address the backend gives as its own, but never to this machine from another', () => {
+    const hosted = 'https://rough-api.nuverasoft.com';
+    assert.equal(
+      announcedServer(hosted, 'https://api.moved.example/'),
+      'https://api.moved.example'
+    );
+    assert.equal(announcedServer(hosted, undefined), null);
+    assert.equal(announcedServer(hosted, `${hosted}/`), null);
+    assert.equal(announcedServer(hosted, 'http://api.moved.example'), null);
+    assert.equal(announcedServer(hosted, 'not a url'), null);
+    // A production API_URL left at its development value.
+    assert.equal(announcedServer(hosted, 'http://localhost:4000'), null);
+    assert.equal(announcedServer(hosted, 'http://127.0.0.1:4000'), null);
+    // On this machine, a backend may move between local addresses, or out to a hosted one.
+    assert.equal(
+      announcedServer('http://127.0.0.1:4000', 'http://localhost:4000'),
+      'http://localhost:4000'
+    );
+    assert.equal(announcedServer('http://localhost:4000', hosted), hosted);
   });
 
   it('saves the sign-in for this user only, and forgets it', async () => {

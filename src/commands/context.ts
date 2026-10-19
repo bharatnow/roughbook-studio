@@ -3,8 +3,8 @@ import type { runCommand } from '../agents/command.js';
 import type { runHeadless } from '../agents/process.js';
 import type { AgentAdapter, Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
-import { readCredentials, type Credentials } from '../config/credentials.js';
-import { resolveServer } from '../config/server.js';
+import { readCredentials, saveCredentials, type Credentials } from '../config/credentials.js';
+import { announcedServer, resolveServer } from '../config/server.js';
 import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
 import { telemetryDisabled } from '../telemetry/events.js';
@@ -81,6 +81,45 @@ export async function openApi(
     }),
     credentials: token ? credentials : null
   };
+}
+
+/**
+ * Where Roughbook answers now, when the backend gives another address than the one reached (its
+ * API_URL, in /me) and this token works there too: moving the API is a change to API_URL, not a
+ * studio release. Null keeps the server reached, as ROUGHBOOK_SERVER does, since a sign-in saved
+ * at another server goes unused while it is set.
+ */
+export async function movedServer(
+  context: CommandContext,
+  api: StudioApi,
+  apiUrl: string | undefined
+): Promise<string | null> {
+  const server = announcedServer(api.server, apiUrl);
+  if (!server || context.env.ROUGHBOOK_SERVER) return null;
+  try {
+    await api.atServer(server).withTimeout(5000).me();
+    return server;
+  } catch {
+    // Not answering there yet, or not to this token: the server reached still works.
+    return null;
+  }
+}
+
+/** Keeps the saved sign-in at the server Roughbook has moved to, if it has; returns the server. */
+export async function followServer(
+  context: CommandContext,
+  api: StudioApi,
+  credentials: Credentials,
+  apiUrl: string | undefined
+): Promise<string> {
+  const server = await movedServer(context, api, apiUrl);
+  if (!server) return api.server;
+  await saveCredentials(context.configDir, {
+    ...credentials,
+    server,
+    savedAt: new Date().toISOString()
+  });
+  return server;
 }
 
 /** The signed-in client, or an error telling the designer to sign in. */

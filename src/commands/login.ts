@@ -5,7 +5,7 @@ import type { Io } from '../io.js';
 import { saveConsent, telemetryDisabled } from '../telemetry/events.js';
 import { currentOs } from '../launch/platform.js';
 import { STUDIO_VERSION } from '../version.js';
-import { openApi, type Command } from './context.js';
+import { followServer, movedServer, openApi, type Command } from './context.js';
 
 /** Consecutive unreachable polls before giving up. */
 const OFFLINE_TRIES = 5;
@@ -65,7 +65,8 @@ export const login: Command = {
     if (credentials) {
       try {
         const me = await api.me();
-        io.out(`Signed in to ${api.server} as ${me.user.email} already.`);
+        const server = await followServer(context, api, credentials, me.apiUrl);
+        io.out(`Signed in to ${server} as ${me.user.email} already.`);
         io.out('Run roughbook logout first to sign in as someone else.');
         return 0;
       } catch (error) {
@@ -97,14 +98,17 @@ export const login: Command = {
         const issued = await anonymous.pollDeviceLogin(login.deviceCode);
         const signedIn = anonymous.withToken(issued.token);
         const me = await signedIn.me();
+        // The backend's own address, when it gives another: a studio signed in at an old one
+        // follows the API where API_URL says it is.
+        const server = (await movedServer(context, signedIn, me.apiUrl)) ?? api.server;
         await saveCredentials(context.configDir, {
-          server: api.server,
+          server,
           installId: issued.installId,
           token: issued.token,
           signedInAs: me.user.email,
           savedAt: new Date().toISOString()
         });
-        io.out(`Signed in to ${api.server} as ${me.user.email}.`);
+        io.out(`Signed in to ${server} as ${me.user.email}.`);
         await askAnalytics(io, context, signedIn, me.webUrl);
         io.out('Next, run roughbook init in the repo you want to design in.');
         return 0;

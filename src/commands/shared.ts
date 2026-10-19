@@ -9,7 +9,7 @@ import { ITERATION, SLUG } from '../repo/preview.js';
 import { handoffLine } from '../runs/slots.js';
 import type { RunAgent } from '../runs/types.js';
 import { STUDIO_VERSION } from '../version.js';
-import { openApi, type CommandContext } from './context.js';
+import { followServer, openApi, type CommandContext } from './context.js';
 
 function badTarget(what: string, example: string): Error {
   return new Error(`Name the ${what}, such as ${example}.`);
@@ -178,8 +178,8 @@ export async function sendHeartbeat(
   detections: Detection[]
 ): Promise<void> {
   try {
-    const { api } = await openApi(context);
-    if (!api.signedIn) return;
+    const { api, credentials } = await openApi(context);
+    if (!api.signedIn || !credentials) return;
     await api.heartbeat({
       studioVersion: STUDIO_VERSION,
       os: currentOs(context.platform),
@@ -194,6 +194,8 @@ export async function sendHeartbeat(
           headless: item.headless.ready
         }))
     });
+    // Signed-in studios follow the API to its new address while the old one still answers.
+    await followServer(context, api, credentials, (await api.me()).apiUrl);
   } catch {
     // The heartbeat is a courtesy; the command's own work matters.
   }

@@ -29,10 +29,10 @@ function backend(routes: Record<string, Route>) {
   });
 }
 
-async function setup(answers: (string | null)[] = []) {
+async function setup(answers: (string | null)[] = [], moreEnv: NodeJS.ProcessEnv = {}) {
   const configDir = await tempDir('roughbook-config-');
   const io = recordingIo(answers);
-  const env = { ROUGHBOOK_CONFIG_DIR: configDir };
+  const env = { ROUGHBOOK_CONFIG_DIR: configDir, ...moreEnv };
   const opened: string[] = [];
   const run = (argv: string[], cwd: string, fetchImpl: typeof fetch) =>
     main(argv, {
@@ -68,6 +68,14 @@ const DEVICE = {
   interval: 5
 };
 const ME = ok({ user: { id: 'u1', email: 'alice@example.test', name: 'Alice' } });
+const MOVED = 'https://api.moved.example';
+/** /me naming `apiUrl` as the backend's address; `there` is what that address answers. */
+const meMovedTo =
+  (apiUrl: string, there: ReturnType<Route> = ME): Route =>
+  request =>
+    new URL(request.url).origin === new URL(apiUrl).origin
+      ? there
+      : ok({ user: { id: 'u1', email: 'alice@example.test', name: 'Alice' }, apiUrl });
 
 describe('roughbook login', () => {
   it('shows the code, opens /link, waits for approval and keeps the token', async () => {
@@ -100,6 +108,59 @@ describe('roughbook login', () => {
       [saved?.server, saved?.token, saved?.installId, saved?.signedInAs],
       [DEFAULT_SERVER, TOKEN, 'install-1', 'alice@example.test']
     );
+  });
+
+  it('keeps the address the backend gives as its own, once the token works there', async () => {
+    const { configDir, io, run } = await setup();
+    const api = backend({
+      'POST /auth/device': () => ok(DEVICE, 201),
+      'POST /auth/token': () => ok({ token: TOKEN, installId: 'install-1' }),
+      'GET /me': meMovedTo(MOVED)
+    });
+    assert.equal(await run(['login'], await tempDir(), api.fetch), 0, io.errors.join('\n'));
+    assert.deepEqual(
+      api.requests
+        .filter(request => request.url.endsWith('/me'))
+        .map(request => [new URL(request.url).origin, request.headers.authorization]),
+      [
+        [DEFAULT_SERVER, `Bearer ${TOKEN}`],
+        [MOVED, `Bearer ${TOKEN}`]
+      ]
+    );
+    assert.equal((await readCredentials(configDir))?.server, MOVED);
+    assert.ok(io.lines.includes(`Signed in to ${MOVED} as alice@example.test.`));
+  });
+
+  it('stays where it signed in when the address given is local, silent, or overridden', async () => {
+    const cases: [string, ReturnType<Route>, NodeJS.ProcessEnv][] = [
+      // A production API_URL left at http://localhost:4000 must not strand every studio.
+      ['http://localhost:4000', ME, {}],
+      [MOVED, 'offline', {}],
+      [MOVED, refused('UNAUTHORIZED', 401), {}],
+      // ROUGHBOOK_SERVER wins over a saved server, so a sign-in kept elsewhere would go unused.
+      [MOVED, ME, { ROUGHBOOK_SERVER: DEFAULT_SERVER }]
+    ];
+    for (const [apiUrl, there, env] of cases) {
+      const { configDir, io, run } = await setup([], env);
+      const api = backend({
+        'POST /auth/device': () => ok(DEVICE, 201),
+        'POST /auth/token': () => ok({ token: TOKEN, installId: 'install-1' }),
+        'GET /me': meMovedTo(apiUrl, there)
+      });
+      assert.equal(await run(['login'], await tempDir(), api.fetch), 0, io.errors.join('\n'));
+      assert.equal((await readCredentials(configDir))?.server, DEFAULT_SERVER, apiUrl);
+      assert.ok(api.requests.every(request => !request.url.startsWith('http://localhost')));
+    }
+  });
+
+  it("moves a saved sign-in to the backend's address when asked to sign in again", async () => {
+    const { configDir, io, run } = await setup();
+    await signedIn(configDir);
+    const api = backend({ 'GET /me': meMovedTo(MOVED) });
+    assert.equal(await run(['login'], await tempDir(), api.fetch), 0, io.errors.join('\n'));
+    const saved = await readCredentials(configDir);
+    assert.deepEqual([saved?.server, saved?.token], [MOVED, TOKEN]);
+    assert.match(io.lines.join(' '), /Signed in to https:\/\/api\.moved\.example as .* already/);
   });
 
   it('stops when the sign-in is turned away or expires, and saves nothing', async () => {
