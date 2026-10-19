@@ -1,8 +1,9 @@
 /**
- * The backend the studio talks to until hosting is decided (the split plan's open question 1).
- * `ROUGHBOOK_SERVER` or `roughbook login --server` chooses another.
+ * The hosted backend, where the studio signs in when told nothing. `ROUGHBOOK_SERVER` or
+ * `roughbook login --server` chooses another, such as `http://localhost:4000` for one on this
+ * machine.
  */
-export const DEFAULT_SERVER = 'http://localhost:4000';
+export const DEFAULT_SERVER = 'https://rough-api.nuverasoft.com';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 

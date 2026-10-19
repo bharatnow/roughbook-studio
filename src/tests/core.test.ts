@@ -117,6 +117,7 @@ describe('configuration', () => {
     assert.equal(normalizeServer('http://127.0.0.1:4000'), 'http://127.0.0.1:4000');
     assert.throws(() => normalizeServer('http://api.example.com'), /https/);
     assert.throws(() => normalizeServer('not a url'), /Not a server address/);
+    assert.equal(resolveServer(undefined, {}, undefined), 'https://rough-api.nuverasoft.com');
     assert.equal(
       resolveServer(undefined, { ROUGHBOOK_SERVER: 'https://env.example.com' }, undefined),
       'https://env.example.com'
@@ -222,12 +223,7 @@ describe('the API client', () => {
       (error: unknown) =>
         error instanceof OfflineError &&
         describeError(error) ===
-          'Could not reach http://localhost:4000. Check your connection, or set ROUGHBOOK_SERVER. To use a Roughbook site, sign in with the command on its Install page: roughbook login --server <url>.'
-    );
-    // A server someone chose is the right one; only the default points at the Install page.
-    assert.equal(
-      describeError(new OfflineError('https://api.roughbook.example')),
-      'Could not reach https://api.roughbook.example. Check your connection, or set ROUGHBOOK_SERVER.'
+          'Could not reach http://localhost:4000. Check your connection, or set ROUGHBOOK_SERVER.'
     );
   });
 });

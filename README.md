@@ -108,9 +108,9 @@ npm run dev -- --help
 | `npm run build`      | Compiles to `dist/` and the UI to `dist/ui/`             |
 | `npm run build:ui`   | The local UI alone, with Vite                            |
 
-The backend is `roughbook-backend`. The studio talks to `http://localhost:4000` unless
-`ROUGHBOOK_SERVER` or `roughbook login --server` says otherwise; anything but this machine must be
-https.
+The backend is `roughbook-backend`. The studio talks to `https://rough-api.nuverasoft.com` unless
+`ROUGHBOOK_SERVER` or `roughbook login --server` says otherwise, such as `http://localhost:4000`
+for a backend on this machine; anything but this machine must be https.
 
 ## Where things are kept
 
