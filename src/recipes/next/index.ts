@@ -15,6 +15,7 @@ import {
   detectAppDir,
   isOurPreviewFile,
   previewRouteDir,
+  FIXTURE,
   currentPreviewRegistry,
   previewRouteFiles,
   writePreviewRegistry
@@ -167,7 +168,13 @@ export const next: Recipe = {
         { name: 'mobile', width: 390, height: 844, mobile: true }
       ],
       ignore: ['node_modules', '.git', '.next', '.turbo', '.vercel', 'dist', 'out', 'build'],
-      overlays: ['nextjs-portal']
+      overlays: ['nextjs-portal'],
+      fixture: FIXTURE,
+      // The dev server writes under .next/dev; the production build under these.
+      build: { command: 'npm run build', output: ['.next/server', '.next/static', 'out'] },
+      gate: 'build',
+      production: null,
+      timeouts: { start: 60, preview: 150, build: 600 }
     };
   },
   planPreview,
@@ -186,6 +193,26 @@ export const next: Recipe = {
   pullTransform: withClientDirective,
   promoteDefault: defaultComponentFile,
   promoteExtensions: ['.tsx', '.jsx'],
+  doctorSamples: ({ marker, fixtureNote }) => ({
+    good: {
+      'index.tsx': `export default function RoughbookDoctorSample({ note }: { note?: string }) {
+  return (
+    <main data-roughbook="doctor">
+      <p>${marker}</p>
+      <p>{note}</p>
+    </main>
+  );
+}
+`,
+      [FIXTURE]: `{ "note": "${fixtureNote}" }\n`
+    },
+    broken: {
+      'index.tsx': `export default function RoughbookDoctorBroken(): never {
+  throw new Error("roughbook doctor: this iteration fails on purpose");
+}
+`
+    }
+  }),
   scaffold: {
     write: writeScratch,
     written: dir => `Created a Next.js app in ${dir}. Run npm install there before roughbook start.`

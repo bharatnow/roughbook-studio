@@ -5,6 +5,7 @@ import type { AgentAdapter, Detection } from '../agents/types.js';
 import { StudioApi } from '../api/client.js';
 import { readCredentials, saveCredentials, type Credentials } from '../config/credentials.js';
 import { announcedServer, resolveServer } from '../config/server.js';
+import type { DoctorTools } from '../doctor/types.js';
 import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
 import { telemetryDisabled } from '../telemetry/events.js';
@@ -43,6 +44,8 @@ export type CommandContext = {
   runCommand: typeof runCommand;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
+  /** What roughbook doctor does outside the repo, replaced in tests. */
+  doctorTools?: Partial<DoctorTools>;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */
   waitForStop: () => Promise<void>;
   /** The raw streams `mcp` speaks the protocol on, and whether a person is typing into it. */

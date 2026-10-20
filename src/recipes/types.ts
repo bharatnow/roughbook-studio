@@ -49,6 +49,15 @@ export type Recipe = {
   ): string;
   /** The extensions a promoted component's file may have, with their dots. */
   promoteExtensions: string[];
+  /**
+   * The iterations `roughbook doctor` writes to check the preview: one that renders `marker` (and
+   * `fixtureNote`, from its fixture file, when the stack's preview takes one) and one that fails
+   * to render. Files by name, as an iteration folder holds them.
+   */
+  doctorSamples(input: { marker: string; fixtureNote: string }): {
+    good: Record<string, string>;
+    broken: Record<string, string>;
+  };
   /** `init --scratch`: a minimal app of this stack, for a project with no repo yet. */
   scaffold: { write(dir: string): void; written(dir: string): string } | null;
 };

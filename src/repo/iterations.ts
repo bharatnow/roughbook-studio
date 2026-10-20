@@ -38,3 +38,9 @@ export function listIterations(repo: string, entry: string): string[] {
   }
   return keys;
 }
+
+/** The keys among `keys` whose iteration holds the environment's fixture file. */
+export function listFixtures(repo: string, keys: string[], fixture: string | null): string[] {
+  if (!fixture) return [];
+  return keys.filter(key => fs.existsSync(path.join(repo, ROUGH_DIR, ...key.split('/'), fixture)));
+}

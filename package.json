@@ -1,6 +1,6 @@
 {
   "name": "roughbook",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "private": false,
   "description": "Roughbook studio: design iterations inside your own repo, with the coding agent and editor you already use",
   "type": "module",
@@ -23,7 +23,8 @@
     "pre-commit": "lint-staged",
     "build:ui": "vite build --config ui/vite.config.ts",
     "quiet-budget": "tsx src/tests/quiet-budget.ts",
-    "fixtures": "node scripts/fixtures.mjs"
+    "fixtures": "node scripts/fixtures.mjs",
+    "conformance": "node conformance/run.mjs"
   },
   "repository": {
     "type": "git",

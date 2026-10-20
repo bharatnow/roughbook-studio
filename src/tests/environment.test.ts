@@ -52,6 +52,13 @@ ignore:
   - vendor
 overlays:
   - nextjs-portal
+fixture: none
+build: npm run build:web
+buildOutput:
+  - dist
+gate: both
+production: npm run serve @ http://127.0.0.1:4100/
+timeoutBuild: 900
 ---
 
 # This repo
@@ -99,8 +106,21 @@ describe('the environment', () => {
       { name: 'desktop', width: 1280, height: 800, mobile: false },
       { name: 'phone', width: 390, height: 844, mobile: true }
     ]);
+    assert.equal(environment.fixture, null);
+    assert.deepEqual(environment.build, { command: 'npm run build:web', output: ['dist'] });
+    assert.equal(environment.gate, 'both');
+    assert.deepEqual(environment.production, {
+      command: 'npm run serve',
+      url: 'http://127.0.0.1:4100'
+    });
+    assert.deepEqual(environment.timeouts, { start: 60, preview: 150, build: 900 });
     // Not in the header, so the recipe's.
     assert.deepEqual(environment.sources, next.environment(LINK).sources);
+    const recipe = next.environment(LINK);
+    assert.equal(recipe.fixture, 'preview.json');
+    assert.equal(recipe.gate, 'build');
+    assert.equal(recipe.production, null);
+    assert.equal(recipe.build.command, 'npm run build');
   });
 
   it('parses the header alone, and refuses one it cannot read, naming the field', async () => {
@@ -116,7 +136,11 @@ describe('the environment', () => {
       ['---\nentry: parts/index.tsx\n---\n', 'entry'],
       ['---\npreview: /rough-preview/\n---\n', 'preview'],
       ['---\nstart: not a url\n---\n', 'start'],
-      ['---\nviewports:\n  - desktop wide\n---\n', 'viewports']
+      ['---\nviewports:\n  - desktop wide\n---\n', 'viewports'],
+      ['---\ngate: hope\n---\n', 'gate'],
+      ['---\nproduction: npm start\n---\n', 'production'],
+      ['---\ntimeoutBuild: soon\n---\n', 'timeoutBuild'],
+      ['---\nfixture: parts/preview.json\n---\n', 'fixture']
     ] as const) {
       const repo = await tempRepo({
         'rough/roughbook.json': `${JSON.stringify(LINK)}\n`,

@@ -5,6 +5,7 @@
 // kept rough/ out of git; now committing it is the default, since git is its only record.
 import fs from 'node:fs';
 import path from 'node:path';
+import { ROUGH_CONTRACT } from '../doctor/contract.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { fallbackRecipe } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
@@ -337,6 +338,15 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
       ROUGH_CLAUDE,
       'Point Claude Code at the same rules.',
       text => text.trim() === ROUGH_CLAUDE.trim()
+    )
+  );
+  add(
+    ownFile(
+      root,
+      `${ROUGH_DIR}/CONTRACT.md`,
+      ROUGH_CONTRACT,
+      'Write down what a preview must do, for the agent that sets one up.',
+      text => text.includes(OURS)
     )
   );
   const linkFile = `${ROUGH_DIR}/${LINK_FILE}`;

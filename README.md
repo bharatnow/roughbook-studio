@@ -1,3 +1,5 @@
+| `roughbook doctor [--json] [--report] [--skip-build]` | Checks this repo's preview setup against the contract (below) and says what to fix; `--json` for a team's CI, `--report` writes a redacted bundle for a support ticket, `--skip-build` leaves the production build out and records the repo as unverified |
+
 # Roughbook studio
 
 Design iterations inside your own repo, with the coding agent and editor you already use. The
@@ -221,6 +223,40 @@ approved copy to `rough/<page>/<component>/copy.md`, fills in the component file
 (`src/components/<Name>.tsx` by default, or `--to <file>`), and opens your agent with the prompt.
 The server never hears the file's path. An existing file is never overwritten, and nothing is
 committed: you review the diff.
+
+## The preview contract
+
+Whatever the stack, a repo's preview setup must do six things, and `roughbook init` writes them down
+for the agent in `rough/CONTRACT.md`: nothing from `rough/` reaches production (the build's output
+holds none of it, or the preview URL answers 404 in production mode); each iteration can be shown on
+its own inside the app, with its `preview.json` passed in as its inputs when it has one; a rendered
+iteration posts `{ roughbook: "ready", id }` to the page's parent and a missing or failed one posts
+`{ roughbook: "error", id, message }` (and 404 or 500 where the stack can); a change to an
+iteration's files shows without a restart; the preview answers requests addressed to this machine
+only; and every file the setup adds outside `rough/` is listed in `rough/environment.md`.
+
+## Doctor
+
+`roughbook doctor` proves the contract on this repo, with the app's dev server running: it writes
+two iterations of its own under a page of its own, `rough/doctor-check-<id>/` (one that renders,
+one that fails), asks the dev server about them as the studio would, takes screenshots at every
+viewport, changes the iteration and waits for the change to show, runs the production build and
+searches its output for the iteration, tries the preview from this machine's network address, and
+takes its iterations away again. Each check passes, fails with what to fix, or is skipped with the
+reason. The renders check tells three failures apart: the dev server never sent the iteration, the
+app sent it but the page shows something else (a layout or wrapper that decides what to show by
+path, and so must let the preview's address through in development), or the page shows it and
+never posts ready; the checks that need the iteration on the page are skipped after the second.
+The page's name is new on every run because a dev server's watcher (webpack's, on Windows) loses
+a folder that was deleted and made again, and would miss the change to the iteration. The exit code
+is 0 when every check passed, 1 when one failed, and 2 when the build was skipped (`--skip-build`),
+which leaves the repo unverified. `--json` prints the report for a team's own CI; `--report`
+writes `rough/.roughbook/doctor-report.json`, the checks and the versions with no path and nothing
+from the repo, for a support ticket.
+
+The conformance suite is doctor over each recipe's fixture: `npm run build`, then
+`npm run conformance -- next` copies `conformance/fixtures/next` to a temp folder, installs it,
+prepares it as `init` would, starts its dev server, runs doctor and takes everything down.
 
 ## Layout
 

@@ -11,6 +11,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import type { Probe } from '../doctor/types.js';
 import { defaultEnvironment } from '../environment/read.js';
 
 /**
@@ -21,7 +22,9 @@ import { defaultEnvironment } from '../environment/read.js';
 export function pageSetup(overlays: string[]): string {
   const hidden = overlays.map(selector => `${selector} { display: none !important; }`).join(' ');
   return `addEventListener('message', function (event) {
-  if (event.data && event.data.roughbook === 'ready') window.__roughbookReady = true;
+  if (!event.data || typeof event.data !== 'object') return;
+  if (event.data.roughbook === 'ready') window.__roughbookReady = true;
+  if (event.data.roughbook === 'error') window.__roughbookError = String(event.data.message || 'error');
 });
 addEventListener('DOMContentLoaded', function () {
   var style = document.createElement('style');
@@ -39,7 +42,8 @@ export const PAGE_SETUP = pageSetup(defaultEnvironment().overlays);
  * animation is still running, so text that fades in is in the shot. Each wait has a cap, so a page
  * without the route's ready message, or with an endless animation, is photographed anyway.
  */
-export const SETTLED = `new Promise(function (resolve) {
+export function settledScript(maxWaitMs: number): string {
+  return `new Promise(function (resolve) {
   var start = Date.now();
   function moving() {
     return document.getAnimations().some(function (animation) {
@@ -49,11 +53,15 @@ export const SETTLED = `new Promise(function (resolve) {
   }
   (function check() {
     var waited = Date.now() - start;
-    var ready = window.__roughbookReady === true || waited > 20000;
-    if (ready && (!moving() || waited > 26000)) resolve(true);
+    var ready = window.__roughbookReady === true || window.__roughbookError !== undefined || waited > ${maxWaitMs};
+    if (ready && (!moving() || waited > ${maxWaitMs + 6000})) resolve(true);
     else setTimeout(check, 100);
   })();
 })`;
+}
+
+/** The settle script for a screenshot: a page that never says ready is photographed after 20 s. */
+export const SETTLED = settledScript(20000);
 
 /**
  * Browsers follow the OS's own reduced-motion setting (Windows' "Animation effects" off) and its
@@ -141,6 +149,11 @@ class Pipe {
     { resolve(value: unknown): void; reject(error: Error): void }
   >();
   private readonly waiting: { method: string; sessionId?: string; resolve(): void }[] = [];
+  private readonly listeners: {
+    method: string;
+    sessionId?: string;
+    handler(params: unknown): void;
+  }[] = [];
 
   constructor(
     private readonly output: Writable,
@@ -165,6 +178,11 @@ class Pipe {
       else call?.resolve(message.result);
       return;
     }
+    for (const listener of this.listeners) {
+      if (listener.method === message.method && listener.sessionId === message.sessionId) {
+        listener.handler((message as { params?: unknown }).params);
+      }
+    }
     const index = this.waiting.findIndex(
       item => item.method === message.method && item.sessionId === message.sessionId
     );
@@ -182,6 +200,11 @@ class Pipe {
   event(method: string, sessionId?: string): Promise<void> {
     return new Promise(resolve => this.waiting.push({ method, sessionId, resolve }));
   }
+
+  /** Calls `handler` with each event of `method` from now on. */
+  on(method: string, sessionId: string | undefined, handler: (params: unknown) => void): void {
+    this.listeners.push({ method, sessionId, handler });
+  }
 }
 
 function within<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -189,6 +212,91 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timed out')), ms).unref())
   ]);
+}
+
+/** One page of the browser, attached: its DevTools calls and events. */
+type PageSession = {
+  send<T>(method: string, params?: Record<string, unknown>): Promise<T>;
+  event(method: string): Promise<void>;
+  on(method: string, handler: (params: unknown) => void): void;
+};
+
+/**
+ * Starts the browser on a fresh profile, opens one page at `size` with the setup script, and
+ * runs `work` against it. The browser is closed and its profile removed whatever happens; null
+ * when the browser failed or did not finish in time. Never throws.
+ */
+async function withPage<T>(
+  {
+    browser,
+    size,
+    overlays,
+    timeoutMs
+  }: { browser: string; size: ScreenshotSize; overlays: string[]; timeoutMs: number },
+  work: (page: PageSession) => Promise<T>
+): Promise<T | null> {
+  const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
+  const child = spawn(browser, browserArgs(profile), {
+    stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+  child.on('error', () => {});
+  try {
+    const pipe = new Pipe(child.stdio[3] as Writable, child.stdio[4] as Readable);
+    const open = async () => {
+      const { targetId } = await pipe.send<{ targetId: string }>('Target.createTarget', {
+        url: 'about:blank'
+      });
+      const { sessionId } = await pipe.send<{ sessionId: string }>('Target.attachToTarget', {
+        targetId,
+        flatten: true
+      });
+      const page: PageSession = {
+        send: (method, params = {}) => pipe.send(method, params, sessionId),
+        event: method => pipe.event(method, sessionId),
+        on: (method, handler) => pipe.on(method, sessionId, handler)
+      };
+      await page.send('Page.enable');
+      await page.send('Emulation.setDeviceMetricsOverride', {
+        width: size.width,
+        height: size.height,
+        deviceScaleFactor: 1,
+        mobile: size.mobile
+      });
+      await page.send('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA });
+      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: pageSetup(overlays) });
+      const value = await work(page);
+      await pipe.send('Browser.close').catch(() => undefined);
+      return value;
+    };
+    return await within(open(), timeoutMs);
+  } catch {
+    return null;
+  } finally {
+    if (child.exitCode === null) child.kill();
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+    } catch {
+      // The browser may still hold its profile; it stays in the OS temp folder.
+    }
+  }
+}
+
+/**
+ * Opens `url` and waits for it to settle: fonts, then hydration (the ready or error message) and
+ * any entrance animation, then a moment for what animates outside the Web Animations API
+ * (Motion's transforms run on requestAnimationFrame).
+ */
+async function settle(page: PageSession, url: string, maxWaitMs = 20000): Promise<void> {
+  const loaded = page.event('Page.loadEventFired');
+  await page.send('Page.navigate', { url });
+  await loaded;
+  await page.send('Runtime.evaluate', {
+    expression: 'document.fonts.ready.then(() => true)',
+    awaitPromise: true
+  });
+  await page.send('Runtime.evaluate', { expression: settledScript(maxWaitMs), awaitPromise: true });
+  await new Promise(resolve => setTimeout(resolve, 700));
 }
 
 /** Takes one screenshot at exactly `size`. Resolves true when the file was written; never throws. */
@@ -208,65 +316,75 @@ export async function takeScreenshot({
   overlays?: string[];
   timeoutMs?: number;
 }): Promise<boolean> {
-  const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
-  const child = spawn(browser, browserArgs(profile), {
-    stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'],
-    windowsHide: true
-  });
-  child.on('error', () => {});
-  try {
-    const pipe = new Pipe(child.stdio[3] as Writable, child.stdio[4] as Readable);
-    const capture = async () => {
-      const { targetId } = await pipe.send<{ targetId: string }>('Target.createTarget', {
-        url: 'about:blank'
-      });
-      const { sessionId } = await pipe.send<{ sessionId: string }>('Target.attachToTarget', {
-        targetId,
-        flatten: true
-      });
-      await pipe.send('Page.enable', {}, sessionId);
-      await pipe.send(
-        'Emulation.setDeviceMetricsOverride',
-        { width: size.width, height: size.height, deviceScaleFactor: 1, mobile: size.mobile },
-        sessionId
-      );
-      await pipe.send('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA }, sessionId);
-      await pipe.send(
-        'Page.addScriptToEvaluateOnNewDocument',
-        { source: pageSetup(overlays) },
-        sessionId
-      );
-      const loaded = pipe.event('Page.loadEventFired', sessionId);
-      await pipe.send('Page.navigate', { url }, sessionId);
-      await loaded;
-      // Fonts, then hydration and any entrance animation, then a moment for what animates
-      // outside the Web Animations API (Motion's transforms run on requestAnimationFrame).
-      await pipe.send(
-        'Runtime.evaluate',
-        { expression: 'document.fonts.ready.then(() => true)', awaitPromise: true },
-        sessionId
-      );
-      await pipe.send('Runtime.evaluate', { expression: SETTLED, awaitPromise: true }, sessionId);
-      await new Promise(resolve => setTimeout(resolve, 700));
-      const { data } = await pipe.send<{ data: string }>(
-        'Page.captureScreenshot',
-        { format: 'png' },
-        sessionId
-      );
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(file, Buffer.from(data, 'base64'));
-      await pipe.send('Browser.close').catch(() => undefined);
-    };
-    await within(capture(), timeoutMs);
+  const taken = await withPage({ browser, size, overlays, timeoutMs }, async page => {
+    await settle(page, url);
+    const { data } = await page.send<{ data: string }>('Page.captureScreenshot', {
+      format: 'png'
+    });
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, Buffer.from(data, 'base64'));
     return true;
-  } catch {
-    return false;
-  } finally {
-    if (child.exitCode === null) child.kill();
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
-    } catch {
-      // The browser may still hold its profile; it stays in the OS temp folder.
+  });
+  return taken === true;
+}
+
+/**
+ * What a preview did once it settled: whether it shows the text expected of it, whether it posted
+ * the ready message or an error, and how many of the app's own development overlays were still
+ * showing. For `roughbook doctor`.
+ */
+export async function probePreview({
+  browser,
+  url,
+  overlays,
+  timeoutMs = 60_000,
+  expect
+}: {
+  browser: string;
+  url: string;
+  overlays: string[];
+  timeoutMs?: number;
+  /** Text the page must show once settled; what the server sent but the page hides does not count. */
+  expect?: string;
+}): Promise<Probe> {
+  const expression = `(function () {
+  var visible = 0;
+  ${JSON.stringify(overlays)}.forEach(function (selector) {
+    document.querySelectorAll(selector).forEach(function (element) {
+      var style = getComputedStyle(element);
+      if (style.display !== 'none' && style.visibility !== 'hidden') visible += 1;
+    });
+  });
+  var expected = ${JSON.stringify(expect ?? null)};
+  return JSON.stringify({
+    shows: expected === null || (document.body && document.body.innerText.indexOf(expected) !== -1),
+    ready: window.__roughbookReady === true,
+    error: window.__roughbookError === undefined ? null : String(window.__roughbookError),
+    visibleOverlays: visible
+  });
+})()`;
+  const found = await withPage(
+    { browser, size: { width: 1440, height: 900, mobile: false }, overlays, timeoutMs },
+    async page => {
+      // Whatever the page throws says why it may never have hydrated.
+      const exceptions: string[] = [];
+      page.on('Runtime.exceptionThrown', params => {
+        const details = (
+          params as { exceptionDetails?: { text?: string; exception?: { description?: string } } }
+        ).exceptionDetails;
+        const text = details?.exception?.description ?? details?.text;
+        if (text) exceptions.push(text.split('\n')[0]!.slice(0, 300));
+      });
+      await page.send('Runtime.enable');
+      // A dev server compiling the page's client code on first request may take a while to
+      // hydrate; the probe waits as long as the environment allows, less a margin for the rest.
+      await settle(page, url, Math.max(20_000, timeoutMs - 10_000));
+      const { result } = await page.send<{ result: { value?: string } }>('Runtime.evaluate', {
+        expression,
+        returnByValue: true
+      });
+      return { ...(JSON.parse(result.value ?? '{}') as Omit<Probe, 'exceptions'>), exceptions };
     }
-  }
+  );
+  return found ?? { shows: false, ready: false, error: null, visibleOverlays: 0, exceptions: [] };
 }

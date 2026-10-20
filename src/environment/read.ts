@@ -8,8 +8,10 @@ import { readRepoLink, type RepoLink } from '../repo/link.js';
 import { ROUGH_DIR, roughPath } from '../repo/root.js';
 import {
   FAMILIES,
+  GATES,
   PREVIEW_MODES,
   type Family,
+  type Gate,
   type PreviewMode,
   type RepoEnvironment,
   type Viewport
@@ -146,6 +148,38 @@ export function environmentFromHeader(
   if (viewports && !viewports.length) refuse('viewports', 'names at least one viewport.');
   const sources = list(fields, 'sources');
   const code = list(fields, 'code');
+  const fixture = text(fields, 'fixture');
+  if (
+    fixture !== undefined &&
+    fixture !== 'none' &&
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fixture)
+  ) {
+    refuse('fixture', 'is a file name inside the iteration folder, or none.');
+  }
+  const build = text(fields, 'build');
+  const buildOutput = list(fields, 'buildOutput');
+  const gate = text(fields, 'gate');
+  if (gate !== undefined && !GATES.includes(gate as Gate)) {
+    refuse('gate', `is ${gate}; it is one of ${GATES.join(', ')}.`);
+  }
+  const production = text(fields, 'production');
+  let served: RepoEnvironment['production'] | undefined;
+  if (production !== undefined) {
+    const match = /^(.+?)\s+@\s+(https?:\/\/\S+)$/.exec(production);
+    if (production === 'none') served = null;
+    else if (!match) {
+      refuse(
+        'production',
+        'is the command and the address it answers on, as "<command> @ <url>", or none.'
+      );
+    } else served = { command: match[1]!, url: match[2]!.replace(/\/+$/, '') };
+  }
+  const timeout = (field: string): number | undefined => {
+    const value = text(fields, field);
+    if (value === undefined) return undefined;
+    if (!/^\d+$/.test(value) || Number(value) <= 0) refuse(field, 'is a number of seconds.');
+    return Number(value);
+  };
 
   return {
     contract: 1,
@@ -160,7 +194,19 @@ export function environmentFromHeader(
     preview: preview ?? base.preview,
     viewports: viewports ?? base.viewports,
     ignore: list(fields, 'ignore') ?? base.ignore,
-    overlays: list(fields, 'overlays') ?? base.overlays
+    overlays: list(fields, 'overlays') ?? base.overlays,
+    fixture: fixture === undefined ? base.fixture : fixture === 'none' ? null : fixture,
+    build: {
+      command: build === undefined ? base.build.command : build === 'none' ? null : build,
+      output: buildOutput ?? base.build.output
+    },
+    gate: (gate as Gate | undefined) ?? base.gate,
+    production: served === undefined ? base.production : served,
+    timeouts: {
+      start: timeout('timeoutStart') ?? base.timeouts.start,
+      preview: timeout('timeoutPreview') ?? base.timeouts.preview,
+      build: timeout('timeoutBuild') ?? base.timeouts.build
+    }
   };
 }
 

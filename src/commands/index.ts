@@ -15,6 +15,7 @@ import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
 import { openApi, type Command, type CommandContext } from './context.js';
 import { agents } from './agents.js';
+import { doctor } from './doctor.js';
 import { done } from './done.js';
 import { init } from './init.js';
 import { login } from './login.js';
@@ -37,6 +38,7 @@ export const COMMANDS: Command[] = [
   start,
   run,
   done,
+  doctor,
   screenshot,
   review,
   revert,
