@@ -1,0 +1,23 @@
+{
+  "$comment": "The apps the conformance suite runs doctor against, one per recipe, written by scripts/fixtures.mjs from these pinned scaffolds. Regenerating a fixture is a deliberate commit; the weekly run uses the latest versions instead.",
+  "fixtures": {
+    "next": {
+      "scaffold": "create-next-app",
+      "version": "16.4.2",
+      "args": [
+        "--ts",
+        "--tailwind",
+        "--eslint",
+        "--app",
+        "--cache-components",
+        "--import-alias",
+        "@/*",
+        "--use-npm",
+        "--skip-install",
+        "--disable-git",
+        "--no-agent-feedback",
+        "--yes"
+      ]
+    }
+  }
+}

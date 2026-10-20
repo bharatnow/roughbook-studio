@@ -6,3 +6,5 @@ LICENSE
 src/telemetry/catalog.json
 # Claude Code's session worktrees: other branches, each with its own copy of the above.
 .claude
+# The conformance suite's fixture apps, written by scripts/fixtures.mjs from pinned scaffolds.
+conformance/fixtures

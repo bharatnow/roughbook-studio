@@ -22,7 +22,8 @@
     "prepare": "husky",
     "pre-commit": "lint-staged",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "quiet-budget": "tsx src/tests/quiet-budget.ts"
+    "quiet-budget": "tsx src/tests/quiet-budget.ts",
+    "fixtures": "node scripts/fixtures.mjs"
   },
   "repository": {
     "type": "git",
