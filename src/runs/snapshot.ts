@@ -8,22 +8,25 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { defaultEnvironment, readEnvironment } from '../environment/read.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
 import { ROUGH_DIR, STATE_DIR, statePath } from '../repo/root.js';
 import { assertRunId, listRuns } from './store.js';
 
-/** Never recorded: the studio's own state and screenshots, and what no repo commits. */
+/** Never recorded: the studio's own state and screenshots. */
 const SKIPPED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
-const SKIPPED_DIRS = new Set([
-  'node_modules',
-  '.git',
-  '.next',
-  '.turbo',
-  '.vercel',
-  'dist',
-  'out',
-  'build'
-]);
+
+/**
+ * Whether a file is in a folder the environment ignores: a bare name (`node_modules`) at any
+ * depth, a path (`packages/web/dist`) at that place only.
+ */
+function ignored(file: string, ignore: string[]): boolean {
+  const folders = file.split('/').slice(0, -1);
+  return ignore.some(entry => {
+    const dir = entry.replace(/\/+$/, '');
+    return dir.includes('/') ? file.startsWith(`${dir}/`) : folders.includes(dir);
+  });
+}
 /** Larger files are compared by size and modification time instead of read. */
 const HASH_LIMIT = 20 * 1024 * 1024;
 /** Uncommitted files larger than this, or past the total, are not copied aside. */
@@ -82,7 +85,7 @@ function skipped(file: string): boolean {
   return SKIPPED.some(prefix => file.startsWith(prefix));
 }
 
-function walk(repoRoot: string, dir = ''): string[] {
+function walk(repoRoot: string, ignore: string[], dir = ''): string[] {
   const absolute = path.join(repoRoot, ...dir.split('/').filter(Boolean));
   let entries: fs.Dirent[];
   try {
@@ -92,16 +95,22 @@ function walk(repoRoot: string, dir = ''): string[] {
   }
   return entries.flatMap(entry => {
     const relative = dir ? `${dir}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) return SKIPPED_DIRS.has(entry.name) ? [] : walk(repoRoot, relative);
+    if (entry.isDirectory()) {
+      return ignored(`${relative}/x`, ignore) ? [] : walk(repoRoot, ignore, relative);
+    }
     return entry.isFile() ? [relative] : [];
   });
 }
 
 /**
  * The repo's files, repo-relative with forward slashes: what git tracks plus what it would add
- * (so .gitignore is respected), or every file but the usual build folders outside git.
+ * (so .gitignore is respected), or every file outside git; less the folders the environment
+ * ignores either way (dependencies, build output), which no repo should commit.
  */
-export async function listRepoFiles(repoRoot: string): Promise<{ files: string[]; git: boolean }> {
+export async function listRepoFiles(
+  repoRoot: string,
+  ignore: string[] = defaultEnvironment().ignore
+): Promise<{ files: string[]; git: boolean }> {
   const listed = await git(repoRoot, [
     'ls-files',
     '-z',
@@ -111,11 +120,14 @@ export async function listRepoFiles(repoRoot: string): Promise<{ files: string[]
   ]);
   const files =
     listed === null
-      ? walk(repoRoot)
+      ? walk(repoRoot, ignore)
       : [...new Set(listed.split('\0').filter(Boolean))].filter(file =>
           fs.existsSync(path.join(repoRoot, ...file.split('/')))
         );
-  return { files: files.filter(file => !skipped(file)).sort(), git: listed !== null };
+  return {
+    files: files.filter(file => !skipped(file) && !ignored(file, ignore)).sort(),
+    git: listed !== null
+  };
 }
 
 async function hashFile(file: string): Promise<string | null> {
@@ -146,9 +158,10 @@ async function eachLimited<T>(
 
 /** Every file's hash, now. */
 export async function hashRepo(
-  repoRoot: string
+  repoRoot: string,
+  ignore?: string[]
 ): Promise<{ files: Record<string, string>; git: boolean }> {
-  const listing = await listRepoFiles(repoRoot);
+  const listing = await listRepoFiles(repoRoot, ignore);
   const files: Record<string, string> = {};
   await eachLimited(listing.files, async file => {
     const hash = await hashFile(path.join(repoRoot, ...file.split('/')));
@@ -181,8 +194,12 @@ function snapshotDir(repoRoot: string, runId: string): string {
 }
 
 /** Records the repo before a run; one snapshot can serve several runs started together. */
-export async function takeSnapshot(repoRoot: string, runIds: string[]): Promise<Snapshot> {
-  const { files, git: isGit } = await hashRepo(repoRoot);
+export async function takeSnapshot(
+  repoRoot: string,
+  runIds: string[],
+  ignore?: string[]
+): Promise<Snapshot> {
+  const { files, git: isGit } = await hashRepo(repoRoot, ignore);
   const dirty = isGit ? (await uncommitted(repoRoot)).filter(file => file in files) : [];
   const backedUp: string[] = [];
   const notBackedUp: string[] = [];
@@ -226,10 +243,11 @@ export async function takeSnapshot(repoRoot: string, runIds: string[]): Promise<
 export async function recordOwnWrites(
   repoRoot: string,
   runIds: string[],
-  files: string[]
+  files: string[],
+  ignore?: string[]
 ): Promise<void> {
   if (!runIds.length || !files.length) return;
-  const listed = new Set((await listRepoFiles(repoRoot)).files);
+  const listed = new Set((await listRepoFiles(repoRoot, ignore)).files);
   const hashes: Record<string, string> = {};
   for (const file of files.filter(item => listed.has(item))) {
     const hash = await hashFile(path.join(repoRoot, ...file.split('/')));
@@ -251,10 +269,13 @@ export async function recordOwnWrites(
 /** recordOwnWrites for every run still open in the repo: init's prep, a pull, a promotion. */
 export async function recordOwnWritesForOpenRuns(repoRoot: string, files: string[]): Promise<void> {
   const open = (await listRuns(repoRoot)).filter(run => run.status === 'started');
+  if (!open.length) return;
+  const environment = await readEnvironment(repoRoot);
   await recordOwnWrites(
     repoRoot,
     open.map(run => run.runId),
-    files
+    files,
+    environment.ignore
   );
 }
 

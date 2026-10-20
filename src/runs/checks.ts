@@ -4,25 +4,31 @@
 // every finding so the backend records codes, never sentences.
 import fs from 'node:fs';
 import path from 'node:path';
-import { iterationDir } from '../repo/preview.js';
+import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
-import { isPlaceholder } from './slots.js';
+import { isPlaceholder } from './placeholder.js';
 import type { Check, Finding } from './types.js';
-
-/** The files an iteration's checks read: its own top-level sources, not meta.json. */
-const SOURCE = /\.(tsx?|jsx?|mjs|cjs|css|json|md|svg)$/i;
-const CODE = /\.(tsx?|jsx?|mjs|cjs)$/i;
 
 export type FolderFiles = Map<string, string>;
 
-/** The top-level source files of a folder, or null when it does not exist. */
-export function readFolder(dir: string): FolderFiles | null {
+/** Whether a file has one of the extensions, given with their dots. */
+export function hasExtension(file: string, extensions: string[]): boolean {
+  const lower = file.toLowerCase();
+  return extensions.some(extension => lower.endsWith(extension.toLowerCase()));
+}
+
+/**
+ * The top-level files of a folder with the environment's source extensions, not meta.json; null
+ * when the folder does not exist.
+ */
+export function readFolder(dir: string, sources: string[]): FolderFiles | null {
   if (!fs.existsSync(dir)) return null;
   const files: FolderFiles = new Map();
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || entry.name === 'meta.json' || !SOURCE.test(entry.name)) continue;
+    if (!entry.isFile() || entry.name === 'meta.json' || !hasExtension(entry.name, sources))
+      continue;
     files.set(entry.name, fs.readFileSync(path.join(dir, entry.name), 'utf8'));
   }
   return files;
@@ -112,7 +118,7 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
   return { failure: null, warnings };
 }
 
-/** A child starts as a copy of its parent, so "index.tsx exists" proves nothing about it. */
+/** A child starts as a copy of its parent, so "the entry file exists" proves nothing about it. */
 function parentFindings(parentId: string, subject: CheckSubject): Finding[] {
   const findings: Finding[] = [];
   const own = subject.files!;
@@ -147,17 +153,19 @@ const IMPORT =
 
 /**
  * Files outside rough/ that import from it: the app must never depend on a design reference. The
- * preview route is the one place allowed to, and only in development.
+ * recipe's preview setup (`allowed` folders) is the one place allowed to, and only in development.
+ * Only files with the environment's code extensions are read.
  */
 export function importsFromRough(
   repoRoot: string,
   files: string[],
-  previewRoute: string | null
+  allowed: string[],
+  code: string[]
 ): string[] {
   const offenders: string[] = [];
   for (const file of files) {
-    if (!CODE.test(file) || file.startsWith(`${ROUGH_DIR}/`)) continue;
-    if (previewRoute && file.startsWith(`${previewRoute}/`)) continue;
+    if (!hasExtension(file, code) || file.startsWith(`${ROUGH_DIR}/`)) continue;
+    if (allowed.some(folder => file.startsWith(`${folder}/`))) continue;
     let text: string;
     try {
       text = fs.readFileSync(path.join(repoRoot, ...file.split('/')), 'utf8');
@@ -183,13 +191,14 @@ export function checkIteration(
     iteration: string;
     parent: string | null;
     checks: Check[];
-  }
+  },
+  sources: string[]
 ): CheckOutcome {
   const dir = (id: string) =>
     path.join(repoRoot, ...iterationDir(run.page, run.component, id).split('/'));
   return applyChecks(run.checks, {
     iterationId: run.iteration,
-    files: readFolder(dir(run.iteration)),
-    parentFiles: run.parent ? readFolder(dir(run.parent)) : null
+    files: readFolder(dir(run.iteration), sources),
+    parentFiles: run.parent ? readFolder(dir(run.parent), sources) : null
   });
 }

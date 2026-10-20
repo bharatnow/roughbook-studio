@@ -51,3 +51,13 @@ export function roughPath(repoRoot: string, ...parts: string[]): string {
 export function statePath(repoRoot: string, ...parts: string[]): string {
   return path.join(repoRoot, ROUGH_DIR, STATE_DIR, ...parts);
 }
+
+/**
+ * The app `init` run from `start` means: the nearest folder upwards with a package.json, within
+ * the same git repo. `start` itself when there is none, for checkRepo to refuse.
+ */
+export function appRoot(start: string, home?: string): string {
+  return (
+    searchUp(start, dir => existsSync(path.join(dir, 'package.json')), home) ?? path.resolve(start)
+  );
+}

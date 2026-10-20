@@ -8,7 +8,7 @@ import { DEFAULT_SERVER } from '../config/server.js';
 import { openerFor } from '../launch/open.js';
 import { currentOs } from '../launch/platform.js';
 import { readLocalLink } from '../repo/link.js';
-import { scratchFiles } from '../repo/scratch.js';
+import { scratchFiles } from '../recipes/next/scratch.js';
 import { STUDIO_VERSION } from '../version.js';
 import { fakeFetch, ok, recordingIo, refused, tempDir, type RecordedRequest } from './helpers.js';
 

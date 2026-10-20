@@ -1,6 +1,8 @@
+// Which framework a repo is on, by name and major version, for the server's analytics: the one
+// thing about the stack it ever sees (ROUGHBOOK-FRAMEWORKS-PLAN.md, decision 15). F3 replaces
+// this list with the detection table, and the setup run with what a marker cannot say.
 import fs from 'node:fs';
 import path from 'node:path';
-import { searchUp } from './root.js';
 
 /** Checked in this order, since a Next.js or Astro app may also list Vite. */
 const FRAMEWORKS: [dependency: string, name: string][] = [
@@ -29,15 +31,4 @@ export function detectFramework(repo: string): string | null {
   if (!found) return null;
   const major = /(\d+)/.exec(deps[found[0]]!)?.[1];
   return major ? `${found[1]}-${major}` : found[1];
-}
-
-/**
- * The app `init` run from `start` means: the nearest folder upwards with a package.json, within
- * the same git repo. `start` itself when there is none, for checkRepo to refuse.
- */
-export function appRoot(start: string, home?: string): string {
-  return (
-    searchUp(start, dir => fs.existsSync(path.join(dir, 'package.json')), home) ??
-    path.resolve(start)
-  );
 }

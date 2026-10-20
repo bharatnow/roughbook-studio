@@ -8,6 +8,7 @@ import { startRuns } from '../runs/lifecycle.js';
 import type { StartRunRequest } from '../runs/types.js';
 import { requireApi, type Command } from './context.js';
 import { completeRun, devUrl } from './done.js';
+import { readEnvironment } from '../environment/read.js';
 import { chooseAgent, openInEditor, parseComponent, sayEditorLaunch } from './shared.js';
 
 /** What the designer asked for: new directions, a fork, or a refinement. */
@@ -77,10 +78,11 @@ export const run: Command = {
     const kind = runKind(values);
     const repoRoot = context.repoRoot!;
     const link = await requireRepoLink(repoRoot);
+    const environment = await readEnvironment(repoRoot, link);
     const { adapter, detection } = await chooseAgent(context, values.agent);
     const model = values.model ?? null;
     if (values.headless && !detection.headless.ready) throw new Error(detection.headless.reason);
-    const dev = devUrl(values['dev-url'], context.env);
+    const dev = devUrl(values['dev-url'], context.env, environment.start.url);
 
     const api = await requireApi(context);
     const outbox = outboxFor(repoRoot);

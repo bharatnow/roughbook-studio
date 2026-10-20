@@ -11,7 +11,7 @@ export type RepoLink = {
   /** The project's slug. */
   project: string;
   roughCommitted: boolean;
-  /** The App Router folder previews render through, or null when the repo has none. */
+  /** The folder the recipe's preview setup lives in, or null when the repo has none. */
   appDir: string | null;
   /**
    * Agent skills installed where this repo's runs happen, such as design-taste-frontend. Every

@@ -24,7 +24,9 @@ import { currentOs } from '../launch/platform.js';
 import type { PtySupport } from '../launch/pty.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
-import { ITERATION, SLUG, listIterations, writePreviewRegistry } from '../repo/preview.js';
+import type { RepoEnvironment } from '../environment/types.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
 import { pullAdvice, pullSketch } from '../runs/pull.js';
@@ -32,7 +34,6 @@ import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.
 import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
-import { SIZES } from '../screenshot/browser.js';
 import { screenshotPath } from '../screenshot/iteration.js';
 import { EVENT_CATALOG } from '../telemetry/catalog.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
@@ -45,6 +46,7 @@ export type LocalStudioOptions = {
   api: StudioApi;
   link: RepoLink;
   devUrl: string;
+  environment: RepoEnvironment;
   port: number;
   pty: PtySupport;
 };
@@ -382,13 +384,13 @@ export class LocalStudio {
 
   /** The iterations in this repo and their screenshots, read from disk on every ask. */
   private local() {
-    const iterations = listIterations(this.repoRoot);
+    const iterations = listIterations(this.repoRoot, this.options.environment.entry);
     const screenshots: Record<string, string[]> = {};
     for (const key of iterations) {
       const [page, component, iteration] = key.split('/') as [string, string, string];
-      const sizes = (Object.keys(SIZES) as (keyof typeof SIZES)[]).filter(size =>
-        fs.existsSync(this.disk(screenshotPath(page, component, iteration, size)))
-      );
+      const sizes = this.options.environment.viewports
+        .map(viewport => viewport.name)
+        .filter(size => fs.existsSync(this.disk(screenshotPath(page, component, iteration, size))));
       if (sizes.length) screenshots[key] = sizes;
     }
     // An iteration pulled or started from the CLI is new on the backend too.
@@ -795,10 +797,8 @@ export class LocalStudio {
   /** A screenshot's file, when the iteration has one at that size. */
   screenshotFile(target: ReviewTarget, size: string): string | null {
     this.assertIteration(target);
-    if (!(size in SIZES)) return null;
-    const file = this.disk(
-      screenshotPath(target.page, target.component, target.iteration, size as keyof typeof SIZES)
-    );
+    if (!this.options.environment.viewports.some(viewport => viewport.name === size)) return null;
+    const file = this.disk(screenshotPath(target.page, target.component, target.iteration, size));
     return fs.existsSync(file) ? file : null;
   }
 
@@ -810,7 +810,7 @@ export class LocalStudio {
         `${target.page}/${target.component}/${target.iteration} is not in this repo.`
       );
     }
-    writePreviewRegistry(this.repoRoot);
+    (recipeFor(this.options.environment.recipe) ?? fallbackRecipe).syncPreview(this.repoRoot);
     return this.context.screenshot(this.repoRoot, this.options.devUrl, target, this.context.env);
   }
 
@@ -827,7 +827,7 @@ export class LocalStudio {
   /** Keeps rough/preview-registry.ts in step with the iteration folders. */
   keepRegistry(): void {
     try {
-      writePreviewRegistry(this.repoRoot);
+      (recipeFor(this.options.environment.recipe) ?? fallbackRecipe).syncPreview(this.repoRoot);
     } catch {
       // A folder being written mid-scan; the next tick catches up.
     }

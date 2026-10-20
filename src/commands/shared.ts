@@ -5,7 +5,7 @@ import { readSettings } from '../config/settings.js';
 import { openerFor } from '../launch/open.js';
 import { hasEntry, mcpTarget } from '../mcp/install.js';
 import { currentOs } from '../launch/platform.js';
-import { ITERATION, SLUG } from '../repo/preview.js';
+import { ITERATION, SLUG } from '../repo/iterations.js';
 import { handoffLine } from '../runs/slots.js';
 import type { RunAgent } from '../runs/types.js';
 import { STUDIO_VERSION } from '../version.js';

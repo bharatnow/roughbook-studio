@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
 import { outboxFor } from '../api/outbox.js';
+import { defaultEnvironment, readEnvironment } from '../environment/read.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { assessRun, finishRun, type FinishOptions } from '../runs/lifecycle.js';
 import type { Shots } from '../screenshot/iteration.js';
@@ -10,13 +11,18 @@ import type { RunRecord } from '../runs/types.js';
 import { confirm } from '../io.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 
-/** Where the app's dev server runs when nothing says otherwise. */
-export const DEFAULT_DEV_URL = 'http://localhost:3000';
-
-export function devUrl(flag: string | undefined, env: NodeJS.ProcessEnv): string {
-  const url = (flag ?? env.ROUGHBOOK_DEV_URL ?? DEFAULT_DEV_URL).replace(/\/+$/, '');
+/**
+ * Where the app's dev server runs: the flag, then ROUGHBOOK_DEV_URL, then the repo's environment
+ * (its recipe's default until the environment file says).
+ */
+export function devUrl(
+  flag: string | undefined,
+  env: NodeJS.ProcessEnv,
+  fallback: string = defaultEnvironment().start.url
+): string {
+  const url = (flag ?? env.ROUGHBOOK_DEV_URL ?? fallback).replace(/\/+$/, '');
   if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{2,5})?$/.test(url)) {
-    throw new Error(`The dev server must be on this machine, such as ${DEFAULT_DEV_URL}.`);
+    throw new Error(`The dev server must be on this machine, such as ${fallback}.`);
   }
   return url;
 }
@@ -171,7 +177,11 @@ export const done: Command = {
     const api = await requireApi(context);
     const link = await requireRepoLink(repoRoot);
     const outbox = outboxFor(repoRoot);
-    const url = devUrl(values['dev-url'], context.env);
+    const url = devUrl(
+      values['dev-url'],
+      context.env,
+      (await readEnvironment(repoRoot, link)).start.url
+    );
     let failed = false;
     for (const run of runs) {
       const mine = values.mine?.length ? values.mine : await askWhoseChanges(context, link, run);

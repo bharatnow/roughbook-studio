@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { previewUrl } from '../environment/read.js';
+import { detectFramework } from '../recipes/detect.js';
+import { usesCacheComponents } from '../recipes/next/index.js';
+import {
+  previewRouteFiles,
+  renderPreviewRegistry,
+  writePreviewRegistry
+} from '../recipes/next/preview.js';
+import { listIterations } from '../repo/iterations.js';
 import {
   applyPrep,
   checkRepo,
@@ -9,17 +18,9 @@ import {
   planGitignore,
   planPrep,
   planTsconfig,
-  stripJsonc,
-  usesCacheComponents
+  stripJsonc
 } from '../repo/prep.js';
-import {
-  listIterations,
-  previewRouteFiles,
-  previewUrl,
-  renderPreviewRegistry,
-  writePreviewRegistry
-} from '../repo/preview.js';
-import { appRoot, detectFramework } from '../repo/framework.js';
+import { appRoot } from '../repo/root.js';
 import { changedLines } from '../repo/diff.js';
 import { tempDir } from './helpers.js';
 
@@ -345,7 +346,7 @@ describe('previews', () => {
       'rough/home/hero/prompts/run.md': '',
       'rough/home_page/hero/iteration-01/index.tsx': ''
     });
-    assert.deepEqual(listIterations(repo), ['home/hero/iteration-03']);
+    assert.deepEqual(listIterations(repo, 'index.tsx'), ['home/hero/iteration-03']);
     assert.equal(writePreviewRegistry(repo), true);
     const registry = read(repo, 'rough/preview-registry.ts');
     assert.match(

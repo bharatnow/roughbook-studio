@@ -11,13 +11,14 @@
 // Ported from roughbook src/lib/delivery/preview.ts (v2-local).
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROUGH_DIR } from './root.js';
+import { listIterations } from '../../repo/iterations.js';
+import { ROUGH_DIR } from '../../repo/root.js';
 
 export const PREVIEW_ROUTE = 'rough-preview';
 export const REGISTRY_FILE = 'preview-registry.ts';
 const MARKER = 'Roughbook preview route';
-export const ITERATION = /^iteration-\d{2,}$/;
-export const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** The file every iteration has in this recipe, and the registry loads. */
+const ENTRY = 'index.tsx';
 
 /** Where the App Router lives in this repo, or null when it has none. */
 export function detectAppDir(repo: string): string | null {
@@ -29,20 +30,6 @@ export function detectAppDir(repo: string): string | null {
 
 export function previewRouteDir(appDir: string): string {
   return `${appDir}/${PREVIEW_ROUTE}`;
-}
-
-/** An iteration's folder, relative to the repo, with forward slashes. */
-export function iterationDir(page: string, component: string, iteration: string): string {
-  return `${ROUGH_DIR}/${page}/${component}/${iteration}`;
-}
-
-export function previewUrl(
-  devUrl: string,
-  page: string,
-  component: string,
-  iteration: string
-): string {
-  return `${devUrl.replace(/\/$/, '')}/${PREVIEW_ROUTE}/${page}/${component}/${iteration}`;
 }
 
 /**
@@ -126,33 +113,6 @@ export default function Preview({ children }: { children: ReactNode }) {
 }
 `;
 
-function subdirs(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => entry.name)
-    .sort();
-}
-
-/** Every iteration under rough/<page>/<component>/iteration-NN/ with an index.tsx, as keys. */
-export function listIterations(repo: string): string[] {
-  const root = path.join(repo, ROUGH_DIR);
-  const keys: string[] = [];
-  for (const page of subdirs(root).filter(name => SLUG.test(name))) {
-    for (const component of subdirs(path.join(root, page)).filter(name => SLUG.test(name))) {
-      for (const iteration of subdirs(path.join(root, page, component)).filter(name =>
-        ITERATION.test(name)
-      )) {
-        if (fs.existsSync(path.join(root, page, component, iteration, 'index.tsx'))) {
-          keys.push(`${page}/${component}/${iteration}`);
-        }
-      }
-    }
-  }
-  return keys;
-}
-
 export function renderPreviewRegistry(keys: string[]): string {
   const lines = keys.map(
     key => `  ${JSON.stringify(key)}: () => import(${JSON.stringify(`./${key}/index`)}),`
@@ -167,10 +127,15 @@ ${lines.map(line => `${line}\n`).join('')}};
 `;
 }
 
+/** The registry as the iterations in the repo are now. */
+export function currentPreviewRegistry(repo: string): string {
+  return renderPreviewRegistry(listIterations(repo, ENTRY));
+}
+
 /** Rewrites rough/preview-registry.ts when the iterations changed. Returns whether it wrote. */
 export function writePreviewRegistry(repo: string): boolean {
   const file = path.join(repo, ROUGH_DIR, REGISTRY_FILE);
-  const next = renderPreviewRegistry(listIterations(repo));
+  const next = currentPreviewRegistry(repo);
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   if (current === next) return false;
   fs.mkdirSync(path.dirname(file), { recursive: true });

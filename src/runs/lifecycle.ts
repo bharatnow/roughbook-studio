@@ -6,14 +6,12 @@ import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
 import { localOrigin } from '../config/settings.js';
+import { fillEnvironment, previewUrl, readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import type { Recipe } from '../recipes/types.js';
+import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
-import {
-  REGISTRY_FILE,
-  iterationDir,
-  previewRouteDir,
-  previewUrl,
-  writePreviewRegistry
-} from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { checkIteration, importsFromRough } from './checks.js';
 import {
@@ -45,13 +43,23 @@ export type RunUsage = {
   cacheWriteTokens?: number | null;
 };
 
-/** The files a run may write: its folder, its prompt, and the registry the studio regenerates. */
+/** The files a run may write: its folder, its prompt, and what the studio itself regenerates. */
 export function inScope(
   file: string,
-  runs: Pick<RunRecord, 'targetFolder' | 'promptFile'>[]
+  runs: Pick<RunRecord, 'targetFolder' | 'promptFile'>[],
+  generated: string[] = []
 ): boolean {
-  if (file === `${ROUGH_DIR}/${REGISTRY_FILE}`) return true;
+  if (generated.includes(file)) return true;
   return runs.some(run => file.startsWith(`${run.targetFolder}/`) || file === run.promptFile);
+}
+
+/** The repo's environment and the recipe that goes with it, for one run's steps. */
+async function repoSetup(
+  repoRoot: string,
+  link: RepoLink
+): Promise<{ environment: RepoEnvironment; recipe: Recipe }> {
+  const environment = await readEnvironment(repoRoot, link);
+  return { environment, recipe: recipeFor(environment.recipe) ?? fallbackRecipe };
 }
 
 /** Whether two runs were going at the same time, so each may write the other's folder. */
@@ -89,11 +97,15 @@ export async function startRuns(
       );
     }
   }
+  const { environment, recipe } = await repoSetup(repoRoot, link);
   // This studio takes screenshots (roughbook screenshot), so the prompt says when to look (D7).
+  // The family and entry file choose the checks the backend sends (decision 23).
   const started = await api.startRuns(link.orgId, link.project, {
     ...request,
     ...(link.skills?.length ? { skills: link.skills } : {}),
-    screenshots: true
+    screenshots: true,
+    family: environment.family,
+    entry: environment.entry
   });
   for (const run of started) {
     assertTarget(request.page, request.component, run.iteration);
@@ -108,7 +120,8 @@ export async function startRuns(
   // Before the slots, so writing them counts as the runs' own change.
   await takeSnapshot(
     repoRoot,
-    started.map(run => run.runId)
+    started.map(run => run.runId),
+    environment.ignore
   );
   const records: RunRecord[] = [];
   for (const run of started) {
@@ -135,11 +148,18 @@ export async function startRuns(
       outOfScope: [],
       reported: null
     };
-    createSlot(repoRoot, record);
+    createSlot(repoRoot, record, {
+      file: environment.entry,
+      content: recipe.placeholder(environment.entry)
+    });
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
-    const prompt = run.prompt.replaceAll(standIn, () => assetOrigin);
+    const prompt = fillEnvironment(
+      run.prompt.replaceAll(standIn, () => assetOrigin),
+      environment,
+      run.placeholders ?? {}
+    );
     const preview = options.devUrl
-      ? previewUrl(options.devUrl, request.page, request.component, run.iteration)
+      ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
       : null;
     writePrompt(
       repoRoot,
@@ -151,7 +171,7 @@ export async function startRuns(
     await saveRun(repoRoot, record);
     records.push(record);
   }
-  writePreviewRegistry(repoRoot);
+  recipe.syncPreview(repoRoot);
   return records;
 }
 
@@ -186,15 +206,16 @@ export async function assessRun(
   now: Date = new Date(),
   mine: string[] = []
 ): Promise<Assessment> {
-  const checked = checkIteration(repoRoot, run);
-  const after = await hashRepo(repoRoot);
+  const { environment, recipe } = await repoSetup(repoRoot, link);
+  const checked = checkIteration(repoRoot, run, environment.sources);
+  const after = await hashRepo(repoRoot, environment.ignore);
   const snapshot = await readSnapshot(repoRoot, run.runId);
   const others = (await listRuns(repoRoot)).filter(
     other => other.runId !== run.runId && overlapped(other, run, now)
   );
   const changed = snapshot
     ? allChanged(compareFiles(snapshot.files, after.files)).filter(
-        file => !inScope(file, [run, ...others])
+        file => !inScope(file, [run, ...others], recipe.generatedFiles)
       )
     : [];
   const claimed = changed.filter(file => isMine(file, mine));
@@ -202,7 +223,8 @@ export async function assessRun(
   const offenders = importsFromRough(
     repoRoot,
     Object.keys(after.files),
-    link.appDir ? previewRouteDir(link.appDir) : null
+    recipe.importAllowed(link),
+    environment.code
   );
 
   const warnings: Finding[] = [...checked.warnings];
@@ -287,7 +309,7 @@ export async function finishRun(
     reported
   };
   await saveRun(repoRoot, finished);
-  writePreviewRegistry(repoRoot);
+  (await repoSetup(repoRoot, link)).recipe.syncPreview(repoRoot);
   return finished;
 }
 

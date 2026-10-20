@@ -1,0 +1,22 @@
+[
+  {
+    "file": "src/environment/types.ts",
+    "rule": "another stack by name",
+    "reason": "The check families are the contract's own vocabulary (decision 23 of the frameworks plan); three of them are named after the UI toolkit whose files they read."
+  },
+  {
+    "file": "src/runs/craftFloor.ts",
+    "rule": "extensions",
+    "reason": "The craft floor is a markup-css and react-like family check: it reads markup and CSS by their extensions. The backend sends it only for those families."
+  },
+  {
+    "file": "src/runs/detector.ts",
+    "rule": "extensions",
+    "reason": "The detector is a markup-css and react-like family check, for the same reason."
+  },
+  {
+    "file": "src/runs/pull.ts",
+    "rule": "extensions",
+    "reason": "Web sketches are React with Tailwind in the sandbox (decision 14), so the files the backend sends for one are named by those extensions."
+  }
+]

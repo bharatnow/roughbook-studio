@@ -8,13 +8,8 @@ import { outboxFor } from '../api/outbox.js';
 import { readRepoLink, renderRepoLink, type RepoLink } from '../repo/link.js';
 import { applyChecks, headlineAppearsIn, importsFromRough } from '../runs/checks.js';
 import { finishRun, inScope, isMine, startRuns } from '../runs/lifecycle.js';
-import {
-  PLACEHOLDER_INDEX,
-  createSlot,
-  finishingSection,
-  handoffLine,
-  isPlaceholder
-} from '../runs/slots.js';
+import { PLACEHOLDER_INDEX } from '../recipes/next/placeholder.js';
+import { createSlot, finishingSection, handoffLine, isPlaceholder } from '../runs/slots.js';
 import { revertFile } from '../runs/snapshot.js';
 import { listRuns, namesRun, readRun } from '../runs/store.js';
 import type { Check, StartRunRequest, StartedRun } from '../runs/types.js';
@@ -144,7 +139,13 @@ describe('starting runs', () => {
     const { repo, api, requests } = await setup([started('iteration-03', RUN_A)]);
     const skills = ['design-taste-frontend', 'impeccable'];
     await startRuns(repo, api, { ...LINK, skills }, GENERATE);
-    assert.deepEqual(requests[0]!.body, { ...GENERATE, skills, screenshots: true });
+    assert.deepEqual(requests[0]!.body, {
+      ...GENERATE,
+      skills,
+      screenshots: true,
+      family: 'react-like',
+      entry: 'index.tsx'
+    });
 
     write(
       repo,
@@ -177,7 +178,12 @@ describe('starting runs', () => {
       `/v1/api/studio/orgs/${ORG}/projects/site/runs`
     );
     // It can take screenshots, so the prompt tells the agent when to look (D7).
-    assert.deepEqual(requests[0]!.body, { ...GENERATE, screenshots: true });
+    assert.deepEqual(requests[0]!.body, {
+      ...GENERATE,
+      screenshots: true,
+      family: 'react-like',
+      entry: 'index.tsx'
+    });
     assert.equal(read(repo, 'rough/home/hero/iteration-03/index.tsx'), PLACEHOLDER_INDEX);
     // Prompt files are written with \n line endings whatever the server sent, and end with how the
     // run finishes, since the designer drives this one.
@@ -380,7 +386,8 @@ describe('finishing runs', () => {
           'src/app/rough-preview/[...slug]/page.tsx',
           'rough/home/hero/iteration-01/index.tsx'
         ],
-        'src/app/rough-preview'
+        ['src/app/rough-preview'],
+        ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
       ),
       ['src/app/page.tsx']
     );
@@ -434,7 +441,8 @@ describe('checks and scope', () => {
     };
     assert.ok(inScope('rough/home/hero/iteration-03/index.tsx', [run]));
     assert.ok(inScope(run.promptFile, [run]));
-    assert.ok(inScope('rough/preview-registry.ts', [run]));
+    assert.ok(inScope('rough/preview-registry.ts', [run], ['rough/preview-registry.ts']));
+    assert.ok(!inScope('rough/preview-registry.ts', [run]));
     assert.ok(!inScope('rough/home/hero/iteration-030/index.tsx', [run]));
     assert.ok(!inScope('src/app/page.tsx', [run]));
     assert.equal(watchedPath('node_modules\\react\\index.js'), null);

@@ -1,4 +1,5 @@
 // A local run as the backend hands it over, and as the studio keeps it.
+import type { Family } from '../environment/types.js';
 
 /** What an iteration's output must pass, as the backend sends it (its utils/compile/checks.ts). */
 export type Check =
@@ -36,6 +37,9 @@ export type StartRunRequest = {
   skills?: string[];
   /** This studio can take the iteration's screenshots, so its prompt says when to look. */
   screenshots?: boolean;
+  /** The repo's family of checks and its entry file, from its environment (decision 23). */
+  family?: Family;
+  entry?: string;
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }
@@ -55,9 +59,12 @@ export type StartedRun = {
   iteration: string;
   parent: string | null;
   targetFolder: string;
-  /** With a stand-in where the studio's own address belongs (placeholders.assetOrigin). */
+  /**
+   * With stand-ins where the studio's own address belongs (placeholders.assetOrigin) and where
+   * the prompt names the entry file (placeholders.entry), which the repo's environment decides.
+   */
   prompt: string;
-  placeholders?: { assetOrigin: string };
+  placeholders?: { assetOrigin: string; entry?: string };
   checks: Check[];
 };
 

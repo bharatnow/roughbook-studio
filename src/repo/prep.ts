@@ -1,31 +1,18 @@
 // Prepares a repo for the studio: a rough/ workspace that TypeScript and ESLint ignore, so an
-// iteration can never break the app's build; the development-only preview route; and git told
-// what to keep. Planning only reads; applying writes exactly what the plan showed, so `init` can
-// show every change first. Ported from roughbook src/lib/delivery/init.ts (v2-local), which kept
-// rough/ out of git; now committing it is the default, since git is its only record.
+// iteration can never break the app's build; the recipe's development-only preview setup; and git
+// told what to keep. Planning only reads; applying writes exactly what the plan showed, so `init`
+// can show every change first. Ported from roughbook src/lib/delivery/init.ts (v2-local), which
+// kept rough/ out of git; now committing it is the default, since git is its only record.
 import fs from 'node:fs';
 import path from 'node:path';
+import type { RepoEnvironment } from '../environment/types.js';
+import { fallbackRecipe } from '../recipes/index.js';
+import type { Recipe } from '../recipes/types.js';
 import { renderRepoLink, type RepoLink } from './link.js';
-import {
-  PREVIEW_WRAPPER,
-  REGISTRY_FILE,
-  detectAppDir,
-  isOurPreviewFile,
-  listIterations,
-  previewRouteDir,
-  previewRouteFiles,
-  renderPreviewRegistry
-} from './preview.js';
+import { OURS, afterComma, covers, ownFile, read, type Planned, type PrepChange } from './plan.js';
 import { LINK_FILE, ROUGH_DIR, STATE_DIR, isHomeOrAbove } from './root.js';
 
-export type PrepChange = {
-  /** Repo-relative, forward slashes. */
-  file: string;
-  action: 'create' | 'edit';
-  summary: string;
-  /** The whole new content of the file. */
-  after: string;
-};
+export type { PrepChange } from './plan.js';
 
 export type PrepPlan = {
   repo: string;
@@ -38,11 +25,8 @@ export type PrepPlan = {
   before: Record<string, string>;
 };
 
-type Planned = PrepChange | { manual: string } | null;
-
 const GITIGNORE_HEADER = '# Roughbook';
 const OLD_GITIGNORE_HEADER = '# Roughbook (local only)';
-const OURS = 'Written by `roughbook init`';
 
 function readme(committed: boolean): string {
   return `# rough/
@@ -67,11 +51,15 @@ ${OURS}; it rewrites this file.
 `;
 }
 
-/** The iteration rules every agent reads when it works in rough/, whichever agent it is. */
-export const ROUGH_AGENTS = `# Working in rough/
+/**
+ * The iteration rules every agent reads when it works in rough/, whichever agent it is: the
+ * rules every stack shares, with the recipe's own among them.
+ */
+export function roughAgents(environment: RepoEnvironment, recipe: Recipe): string {
+  return `# Working in rough/
 
 This folder is Roughbook's design workspace. Each iteration is a folder
-\`<page>/<component>/iteration-NN/\` whose \`index.tsx\` default-exports the design.
+\`<page>/<component>/iteration-NN/\` whose \`${environment.entry}\` default-exports the design.
 Each run's instructions are in \`<page>/<component>/prompts/\`.
 
 Rules for any agent working here:
@@ -82,34 +70,14 @@ Rules for any agent working here:
 - An iteration never imports from another iteration. It may import the app's
   own components, styles and utilities.
 - Nothing outside rough/ imports from rough/.
-- \`index.tsx\` renders inside the app's own pages, as a server component in the
-  Next.js App Router. If it uses state, effects, event handlers, browser APIs or
-  animation hooks, its first line is \`"use client";\`.
-- Do not install dependencies, change the app's configuration, or commit.
+${recipe.agentRules(environment)}- Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
 `;
+}
 
 /** Claude Code reads CLAUDE.md, so it points at the same rules. */
 export const ROUGH_CLAUDE = '@AGENTS.md\n';
-
-/**
- * The app's tsconfig excludes rough/, so an editor would check an iteration alone: without the
- * app's paths such as `@/`, and from TypeScript 6 without @types. This one extends the app's and
- * takes Next.js's types from next-env.d.ts; `tsc` and `next build` read only the app's own, so
- * the build still never sees rough/. An app's tsconfig is usually incremental, so a `tsc -p rough`
- * (an agent checking its work) would leave build info in rough/, which is committed; it goes to
- * the state folder, which is not.
- */
-export const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsconfig.json excludes rough/,
-// so iterations never fail its build; this one lets editors check them with the app's settings.
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "tsBuildInfoFile": "${STATE_DIR}/tsconfig.tsbuildinfo" },
-  "include": ["../next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": []
-}
-`;
 
 /** Why a folder cannot be prepared, or nothing. */
 export function checkRepo(repo: string, home?: string): string[] {
@@ -128,35 +96,6 @@ export function checkRepo(repo: string, home?: string): string[] {
     return ['This folder has no package.json, so it is not an app the studio can work in.'];
   }
   return [];
-}
-
-function read(repo: string, file: string): string | null {
-  try {
-    return fs.readFileSync(path.join(repo, file), 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-const NEXT_CONFIGS = [
-  'next.config.ts',
-  'next.config.mts',
-  'next.config.js',
-  'next.config.mjs',
-  'next.config.cjs'
-];
-
-/**
- * Whether the app's Next.js config turns Cache Components on, as `create-next-app` does from
- * Next.js 16.4. Read as text, so a config that computes the flag reads as off; the preview route
- * then still renders, with an error logged on each request.
- */
-export function usesCacheComponents(repo: string): boolean {
-  for (const name of NEXT_CONFIGS) {
-    const text = read(repo, name);
-    if (text !== null) return /^\s*cacheComponents\s*:\s*true\b/m.test(text);
-  }
-  return false;
 }
 
 /** JSON with comments and trailing commas, as tsconfig and .eslintrc allow, made parseable. */
@@ -204,24 +143,6 @@ function parseJsonc(text: string): Record<string, unknown> | null {
   }
 }
 
-/** A path pattern written any of the usual ways: "rough", "./rough", "rough/", "/rough/**". */
-function normalizePattern(entry: string): string {
-  return entry
-    .trim()
-    .replace(/^\.?\//, '')
-    .replace(/\/(\*\*(\/\*)?)?$/, '')
-    .replace(/\/$/, '');
-}
-
-function covers(entry: string, target: string): boolean {
-  return normalizePattern(entry) === normalizePattern(target);
-}
-
-/** A list written one item per line gets the new item on its own line. */
-function afterComma(space: string): string {
-  return space.includes('\n') ? space : ' ';
-}
-
 /**
  * Brings .gitignore to `wanted` (entries written as "/path/" or "/file") and takes out any line
  * in `unwanted`: a repo prepared before rough/ was committed ignores the whole folder.
@@ -242,7 +163,7 @@ export function planGitignore(
   const missing = wanted.filter(
     entry =>
       !kept.some(line => covers(line, entry)) &&
-      !(ignoresRough && normalizePattern(entry).startsWith(`${ROUGH_DIR}/`))
+      !(ignoresRough && entry.replace(/^\/+/, '').startsWith(`${ROUGH_DIR}/`))
   );
 
   const body = kept.join('\n').replace(/\n*$/, '');
@@ -322,63 +243,6 @@ export function planTsconfig(current: string | null, folders: string[]): Planned
   };
 }
 
-const TAILWIND_IMPORT = /^\s*@import\s+["']tailwindcss["'][^;\n]*;?[^\n]*$/m;
-const TAILWIND_CONFIGS = [
-  'tailwind.config.js',
-  'tailwind.config.ts',
-  'tailwind.config.mjs',
-  'tailwind.config.cjs'
-];
-
-function cssFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      return entry.name === 'node_modules' || entry.name.startsWith('.') ? [] : cssFiles(full);
-    }
-    return entry.name.endsWith('.css') ? [full] : [];
-  });
-}
-
-/**
- * Tailwind v4 finds classes by scanning the repo and skips gitignored folders, so classes used
- * only in an ignored rough/ would never be generated. One @source line in the stylesheet that
- * imports Tailwind fixes that, committed or not. Tailwind v3 is configured in JavaScript, so that
- * is left to the designer.
- */
-export function planTailwindSource(repo: string, appDir: string): Planned {
-  const v3 = TAILWIND_CONFIGS.find(name => fs.existsSync(path.join(repo, name)));
-  for (const file of [
-    ...cssFiles(path.join(repo, appDir)),
-    ...cssFiles(path.join(repo, 'src', 'styles')),
-    ...cssFiles(path.join(repo, 'styles'))
-  ]) {
-    const text = fs.readFileSync(file, 'utf8');
-    const match = TAILWIND_IMPORT.exec(text);
-    if (!match) continue;
-    const toRough = path
-      .relative(path.dirname(file), path.join(repo, ROUGH_DIR))
-      .split(path.sep)
-      .join('/');
-    const escaped = toRough.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(`@source\\s+["']${escaped}`).test(text)) return null;
-    const end = match.index + match[0].length;
-    return {
-      file: path.relative(repo, file).split(path.sep).join('/'),
-      action: 'edit',
-      summary: `Let Tailwind generate the classes used in ${ROUGH_DIR}/.`,
-      after: `${text.slice(0, end)}\n@source "${toRough}";${text.slice(end)}`
-    };
-  }
-  if (v3) {
-    return {
-      manual: `Add "./${ROUGH_DIR}/**/*.{ts,tsx}" to "content" in ${v3}, so previews are styled.`
-    };
-  }
-  return null;
-}
-
 const FLAT_CONFIGS = [
   'eslint.config.mjs',
   'eslint.config.js',
@@ -423,25 +287,11 @@ export function planEslint(files: Record<string, string | null>): Planned {
   return null;
 }
 
-/** A file the studio owns: written when missing, rewritten when ours and different. */
-function ownFile(
-  repo: string,
-  file: string,
-  content: string,
-  summary: string,
-  isOurs: (text: string) => boolean
-): Planned {
-  const current = read(repo, file);
-  if (current === content) return null;
-  if (current === null) return { file, action: 'create', summary, after: content };
-  if (!isOurs(current))
-    return { manual: `${file} exists and was not written by Roughbook, so it was left alone.` };
-  return { file, action: 'edit', summary, after: content };
-}
-
 export type PrepOptions = {
   /** The link written to rough/roughbook.json; its appDir is filled in here. */
   link: Omit<RepoLink, 'appDir'>;
+  /** The stack's recipe; the fallback until detection chooses one (F3 of the frameworks plan). */
+  recipe?: Recipe;
 };
 
 export function planPrep(repo: string, options: PrepOptions): PrepPlan {
@@ -449,6 +299,7 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
   if (problems.length) return { repo, problems, changes: [], manual: [], before: {} };
   const root = path.resolve(repo);
   const committed = options.link.roughCommitted;
+  const recipe = options.recipe ?? fallbackRecipe;
   const changes: PrepChange[] = [];
   const manual: string[] = [];
   const add = (result: Planned) => {
@@ -456,8 +307,8 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     if ('manual' in result) manual.push(result.manual);
     else changes.push(result);
   };
-  const appDir = detectAppDir(root);
-  const link: RepoLink = { ...options.link, appDir };
+  const link: RepoLink = { ...options.link, appDir: recipe.appDir(root) };
+  const environment = recipe.environment(link);
 
   add(
     ownFile(
@@ -474,7 +325,7 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     ownFile(
       root,
       `${ROUGH_DIR}/AGENTS.md`,
-      ROUGH_AGENTS,
+      roughAgents(environment, recipe),
       'Give every agent the iteration rules.',
       text => text.includes(OURS)
     )
@@ -500,67 +351,25 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     });
   }
 
-  const ignoredFromBuild = [ROUGH_DIR];
-  const gitWanted = committed
-    ? [
-        `/${ROUGH_DIR}/${STATE_DIR}/`,
-        `/${ROUGH_DIR}/.screenshots/`,
-        `/${ROUGH_DIR}/${REGISTRY_FILE}`
-      ]
-    : [`/${ROUGH_DIR}/`];
-  if (!appDir) {
-    manual.push(
-      'No App Router folder (app/ or src/app/) was found, so previews cannot render through this app. They need the Next.js App Router.'
-    );
-  } else {
-    const routeDir = previewRouteDir(appDir);
-    ignoredFromBuild.push(routeDir);
-    gitWanted.push(`/${routeDir}/`);
-    for (const route of previewRouteFiles(appDir, {
-      cacheComponents: usesCacheComponents(root)
-    })) {
-      const current = read(root, route.file);
-      if (current === route.content) continue;
-      if (current !== null && !isOurPreviewFile(current)) {
-        manual.push(`${route.file} exists and was not written by Roughbook, so it was left alone.`);
-        continue;
-      }
-      changes.push({
-        file: route.file,
-        action: current === null ? 'create' : 'edit',
-        summary:
-          current === null
-            ? 'Add the development-only preview route.'
-            : 'Update the preview route.',
-        after: route.content
-      });
-    }
-    if (read(root, `${ROUGH_DIR}/preview.tsx`) === null) {
-      changes.push({
-        file: `${ROUGH_DIR}/preview.tsx`,
-        action: 'create',
-        summary: "Add the wrapper for the app's providers.",
-        after: PREVIEW_WRAPPER
-      });
-    }
-    add(planTailwindSource(root, appDir));
-    if (read(root, `${ROUGH_DIR}/${REGISTRY_FILE}`) === null) {
-      changes.push({
-        file: `${ROUGH_DIR}/${REGISTRY_FILE}`,
-        action: 'create',
-        summary: 'Add the registry of iterations the route can render.',
-        after: renderPreviewRegistry(listIterations(root))
-      });
-    }
-  }
+  const preview = recipe.planPreview(root, link);
+  changes.push(...preview.changes);
+  manual.push(...preview.manual);
+  const ignoredFromBuild = [ROUGH_DIR, ...preview.ignoredFromBuild];
+  const gitWanted = [
+    ...(committed
+      ? [`/${ROUGH_DIR}/${STATE_DIR}/`, `/${ROUGH_DIR}/.screenshots/`]
+      : [`/${ROUGH_DIR}/`]),
+    ...preview.gitWanted
+  ];
   add(planGitignore(read(root, '.gitignore'), gitWanted, committed ? [ROUGH_DIR] : []));
   add(planTsconfig(read(root, 'tsconfig.json'), ignoredFromBuild));
-  if (read(root, 'tsconfig.json') !== null) {
+  const roughTsconfig = recipe.roughTsconfig(root);
+  if (roughTsconfig !== null) {
     add(
       ownFile(
         root,
         `${ROUGH_DIR}/tsconfig.json`,
-        ROUGH_TSCONFIG,
+        roughTsconfig,
         "Let editors check iterations with the app's TypeScript settings.",
         text => text.includes(OURS)
       )

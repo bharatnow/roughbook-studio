@@ -22,13 +22,9 @@ import type { Executable } from '../launch/which.js';
 import { serverCommand, thisStudio } from '../mcp/install.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
-import {
-  checkTargetFile,
-  defaultComponentFile,
-  fillInPrompt,
-  referencedAssets
-} from '../runs/promote.js';
-import { importedPackages, withClientDirective } from '../runs/pull.js';
+import { defaultComponentFile, withClientDirective } from '../recipes/next/index.js';
+import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
+import { importedPackages } from '../runs/pull.js';
 import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
 import type { RunRecord, StartedRun } from '../runs/types.js';
@@ -354,7 +350,9 @@ describe('roughbook run, done and revert', () => {
       mode: 'interactive',
       kind: 'generate',
       directions: [{ direction: 'Quiet editorial' }, { direction: 'Loud poster' }],
-      screenshots: true
+      screenshots: true,
+      family: 'react-like',
+      entry: 'index.tsx'
     });
     assert.equal(studio.plans.length, 1);
     const plan = studio.plans[0]!;

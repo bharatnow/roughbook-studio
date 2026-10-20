@@ -1,7 +1,6 @@
 // `roughbook init --scratch <dir>`: a minimal Next.js 16 app with Tailwind v4, for a project that
 // has no repo yet, following Next.js's manual installation. Nothing is installed here; the
 // designer runs npm install.
-import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -110,13 +109,4 @@ export function writeScratch(dir: string): void {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, content);
   }
-}
-
-/** `git init`, so rough/ has a record from the start. False when git is not installed. */
-export function gitInit(dir: string): Promise<boolean> {
-  return new Promise(resolve => {
-    execFile('git', ['init', '--quiet'], { cwd: dir, windowsHide: true, timeout: 30_000 }, error =>
-      resolve(!error)
-    );
-  });
 }

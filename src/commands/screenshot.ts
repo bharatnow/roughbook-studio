@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
-import { writePreviewRegistry } from '../repo/preview.js';
+import { readEnvironment } from '../environment/read.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
 import { iterationExists } from '../runs/slots.js';
 import { listRuns } from '../runs/store.js';
 import type { Command } from './context.js';
@@ -41,11 +42,12 @@ export const screenshot: Command = {
     if (!iterationExists(repoRoot, target.page, target.component, target.iteration)) {
       throw new Error(`${label} is not in this repo.`);
     }
-    // The preview route renders only what the registry lists.
-    writePreviewRegistry(repoRoot);
+    // The preview setup renders only the iterations it knows of.
+    const environment = await readEnvironment(repoRoot);
+    (recipeFor(environment.recipe) ?? fallbackRecipe).syncPreview(repoRoot);
     const shots = await context.screenshot(
       repoRoot,
-      devUrl(values['dev-url'], context.env),
+      devUrl(values['dev-url'], context.env, environment.start.url),
       target,
       context.env
     );

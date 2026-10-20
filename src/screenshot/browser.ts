@@ -11,20 +11,27 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { defaultEnvironment } from '../environment/read.js';
 
 /**
- * Runs in the page before its own scripts: notes the preview route's ready message (its `Ready`
- * posts to the parent, which is the page itself when nothing frames it), and hides Next.js's dev
- * overlay, whose badge would otherwise sit in the corner of every shot.
+ * Runs in the page before its own scripts: notes the preview's ready message (its `Ready` posts
+ * to the parent, which is the page itself when nothing frames it), and hides the app's own
+ * development overlays, whose badges would otherwise sit in the corner of every shot.
  */
-export const PAGE_SETUP = `addEventListener('message', function (event) {
+export function pageSetup(overlays: string[]): string {
+  const hidden = overlays.map(selector => `${selector} { display: none !important; }`).join(' ');
+  return `addEventListener('message', function (event) {
   if (event.data && event.data.roughbook === 'ready') window.__roughbookReady = true;
 });
 addEventListener('DOMContentLoaded', function () {
   var style = document.createElement('style');
-  style.textContent = 'nextjs-portal { display: none !important; }';
+  style.textContent = ${JSON.stringify(hidden)};
   document.head.appendChild(style);
 });`;
+}
+
+/** The page setup for a repo with no environment file: its recipe's overlays. */
+export const PAGE_SETUP = pageSetup(defaultEnvironment().overlays);
 
 /**
  * Resolves once the iteration has rendered and settled: the ready message has come (the page has
@@ -51,9 +58,9 @@ export const SETTLED = `new Promise(function (resolve) {
 /**
  * Browsers follow the OS's own reduced-motion setting (Windows' "Animation effects" off) and its
  * colour scheme, so the same iteration would be photographed differently on each machine: without
- * its entrance, or with a dark app body (create-next-app's, in dark mode) as a black band below a
- * short iteration. Full motion, waited out by SETTLED, and the light scheme show every iteration
- * the same, wherever it is taken.
+ * its entrance, or with a dark app body (a new app's default, in dark mode) as a black band below
+ * a short iteration. Full motion, waited out by SETTLED, and the light scheme show every
+ * iteration the same, wherever it is taken.
  */
 export const EMULATED_MEDIA = [
   { name: 'prefers-reduced-motion', value: 'no-preference' },
@@ -61,10 +68,6 @@ export const EMULATED_MEDIA = [
 ];
 
 export type ScreenshotSize = { width: number; height: number; mobile: boolean };
-export const SIZES = {
-  desktop: { width: 1440, height: 900, mobile: false },
-  mobile: { width: 390, height: 844, mobile: true }
-} satisfies Record<string, ScreenshotSize>;
 
 /** Chrome or Chromium, then Edge, or the browser ROUGHBOOK_BROWSER names. */
 export function findBrowser(
@@ -194,12 +197,15 @@ export async function takeScreenshot({
   url,
   file,
   size,
+  overlays = [],
   timeoutMs = 60_000
 }: {
   browser: string;
   url: string;
   file: string;
   size: ScreenshotSize;
+  /** Selectors of the app's development overlays, hidden before the shot. */
+  overlays?: string[];
   timeoutMs?: number;
 }): Promise<boolean> {
   const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
@@ -225,7 +231,11 @@ export async function takeScreenshot({
         sessionId
       );
       await pipe.send('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA }, sessionId);
-      await pipe.send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_SETUP }, sessionId);
+      await pipe.send(
+        'Page.addScriptToEvaluateOnNewDocument',
+        { source: pageSetup(overlays) },
+        sessionId
+      );
       const loaded = pipe.event('Page.loadEventFired', sessionId);
       await pipe.send('Page.navigate', { url }, sessionId);
       await loaded;

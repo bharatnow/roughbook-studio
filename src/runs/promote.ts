@@ -7,9 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import type { AssetScope, ComponentRecord, Promotion, ProjectTree } from '../api/types.js';
+import { readEnvironment } from '../environment/read.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
-import { iterationDir } from '../repo/preview.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { hasExtension } from './checks.js';
 import { assertTarget } from './slots.js';
 import { recordOwnWritesForOpenRuns } from './snapshot.js';
 import { assertRunId } from './store.js';
@@ -17,7 +20,6 @@ import { assertRunId } from './store.js';
 export type AssetName = { scope: AssetScope; file: string };
 
 const ASSET_URL = /\/api\/files\/(project\/([a-z0-9][a-z0-9-]*)|library)\/([A-Za-z0-9._%-]+)/g;
-const TEXT_FILE = /\.(tsx?|jsx?|css|json|md|svg)$/i;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** The project and library asset files an iteration's source refers to, each once. */
@@ -40,37 +42,19 @@ export function referencedAssets(sources: string[], projectSlug: string): AssetN
   return [...seen.values()];
 }
 
-export function pascalCase(text: string): string {
-  const name = text
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map(part => part[0]!.toUpperCase() + part.slice(1))
-    .join('');
-  return /^[A-Za-z]/.test(name) ? name : `Section${name}`;
-}
-
 /**
- * Where a promoted component goes when --to does not say: the project's components folder. One
- * under `src/` in a repo laid out as create-next-app's default, with `app/` at its root and no
- * `src/`, moves to the root: `src/components` becomes `components`.
+ * A component path inside the repo, outside rough/ and the public folder, with one of the
+ * recipe's extensions; the problem, or null.
  */
-export function defaultComponentFile(
-  componentsDir: string,
-  componentName: string,
-  isFolder: (relative: string) => boolean
-): string {
-  const dir =
-    componentsDir.startsWith('src/') && !isFolder('src') && isFolder('app')
-      ? componentsDir.slice('src/'.length)
-      : componentsDir;
-  return `${dir}/${pascalCase(componentName)}.tsx`;
-}
-
-/** A component path inside the repo, outside rough/ and the public folder; the problem, or null. */
-export function checkTargetFile(file: string, publicDir: string): string | null {
+export function checkTargetFile(
+  file: string,
+  publicDir: string,
+  extensions: string[] = fallbackRecipe.promoteExtensions
+): string | null {
   const normalized = file.replace(/\\/g, '/');
-  if (!/^[A-Za-z0-9_@()[\]./-]+\.(tsx|jsx)$/.test(normalized)) {
-    return 'The component file must be a .tsx or .jsx path inside the repo.';
+  if (!/^[A-Za-z0-9_@()[\]./-]+$/.test(normalized) || !hasExtension(normalized, extensions)) {
+    const named = extensions.map(extension => `${extension}`).join(' or ');
+    return `The component file must be a ${named} path inside the repo.`;
   }
   if (
     normalized.startsWith('/') ||
@@ -109,12 +93,13 @@ function toDisk(repoRoot: string, relative: string): string {
   return path.join(repoRoot, ...relative.split('/'));
 }
 
-function textFiles(dir: string): string[] {
+/** Every file under `dir` with one of the environment's source extensions. */
+function textFiles(dir: string, sources: string[]): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return textFiles(full);
-    return TEXT_FILE.test(entry.name) ? [full] : [];
+    if (entry.isDirectory()) return textFiles(full, sources);
+    return hasExtension(entry.name, sources) ? [full] : [];
   });
 }
 
@@ -159,7 +144,7 @@ export type PreparedPromotion = {
   wroteCopy: boolean;
 };
 
-/** The app's public folder: given, beside the App Router app's package.json, or the project's. */
+/** The app's public folder: given, beside the app's package.json, or the project's. */
 export function publicDirFor(
   repoRoot: string,
   link: RepoLink,
@@ -194,22 +179,26 @@ export async function preparePromotion(
   const { page, component, iteration } = options;
   assertTarget(page, component, iteration);
   const record = findComponent(tree, page, component);
+  const environment = await readEnvironment(repoRoot, link);
+  const recipe = recipeFor(environment.recipe) ?? fallbackRecipe;
   const folder = toDisk(repoRoot, iterationDir(page, component, iteration));
-  if (!fs.existsSync(path.join(folder, 'index.tsx'))) {
-    throw new Error(`${iterationDir(page, component, iteration)} has no index.tsx in this repo.`);
+  if (!fs.existsSync(path.join(folder, environment.entry))) {
+    throw new Error(
+      `${iterationDir(page, component, iteration)} has no ${environment.entry} in this repo.`
+    );
   }
 
   const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir);
   const targetFile = (
     options.targetFile ??
-    defaultComponentFile(
+    recipe.promoteDefault(
       tree.delivery.componentsDir,
       record.name,
       folder =>
         fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
     )
   ).replace(/\\/g, '/');
-  const problem = checkTargetFile(targetFile, publicDir);
+  const problem = checkTargetFile(targetFile, publicDir, recipe.promoteExtensions);
   if (problem) throw new Error(problem);
   if (fs.existsSync(toDisk(repoRoot, targetFile))) {
     throw new Error(
@@ -217,7 +206,7 @@ export async function preparePromotion(
     );
   }
 
-  const sources = textFiles(folder).map(file => fs.readFileSync(file, 'utf8'));
+  const sources = textFiles(folder, environment.sources).map(file => fs.readFileSync(file, 'utf8'));
   const promotion = await api.promote(link.orgId, link.project, {
     page,
     component,

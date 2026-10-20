@@ -29,6 +29,7 @@ import {
   LONGEST_WAIT_MS,
   ProjectCache
 } from '../server/projectCache.js';
+import { defaultEnvironment } from '../environment/read.js';
 import { LocalStudio } from '../server/studio.js';
 import { Terminals } from '../server/terminals.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -432,6 +433,7 @@ describe('the local server', () => {
       link,
       devUrl: DEV_URL,
       port,
+      environment: defaultEnvironment(),
       pty: { ok: true, pty: pty.module }
     });
     const created = createLocalServer({

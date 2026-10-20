@@ -10,6 +10,7 @@ import { newToken } from '../server/security.js';
 import { LocalStudio } from '../server/studio.js';
 import { requireApi, type Command } from './context.js';
 import { devUrl } from './done.js';
+import { readEnvironment } from '../environment/read.js';
 
 const REGISTRY_EVERY_MS = 1500;
 const OUTBOX_EVERY_MS = 30_000;
@@ -69,11 +70,12 @@ export const start: Command = {
     });
     const repoRoot = context.repoRoot!;
     const link = await requireRepoLink(repoRoot);
+    const environment = await readEnvironment(repoRoot, link);
     const api = await requireApi(context);
     const settings = await readSettings(context.configDir);
     const saved = settings.localPort ?? DEFAULT_LOCAL_PORT;
     const port = values.port ? parsePort(values.port) : saved;
-    const dev = devUrl(values['dev-url'], context.env);
+    const dev = devUrl(values['dev-url'], context.env, environment.start.url);
     const pty = loadPty(context.env);
 
     const studio = new LocalStudio({
@@ -81,6 +83,7 @@ export const start: Command = {
       api,
       link,
       devUrl: dev,
+      environment,
       port,
       pty
     });

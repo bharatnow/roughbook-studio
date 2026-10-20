@@ -1,38 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ITERATION, SLUG, iterationDir } from '../repo/preview.js';
+import { defaultEnvironment } from '../environment/read.js';
+import { fallbackRecipe } from '../recipes/index.js';
+import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { assertRunId } from './store.js';
 
-/** What a new slot shows until its agent has written it. */
-export const PLACEHOLDER_INDEX = `export default function NotYetGenerated() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        padding: "2rem",
-        textAlign: "center",
-        fontFamily: "system-ui, sans-serif",
-        color: "#5b6274",
-        background: "#f6f8fa",
-      }}
-    >
-      <p>Not yet generated. Your agent writes this iteration from its prompt in rough/.</p>
-    </div>
-  );
-}
-`;
+export { isPlaceholder } from './placeholder.js';
 
-/** v2's placeholder, which named Claude Code; a repo it prepared may still have some. */
-const V2_PLACEHOLDER_LINE =
-  'Not yet generated. Paste the compiled prompt into Claude Code to fill this iteration.';
+/** What a new slot shows until its agent has written it: the entry file, from the recipe. */
+export type Placeholder = { file: string; content: string };
 
-export function isPlaceholder(text: string): boolean {
-  const trimmed = text.trim();
-  return trimmed === PLACEHOLDER_INDEX.trim() || trimmed.includes(V2_PLACEHOLDER_LINE);
+/** The placeholder of a repo with no environment file: its fallback recipe's. */
+export function defaultPlaceholder(): Placeholder {
+  const { entry } = defaultEnvironment();
+  return { file: entry, content: fallbackRecipe.placeholder(entry) };
 }
 
 export function assertTarget(page: string, component: string, iteration: string): void {
@@ -107,7 +89,8 @@ export function iterationExists(repoRoot: string, page: string, component: strin
  */
 export function createSlot(
   repoRoot: string,
-  slot: { page: string; component: string; iteration: string; parent: string | null }
+  slot: { page: string; component: string; iteration: string; parent: string | null },
+  placeholder: Placeholder = defaultPlaceholder()
 ): string {
   assertTarget(slot.page, slot.component, slot.iteration);
   const relative = iterationDir(slot.page, slot.component, slot.iteration);
@@ -130,7 +113,7 @@ export function createSlot(
     }
   } else {
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'index.tsx'), PLACEHOLDER_INDEX);
+    fs.writeFileSync(path.join(dir, placeholder.file), placeholder.content);
   }
   return relative;
 }

@@ -337,7 +337,7 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       headers['cache-control'] = 'no-store';
       headers['content-security-policy'] = contentSecurityPolicy(port, options.devUrl);
     } else if (pathname.startsWith('/assets/')) {
-      // Vite names these by their content.
+      // The UI's bundler names these by their content.
       headers['cache-control'] = 'public, max-age=31536000, immutable';
     }
     response.writeHead(200, headers);

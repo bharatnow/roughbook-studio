@@ -3,11 +3,13 @@ import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
 import type { OrgProjects } from '../api/types.js';
 import { confirm, type Io } from '../io.js';
+import { detectFramework } from '../recipes/detect.js';
+import { fallbackRecipe } from '../recipes/index.js';
 import { changedLines } from '../repo/diff.js';
-import { appRoot, detectFramework } from '../repo/framework.js';
+import { gitInit } from '../repo/git.js';
 import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../repo/link.js';
 import { applyPrep, checkRepo, planPrep, type PrepPlan } from '../repo/prep.js';
-import { gitInit, writeScratch } from '../repo/scratch.js';
+import { appRoot } from '../repo/root.js';
 import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
 import { openApi, type Command } from './context.js';
 
@@ -170,8 +172,11 @@ export const init: Command = {
     let repo: string;
     if (values.scratch) {
       repo = path.resolve(context.cwd, values.scratch);
-      writeScratch(repo);
-      io.out(`Created a Next.js app in ${repo}. Run npm install there before roughbook start.`);
+      // The fallback recipe's scratch app, until roughbook new picks a recipe (F8).
+      const scaffold = fallbackRecipe.scaffold;
+      if (!scaffold) throw new Error(`${fallbackRecipe.name} has no scratch app to write.`);
+      scaffold.write(repo);
+      io.out(scaffold.written(repo));
       if (await gitInit(repo)) io.out('Started a git repository there.');
       else io.out('git was not found, so no repository was started. rough/ needs git to be kept.');
     } else {

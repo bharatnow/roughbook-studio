@@ -1,22 +1,18 @@
 import path from 'node:path';
-import { previewUrl } from '../repo/preview.js';
+import { previewUrl, readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
 import { ROUGH_DIR } from '../repo/root.js';
-import { SIZES, findBrowser, takeScreenshot } from './browser.js';
+import { findBrowser, takeScreenshot } from './browser.js';
 
 export type Shots = {
-  /** Repo-relative paths of the screenshots written, by width. */
-  files: Partial<Record<keyof typeof SIZES, string>>;
+  /** Repo-relative paths of the screenshots written, by the viewport's name. */
+  files: Record<string, string>;
   /** Why some or all were not taken. */
   warning: string | null;
 };
 
 /** Where an iteration's screenshots go: rough/.screenshots/, never committed. */
-export function screenshotPath(
-  page: string,
-  component: string,
-  iteration: string,
-  size: keyof typeof SIZES
-) {
+export function screenshotPath(page: string, component: string, iteration: string, size: string) {
   return `${ROUGH_DIR}/.screenshots/${page}/${component}/${iteration}/${size}.png`;
 }
 
@@ -61,7 +57,7 @@ export function previewProblem(url: string, devUrl: string, answer: PreviewAnswe
   return null;
 }
 
-/** Desktop and phone screenshots of one iteration, through the repo's dev server. */
+/** A screenshot at each of the environment's viewports, through the repo's dev server. */
 export async function screenshotIteration(
   repoRoot: string,
   devUrl: string,
@@ -69,7 +65,8 @@ export async function screenshotIteration(
   env: NodeJS.ProcessEnv,
   take: typeof takeScreenshot = takeScreenshot,
   browser: string | null = findBrowser(env),
-  check: typeof checkPreview = checkPreview
+  check: typeof checkPreview = checkPreview,
+  environment?: RepoEnvironment
 ): Promise<Shots> {
   if (!browser) {
     return {
@@ -78,24 +75,26 @@ export async function screenshotIteration(
         'No Chrome, Chromium or Edge was found for screenshots. Set ROUGHBOOK_BROWSER to one.'
     };
   }
-  const url = previewUrl(devUrl, target.page, target.component, target.iteration);
+  const repo = environment ?? (await readEnvironment(repoRoot));
+  const url = previewUrl(devUrl, target.page, target.component, target.iteration, repo);
   const problem = previewProblem(url, devUrl, await check(url));
   if (problem) return { files: {}, warning: problem };
   const files: Shots['files'] = {};
-  for (const size of Object.keys(SIZES) as (keyof typeof SIZES)[]) {
-    const relative = screenshotPath(target.page, target.component, target.iteration, size);
+  for (const viewport of repo.viewports) {
+    const relative = screenshotPath(target.page, target.component, target.iteration, viewport.name);
     const ok = await take({
       browser,
       url,
       file: path.join(repoRoot, ...relative.split('/')),
-      size: SIZES[size]
+      size: viewport,
+      overlays: repo.overlays
     });
-    if (ok) files[size] = relative;
+    if (ok) files[viewport.name] = relative;
   }
   return {
     files,
     warning:
-      Object.keys(files).length === 2
+      Object.keys(files).length === repo.viewports.length
         ? null
         : `The screenshot failed. Is the app's dev server running at ${devUrl}?`
   };

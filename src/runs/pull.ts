@@ -7,8 +7,10 @@ import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { PulledSketch, SketchFile } from '../api/types.js';
+import { readEnvironment } from '../environment/read.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
-import { iterationDir, writePreviewRegistry } from '../repo/preview.js';
 import { assertTarget, iterationExists } from './slots.js';
 import { recordOwnWritesForOpenRuns } from './snapshot.js';
 
@@ -47,21 +49,6 @@ export type PullResult = {
   /** The sketch is styled with Tailwind classes, and the app does not list tailwindcss. */
   needsTailwind: boolean;
 };
-
-/** Comments and blank lines before a file's first statement, where a directive must stand. */
-const LEADING_COMMENTS = /^(?:\s*(?:\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*/;
-
-/**
- * A web sketch runs in the browser: the sandbox renders it on the client. In the Next.js App
- * Router the preview route imports `index.tsx` as a server component unless the file says
- * otherwise, and a sketch with state, effects or motion would fail there. So the pulled entry
- * starts with `"use client";` when it does not already.
- */
-export function withClientDirective(file: string, text: string): string {
-  if (file !== 'index.tsx') return text;
-  const first = text.replace(LEADING_COMMENTS, '');
-  return /^(['"])use client\1/.test(first) ? text : `"use client";\n${text}`;
-}
 
 /**
  * The sketch's asset URLs, which load beside the sandbox's page, made absolute on the studio's
@@ -198,6 +185,10 @@ export async function pullSketch(
   if (iterationExists(repoRoot, page, component, pulled.iteration)) {
     throw new Error(`${folder} already exists. An existing iteration is never written over.`);
   }
+  // A sketch is React (decision 14 of the frameworks plan); the recipe says what this app needs
+  // of its files to render them, such as a directive on the entry.
+  const environment = await readEnvironment(repoRoot, link);
+  const recipe = recipeFor(environment.recipe) ?? fallbackRecipe;
 
   const dir = path.join(repoRoot, ...folder.split('/'));
   try {
@@ -209,14 +200,14 @@ export async function pullSketch(
         const text = TEXT_FILE.test(file.path)
           ? localAssetUrls(file.content, options.assetOrigin)
           : file.content;
-        fs.writeFileSync(to, withClientDirective(file.path, text).replace(/\r\n/g, '\n'));
+        fs.writeFileSync(to, recipe.pullTransform(file.path, text).replace(/\r\n/g, '\n'));
       }
     }
   } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw error;
   }
-  writePreviewRegistry(repoRoot);
+  recipe.syncPreview(repoRoot);
   // Runs going now did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(
     repoRoot,
