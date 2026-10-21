@@ -322,7 +322,7 @@
       }
     },
     "repo.prepared": {
-      "description": "A repo was linked to a project: its framework and whether rough/ is committed.",
+      "description": "A repo was linked to a project: its framework, its stack tokens, the family of checks, the preview mode, and whether rough/ is committed.",
       "sentBy": "server",
       "props": {
         "framework": {
@@ -331,6 +331,81 @@
         },
         "roughCommitted": {
           "kind": "boolean"
+        },
+        "stack": {
+          "kind": "list",
+          "of": {
+            "kind": "token"
+          },
+          "max": 12
+        },
+        "family": {
+          "kind": "enum",
+          "values": [
+            "markup-css",
+            "react-like",
+            "flutter",
+            "swiftui",
+            "compose",
+            "unknown"
+          ],
+          "nullable": true
+        },
+        "mode": {
+          "kind": "enum",
+          "values": [
+            "live",
+            "snapshot",
+            "standalone"
+          ],
+          "nullable": true
+        }
+      }
+    },
+    "doctor.ran": {
+      "description": "roughbook doctor ran on a linked repo: how it went, the preview mode, the family of checks, the stack tokens, and the ids of the checks that failed.",
+      "sentBy": "server",
+      "props": {
+        "outcome": {
+          "kind": "enum",
+          "values": [
+            "pass",
+            "fail",
+            "unverified"
+          ]
+        },
+        "mode": {
+          "kind": "enum",
+          "values": [
+            "live",
+            "snapshot",
+            "standalone"
+          ]
+        },
+        "family": {
+          "kind": "enum",
+          "values": [
+            "markup-css",
+            "react-like",
+            "flutter",
+            "swiftui",
+            "compose",
+            "unknown"
+          ]
+        },
+        "stack": {
+          "kind": "list",
+          "of": {
+            "kind": "token"
+          },
+          "max": 12
+        },
+        "failed": {
+          "kind": "list",
+          "of": {
+            "kind": "token"
+          },
+          "max": 16
         }
       }
     },

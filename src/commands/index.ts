@@ -27,18 +27,22 @@ import { revert } from './revert.js';
 import { review } from './review.js';
 import { run } from './run.js';
 import { screenshot } from './screenshot.js';
+import { setup } from './setup.js';
 import { start } from './start.js';
 import { status } from './status.js';
 import { telemetry } from './telemetry.js';
+import { uninstall } from './uninstall.js';
 
 /** Every command, in the order `roughbook help` lists them. */
 export const COMMANDS: Command[] = [
   login,
   init,
+  setup,
   start,
   run,
   done,
   doctor,
+  uninstall,
   screenshot,
   review,
   revert,
@@ -99,6 +103,7 @@ export type MainOptions = {
     | 'screenshot'
     | 'waitForStop'
     | 'stdio'
+    | 'doctorTools'
   >
 >;
 
@@ -147,6 +152,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     runCommand: options.runCommand ?? runCommand,
     runHeadless: options.runHeadless ?? runHeadless,
     screenshot: options.screenshot ?? screenshotIteration,
+    doctorTools: options.doctorTools,
     waitForStop: options.waitForStop ?? untilSignalled,
     stdio: options.stdio ?? {
       input: process.stdin,

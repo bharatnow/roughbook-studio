@@ -8,7 +8,7 @@ import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { PulledSketch, SketchFile } from '../api/types.js';
 import { readEnvironment } from '../environment/read.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { recipeOf } from '../recipes/index.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { assertTarget, iterationExists } from './slots.js';
@@ -188,7 +188,14 @@ export async function pullSketch(
   // A sketch is React (decision 14 of the frameworks plan); the recipe says what this app needs
   // of its files to render them, such as a directive on the entry.
   const environment = await readEnvironment(repoRoot, link);
-  const recipe = recipeFor(environment.recipe) ?? fallbackRecipe;
+  const recipe = recipeOf(environment);
+  // A sketch's files render as they are only where the stack is React-like; anywhere else they
+  // would be a port, which a later release makes a run of its own (F7 of the frameworks plan).
+  if (environment.family !== 'react-like') {
+    throw new Error(
+      `A web sketch is React, and this repo's stack (${environment.stack.join(', ') || environment.family}) is not: pulling one here means porting it, which a later studio release does as a run of its own. Until then, start iterations here with roughbook run.`
+    );
+  }
 
   const dir = path.join(repoRoot, ...folder.split('/'));
   try {
@@ -200,14 +207,17 @@ export async function pullSketch(
         const text = TEXT_FILE.test(file.path)
           ? localAssetUrls(file.content, options.assetOrigin)
           : file.content;
-        fs.writeFileSync(to, recipe.pullTransform(file.path, text).replace(/\r\n/g, '\n'));
+        fs.writeFileSync(
+          to,
+          (recipe ? recipe.pullTransform(file.path, text) : text).replace(/\r\n/g, '\n')
+        );
       }
     }
   } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw error;
   }
-  recipe.syncPreview(repoRoot);
+  recipe?.syncPreview(repoRoot);
   // Runs going now did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(
     repoRoot,

@@ -2,11 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultEnvironment } from '../environment/read.js';
 import { fallbackRecipe } from '../recipes/index.js';
+import { PLACEHOLDER_LINE } from './placeholder.js';
 import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { assertRunId } from './store.js';
 
 export { isPlaceholder } from './placeholder.js';
+
+/**
+ * What a new slot shows in a repo no recipe set up: the one sentence every placeholder carries,
+ * as plain text, so whatever the stack renders it as, the studio can tell the slot is unwritten.
+ */
+export function genericPlaceholder(): string {
+  return `${PLACEHOLDER_LINE}\n`;
+}
 
 /** What a new slot shows until its agent has written it: the entry file, from the recipe. */
 export type Placeholder = { file: string; content: string };

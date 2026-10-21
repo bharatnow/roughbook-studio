@@ -6,9 +6,14 @@ import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
 import { localOrigin } from '../config/settings.js';
-import { fillEnvironment, previewUrl, readEnvironment } from '../environment/read.js';
+import {
+  fillEnvironment,
+  hasEnvironmentFile,
+  previewUrl,
+  readEnvironment
+} from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
@@ -18,6 +23,7 @@ import {
   assertTarget,
   createSlot,
   finishingSection,
+  genericPlaceholder,
   iterationExists,
   promptFile,
   writePrompt
@@ -53,13 +59,16 @@ export function inScope(
   return runs.some(run => file.startsWith(`${run.targetFolder}/`) || file === run.promptFile);
 }
 
-/** The repo's environment and the recipe that goes with it, for one run's steps. */
+/**
+ * The repo's environment and the recipe that goes with it, for one run's steps; no recipe when the
+ * setup run's agent built the preview, and then the environment alone says what is needed.
+ */
 async function repoSetup(
   repoRoot: string,
   link: RepoLink
-): Promise<{ environment: RepoEnvironment; recipe: Recipe }> {
+): Promise<{ environment: RepoEnvironment; recipe: Recipe | null }> {
   const environment = await readEnvironment(repoRoot, link);
-  return { environment, recipe: recipeFor(environment.recipe) ?? fallbackRecipe };
+  return { environment, recipe: recipeOf(environment) };
 }
 
 /** Whether two runs were going at the same time, so each may write the other's folder. */
@@ -150,13 +159,14 @@ export async function startRuns(
     };
     createSlot(repoRoot, record, {
       file: environment.entry,
-      content: recipe.placeholder(environment.entry)
+      content: recipe ? recipe.placeholder(environment.entry) : genericPlaceholder()
     });
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
     const prompt = fillEnvironment(
       run.prompt.replaceAll(standIn, () => assetOrigin),
       environment,
-      run.placeholders ?? {}
+      run.placeholders ?? {},
+      { hasEnvironmentFile: hasEnvironmentFile(repoRoot) }
     );
     const preview = options.devUrl
       ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
@@ -171,7 +181,7 @@ export async function startRuns(
     await saveRun(repoRoot, record);
     records.push(record);
   }
-  recipe.syncPreview(repoRoot);
+  recipe?.syncPreview(repoRoot);
   return records;
 }
 
@@ -215,7 +225,7 @@ export async function assessRun(
   );
   const changed = snapshot
     ? allChanged(compareFiles(snapshot.files, after.files)).filter(
-        file => !inScope(file, [run, ...others], recipe.generatedFiles)
+        file => !inScope(file, [run, ...others], recipe?.generatedFiles ?? [])
       )
     : [];
   const claimed = changed.filter(file => isMine(file, mine));
@@ -223,7 +233,7 @@ export async function assessRun(
   const offenders = importsFromRough(
     repoRoot,
     Object.keys(after.files),
-    recipe.importAllowed(link),
+    recipe?.importAllowed(link) ?? [],
     environment.code
   );
 
@@ -309,7 +319,7 @@ export async function finishRun(
     reported
   };
   await saveRun(repoRoot, finished);
-  (await repoSetup(repoRoot, link)).recipe.syncPreview(repoRoot);
+  (await repoSetup(repoRoot, link)).recipe?.syncPreview(repoRoot);
   return finished;
 }
 

@@ -2,16 +2,19 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
 import type { OrgProjects } from '../api/types.js';
+import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import { confirm, type Io } from '../io.js';
-import { detectFramework } from '../recipes/detect.js';
-import { fallbackRecipe } from '../recipes/index.js';
+import { describeDetection, detectStack } from '../recipes/detect.js';
+import { fallbackRecipe, recipeFor } from '../recipes/index.js';
 import { changedLines } from '../repo/diff.js';
 import { gitInit } from '../repo/git.js';
 import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../repo/link.js';
 import { applyPrep, checkRepo, planPrep, type PrepPlan } from '../repo/prep.js';
-import { appRoot } from '../repo/root.js';
+import { ROUGH_DIR, appRoot } from '../repo/root.js';
 import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
-import { openApi, type Command } from './context.js';
+import { openApi, type Command, type CommandContext } from './context.js';
+import { runDoctorHere } from './doctor.js';
+import { applyTemplates, approveEnvironment, startSetupRun } from './setup.js';
 
 type Choice = { orgId: string; orgName: string; slug: string; name: string };
 
@@ -143,11 +146,25 @@ function printPlan(io: Io, plan: PrepPlan): void {
   for (const step of plan.manual) io.out(`  ! By hand: ${step}`);
 }
 
+/** Whether the app answers at its address now, so doctor can run at the end of init. */
+async function appAnswers(context: CommandContext, url: string): Promise<boolean> {
+  try {
+    const response = await (context.fetch ?? fetch)(`${url.replace(/\/+$/, '')}/`, {
+      signal: AbortSignal.timeout(3000),
+      redirect: 'manual'
+    });
+    await response.body?.cancel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const init: Command = {
   name: 'init',
   summary: 'Link this repo to a Roughbook project and prepare it, showing every change first',
   usage:
-    'init [--project <slug> | --new <name>] [--org <id>] [--commit | --no-commit] [--yes] [--scratch <dir>]',
+    'init [--project <slug> | --new <name>] [--org <id>] [--commit | --no-commit] [--yes] [--setup | --no-setup] [--scratch <dir>]',
   needsRepo: false,
   async run(args, context) {
     const { io } = context;
@@ -160,10 +177,14 @@ export const init: Command = {
         commit: { type: 'boolean' },
         'no-commit': { type: 'boolean' },
         yes: { type: 'boolean', short: 'y' },
+        setup: { type: 'boolean' },
+        'no-setup': { type: 'boolean' },
+        agent: { type: 'string' },
         scratch: { type: 'string' }
       }
     });
     if (values.commit && values['no-commit']) throw new Error('Choose --commit or --no-commit.');
+    if (values.setup && values['no-setup']) throw new Error('Choose --setup or --no-setup.');
     if (values.project && values.new) throw new Error('Choose --project or --new.');
 
     const { api, credentials } = await openApi(context);
@@ -188,7 +209,30 @@ export const init: Command = {
       return 1;
     }
 
+    // Detection: the marker files' guess, shown before anything is written (decision 6).
+    const detected = detectStack(repo);
+    for (const line of describeDetection(detected)) io.out(line);
     const existing = await readRepoLink(repo).catch(() => null);
+    // A repo with an environment file: a teammate's clone, or one whose setup run is done. Its
+    // environment names the recipe, or none; detection decides only when there is no file yet.
+    const existingEnvironment = hasEnvironmentFile(repo)
+      ? await readEnvironment(repo, existing).catch(() => null)
+      : null;
+    const recipe = existingEnvironment
+      ? recipeFor(existingEnvironment.recipe)
+      : recipeFor(detected.recipe);
+    if (existingEnvironment) {
+      io.out(
+        `${ROUGH_DIR}/${ENVIRONMENT_FILE} is here: ${recipe ? `the ${recipe.name} recipe` : "your team's own setup"}, ${existingEnvironment.mode} previews.`
+      );
+    } else if (recipe) {
+      io.out(`The ${recipe.name} recipe fits: init writes its preview setup.`);
+    } else {
+      io.out(
+        `No recipe fits${detected.guess ? ` ${detected.guess}` : ''}: your agent builds the preview setup in a setup run (roughbook setup), and roughbook doctor checks it.`
+      );
+    }
+
     const choice = await chooseProject(api, io, values, existing);
     let committed: boolean;
     if (values.commit || values['no-commit']) committed = Boolean(values.commit);
@@ -205,8 +249,18 @@ export const init: Command = {
       io.out('rough/ will be ignored by git, so nothing backs up its iterations.');
     }
 
+    const stack = existingEnvironment?.stack.length ? existingEnvironment.stack : detected.stack;
+    const family = existingEnvironment?.family ?? detected.family;
     const plan = planPrep(repo, {
-      link: { version: 1, orgId: choice.orgId, project: choice.slug, roughCommitted: committed }
+      link: {
+        version: 1,
+        orgId: choice.orgId,
+        project: choice.slug,
+        roughCommitted: committed,
+        ...(stack.length ? { stack } : {}),
+        ...(stack.length || existingEnvironment ? { family } : {})
+      },
+      recipe
     });
     if (plan.problems.length) {
       for (const problem of plan.problems) io.err(problem);
@@ -231,10 +285,14 @@ export const init: Command = {
       existing.roughCommitted === committed;
     let linkId = local?.linkId ?? null;
     if (!sameLink || !linkId) {
+      // The server hears the tokens and the family, never a path (decision 15).
       const linked = await api.link(choice.orgId, {
         project: choice.slug,
-        framework: detectFramework(repo),
-        roughCommitted: committed
+        framework: detected.framework,
+        roughCommitted: committed,
+        ...(stack.length ? { stack } : {}),
+        ...(stack.length || existingEnvironment ? { family } : {}),
+        ...(existingEnvironment ? { mode: existingEnvironment.mode } : {})
       });
       linkId = linked.linkId;
     }
@@ -255,7 +313,40 @@ export const init: Command = {
         `Applied ${plan.changes.length} change${plan.changes.length === 1 ? '' : 's'}; review them with git diff.`
       );
     }
-    io.out('Next, run roughbook start.');
+
+    const link = (await readRepoLink(repo))!;
+    const repoContext = { ...context, repoRoot: repo };
+    // A clone, or a repo set up before: the templates go into place without an agent, the
+    // commands are approved here, and doctor runs when the app answers (decision 28).
+    if (existingEnvironment && !recipe) {
+      if (!(await applyTemplates(repoContext, repo, existingEnvironment, Boolean(values.yes)))) {
+        return 1;
+      }
+    }
+    if (existingEnvironment || recipe) {
+      const environment = existingEnvironment ?? recipe!.environment(link);
+      await approveEnvironment(repoContext, repo, environment, Boolean(values.yes));
+      if (await appAnswers(context, environment.start.url)) {
+        io.out(`The app answers at ${environment.start.url}; running roughbook doctor.`);
+        await runDoctorHere(repoContext, repo, link, { yes: values.yes });
+      } else {
+        io.out(
+          `Next, start the app${environment.start.command ? ` (${environment.start.command})` : ''} and run roughbook doctor, then roughbook start.`
+        );
+      }
+      return 0;
+    }
+
+    // No recipe and no environment yet: the setup run builds the preview (decision 8).
+    const wantSetup =
+      values.setup ||
+      (!values['no-setup'] &&
+        !values.yes &&
+        (await confirm(io, 'Start the setup run now, with your agent?', true)));
+    if (wantSetup) {
+      return startSetupRun(repoContext, api, repo, link, { kind: 'setup', agent: values.agent });
+    }
+    io.out('Next, run roughbook setup to have your agent build the preview setup.');
     return 0;
   }
 };

@@ -10,3 +10,13 @@ export const fallbackRecipe: Recipe = next;
 export function recipeFor(id: string | null | undefined): Recipe | null {
   return RECIPES.find(recipe => recipe.id === id) ?? null;
 }
+
+/**
+ * The recipe an environment was set up by: the fallback for one from before recipes were named,
+ * none (null) when the setup run's agent did without one (`recipe: none`), so the core takes
+ * what it needs from the environment alone.
+ */
+export function recipeOf(environment: { recipe: string | null }): Recipe | null {
+  if (environment.recipe === null) return null;
+  return recipeFor(environment.recipe) ?? fallbackRecipe;
+}

@@ -86,7 +86,8 @@ try {
   served = await serveUntil(devCommand(port), work, `${devUrl}/`, 180_000);
   if (!served) throw new Error('The dev server did not answer within 180 s.');
 
-  const report = await runDoctor(work, { devUrl, skipBuild });
+  // The suite's own checkout: its commands are the recipe's, approved here as a CI owner would.
+  const report = await runDoctor(work, { devUrl, skipBuild, approve: true });
   console.log('');
   for (const line of renderReport(report)) console.log(line);
   code = exitCodeFor(report.outcome);

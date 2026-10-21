@@ -3,8 +3,10 @@ import type { StartRunRequest, StartedRun } from '../runs/types.js';
 import type {
   AssetScope,
   DeviceLogin,
+  DoctorResultBody,
   Heartbeat,
   IssuedInstall,
+  LinkBody,
   LinkResult,
   Me,
   OrgProjects,
@@ -12,7 +14,8 @@ import type {
   Promotion,
   PullableSketch,
   PulledSketch,
-  RatingSummary
+  RatingSummary,
+  SetupPrompt
 } from './types.js';
 
 /** Where the backend serves the studio's routes. */
@@ -191,11 +194,22 @@ export class StudioApi {
     throw await readError(response);
   }
 
-  link(
-    orgId: string,
-    body: { project: string; framework: string | null; roughCommitted: boolean }
-  ): Promise<LinkResult> {
+  link(orgId: string, body: LinkBody): Promise<LinkResult> {
     return this.request('POST', `/orgs/${encodeURIComponent(orgId)}/links`, body);
+  }
+
+  /** The setup run's prompt for this project, with the stand-ins the studio fills. */
+  setupPrompt(orgId: string, project: string): Promise<SetupPrompt> {
+    return this.request('GET', `${projectPath(orgId, project)}/setup-prompt`);
+  }
+
+  /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */
+  reportDoctor(orgId: string, linkId: string, body: DoctorResultBody): Promise<unknown> {
+    return this.request(
+      'POST',
+      `/orgs/${encodeURIComponent(orgId)}/links/${encodeURIComponent(linkId)}/doctor`,
+      body
+    );
   }
 
   async request<T>(

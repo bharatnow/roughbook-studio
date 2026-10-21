@@ -1,17 +1,22 @@
 // Prepares a repo for the studio: a rough/ workspace that TypeScript and ESLint ignore, so an
-// iteration can never break the app's build; the recipe's development-only preview setup; and git
-// told what to keep. Planning only reads; applying writes exactly what the plan showed, so `init`
-// can show every change first. Ported from roughbook src/lib/delivery/init.ts (v2-local), which
-// kept rough/ out of git; now committing it is the default, since git is its only record.
+// iteration can never break the app's build; the recipe's development-only preview setup, when a
+// recipe fits the stack; and git told what to keep. Planning only reads; applying writes exactly
+// what the plan showed, so `init` can show every change first. Ported from roughbook
+// src/lib/delivery/init.ts (v2-local), which kept rough/ out of git; now committing it is the
+// default, since git is its only record. A repo no recipe fits (F3 of the frameworks plan) gets
+// the workspace alone; its preview setup comes from the setup run.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROUGH_CONTRACT } from '../doctor/contract.js';
+import { bareEnvironment } from '../environment/bare.js';
+import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironmentSync } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
+import { detectStack } from '../recipes/detect.js';
 import { fallbackRecipe } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
 import { renderRepoLink, type RepoLink } from './link.js';
 import { OURS, afterComma, covers, ownFile, read, type Planned, type PrepChange } from './plan.js';
-import { LINK_FILE, ROUGH_DIR, STATE_DIR, isHomeOrAbove } from './root.js';
+import { LINK_FILE, ROUGH_DIR, STATE_DIR, isHomeOrAbove, looksLikeApp } from './root.js';
 
 export type { PrepChange } from './plan.js';
 
@@ -54,13 +59,22 @@ ${OURS}; it rewrites this file.
 
 /**
  * The iteration rules every agent reads when it works in rough/, whichever agent it is: the
- * rules every stack shares, with the recipe's own among them.
+ * rules every stack shares, with the recipe's own among them, or the environment's entry file
+ * when the setup run wrote the environment instead of a recipe.
  */
-export function roughAgents(environment: RepoEnvironment, recipe: Recipe): string {
+export function roughAgents(environment: RepoEnvironment, recipe: Recipe | null): string {
+  const entry = environment.entry
+    ? `\`${environment.entry}\` default-exports the design`
+    : `entry file (named by \`${ENVIRONMENT_FILE}\`, once the setup run has written it) holds the design`;
+  const own = recipe
+    ? recipe.agentRules(environment)
+    : `- Read \`${ENVIRONMENT_FILE}\` in this folder first: it says how this repo's
+  components, styles and tokens work, and what an iteration here must hold.
+`;
   return `# Working in rough/
 
 This folder is Roughbook's design workspace. Each iteration is a folder
-\`<page>/<component>/iteration-NN/\` whose \`${environment.entry}\` default-exports the design.
+\`<page>/<component>/iteration-NN/\` whose ${entry}.
 Each run's instructions are in \`<page>/<component>/prompts/\`.
 
 Rules for any agent working here:
@@ -71,7 +85,7 @@ Rules for any agent working here:
 - An iteration never imports from another iteration. It may import the app's
   own components, styles and utilities.
 - Nothing outside rough/ imports from rough/.
-${recipe.agentRules(environment)}- Do not install dependencies, change the app's configuration, or commit.
+${own}- Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
 `;
@@ -80,7 +94,10 @@ ${OURS}; it rewrites this file.
 /** Claude Code reads CLAUDE.md, so it points at the same rules. */
 export const ROUGH_CLAUDE = '@AGENTS.md\n';
 
-/** Why a folder cannot be prepared, or nothing. */
+/**
+ * Why a folder cannot be prepared, or nothing. Any repo with git is one the studio can work in,
+ * package.json or not; without git, a folder with a package.json or another project file.
+ */
 export function checkRepo(repo: string, home?: string): string[] {
   if (!path.isAbsolute(repo)) return ['The repo path must be absolute.'];
   if (isHomeOrAbove(repo, home)) {
@@ -93,8 +110,11 @@ export function checkRepo(repo: string, home?: string): string[] {
     return ['That folder does not exist.'];
   }
   if (!stat.isDirectory()) return ['That path is a file, not a folder.'];
-  if (!fs.existsSync(path.join(repo, 'package.json'))) {
-    return ['This folder has no package.json, so it is not an app the studio can work in.'];
+  // A folder of pages with no manifest counts when init is run in it, not when found on the way up.
+  if (!looksLikeApp(repo) && !detectStack(repo).isProject) {
+    return [
+      'This folder has no git repository, no package.json and no other project file, so it does not look like an app the studio can work in. Run git init in the app’s folder first, or run roughbook init from inside the app.'
+    ];
   }
   return [];
 }
@@ -288,11 +308,17 @@ export function planEslint(files: Record<string, string | null>): Planned {
   return null;
 }
 
+/** The files `init`'s own prep may write or edit outside rough/, which no setup run has to list. */
+export const PREP_FILES = ['.gitignore', 'tsconfig.json', '.eslintignore', ...FLAT_CONFIGS];
+
 export type PrepOptions = {
   /** The link written to rough/roughbook.json; its appDir is filled in here. */
   link: Omit<RepoLink, 'appDir'>;
-  /** The stack's recipe; the fallback until detection chooses one (F3 of the frameworks plan). */
-  recipe?: Recipe;
+  /**
+   * The stack's recipe: the fallback when not given (a repo prepared before detection), null
+   * when no recipe fits and the setup run builds the preview (F3 of the frameworks plan).
+   */
+  recipe?: Recipe | null;
 };
 
 export function planPrep(repo: string, options: PrepOptions): PrepPlan {
@@ -300,7 +326,7 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
   if (problems.length) return { repo, problems, changes: [], manual: [], before: {} };
   const root = path.resolve(repo);
   const committed = options.link.roughCommitted;
-  const recipe = options.recipe ?? fallbackRecipe;
+  const recipe = options.recipe === undefined ? fallbackRecipe : options.recipe;
   const changes: PrepChange[] = [];
   const manual: string[] = [];
   const add = (result: Planned) => {
@@ -308,8 +334,14 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     if ('manual' in result) manual.push(result.manual);
     else changes.push(result);
   };
-  const link: RepoLink = { ...options.link, appDir: recipe.appDir(root) };
-  const environment = recipe.environment(link);
+  const link: RepoLink = { ...options.link, appDir: recipe ? recipe.appDir(root) : null };
+  // The environment file when the repo has one (a clone, or a setup run's work), else the recipe's
+  // own; with neither, the bare environment of a repo whose setup run is still to come.
+  const effective: RepoEnvironment = hasEnvironmentFile(root)
+    ? readEnvironmentSync(root, link)
+    : recipe
+      ? recipe.environment(link)
+      : bareEnvironment(link);
 
   add(
     ownFile(
@@ -326,7 +358,7 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     ownFile(
       root,
       `${ROUGH_DIR}/AGENTS.md`,
-      roughAgents(environment, recipe),
+      roughAgents(effective, recipe),
       'Give every agent the iteration rules.',
       text => text.includes(OURS)
     )
@@ -361,7 +393,9 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     });
   }
 
-  const preview = recipe.planPreview(root, link);
+  const preview = recipe
+    ? recipe.planPreview(root, link)
+    : { changes: [], manual: [], ignoredFromBuild: [], gitWanted: [] };
   changes.push(...preview.changes);
   manual.push(...preview.manual);
   const ignoredFromBuild = [ROUGH_DIR, ...preview.ignoredFromBuild];
@@ -373,7 +407,7 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
   ];
   add(planGitignore(read(root, '.gitignore'), gitWanted, committed ? [ROUGH_DIR] : []));
   add(planTsconfig(read(root, 'tsconfig.json'), ignoredFromBuild));
-  const roughTsconfig = recipe.roughTsconfig(root);
+  const roughTsconfig = recipe ? recipe.roughTsconfig(root) : null;
   if (roughTsconfig !== null) {
     add(
       ownFile(

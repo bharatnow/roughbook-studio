@@ -356,11 +356,13 @@ export async function probePreview({
     });
   });
   var expected = ${JSON.stringify(expect ?? null)};
+  var text = document.body ? document.body.innerText : '';
   return JSON.stringify({
-    shows: expected === null || (document.body && document.body.innerText.indexOf(expected) !== -1),
+    shows: expected === null || text.indexOf(expected) !== -1,
     ready: window.__roughbookReady === true,
     error: window.__roughbookError === undefined ? null : String(window.__roughbookError),
-    visibleOverlays: visible
+    visibleOverlays: visible,
+    text: text.slice(0, 200000)
   });
 })()`;
   const found = await withPage(
@@ -386,5 +388,14 @@ export async function probePreview({
       return { ...(JSON.parse(result.value ?? '{}') as Omit<Probe, 'exceptions'>), exceptions };
     }
   );
-  return found ?? { shows: false, ready: false, error: null, visibleOverlays: 0, exceptions: [] };
+  return (
+    found ?? {
+      shows: false,
+      ready: false,
+      error: null,
+      visibleOverlays: 0,
+      exceptions: [],
+      text: ''
+    }
+  );
 }

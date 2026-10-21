@@ -102,10 +102,12 @@ export async function openInEditor(
   adapter: EditorAdapter,
   detection: Detection,
   repoRoot: string,
-  promptFiles: string[]
+  promptFiles: string[],
+  options: { finish?: boolean } = {}
 ): Promise<EditorLaunched> {
   const files = promptFiles.map(file => path.join(repoRoot, ...file.split('/')));
-  const instructions = promptFiles.map(file => handoffLine(file, true));
+  // An iteration run ends through the MCP tools; a setup run or a promotion does not.
+  const instructions = promptFiles.map(file => handoffLine(file, options.finish ?? true));
   let opened: EditorLaunched['opened'] = null;
   const executable = detection.executable;
   if (executable) {

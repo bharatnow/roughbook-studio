@@ -38,6 +38,39 @@ export type LinkResult = {
   project: { slug: string; name: string };
 };
 
+/**
+ * `POST /orgs/:orgId/links`: which project, and what detection found about the stack (decision 15
+ * of the frameworks plan): the framework token the link column keeps, the stack tokens, the family
+ * and the preview mode. Never a path or a command.
+ */
+export type LinkBody = {
+  project: string;
+  framework: string | null;
+  roughCommitted: boolean;
+  stack?: string[];
+  family?: string;
+  mode?: string;
+};
+
+/** `GET /orgs/:orgId/projects/:project/setup-prompt`: the setup run's prompt, with its stand-ins. */
+export type SetupPrompt = {
+  prompt: string;
+  placeholders: { contract: string; guess: string; recipeNotes: string; ruleFiles: string };
+};
+
+/**
+ * `POST /orgs/:orgId/links/:linkId/doctor`: how doctor went on this repo, for ratings and
+ * analytics by stack: the outcome, the mode, the family, the stack tokens and the ids of the checks
+ * that failed. Never a path, a URL or anything from the repo's files.
+ */
+export type DoctorResultBody = {
+  outcome: 'pass' | 'fail' | 'unverified';
+  mode: string;
+  family: string;
+  stack: string[];
+  failed: string[];
+};
+
 /** An iteration as the server records it: metadata only, never its code. */
 export type IterationRecord = {
   id: string;

@@ -25,7 +25,7 @@ import type { PtySupport } from '../launch/pty.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { recipeOf } from '../recipes/index.js';
 import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
@@ -810,7 +810,7 @@ export class LocalStudio {
         `${target.page}/${target.component}/${target.iteration} is not in this repo.`
       );
     }
-    (recipeFor(this.options.environment.recipe) ?? fallbackRecipe).syncPreview(this.repoRoot);
+    recipeOf(this.options.environment)?.syncPreview(this.repoRoot);
     return this.context.screenshot(this.repoRoot, this.options.devUrl, target, this.context.env);
   }
 
@@ -827,7 +827,7 @@ export class LocalStudio {
   /** Keeps rough/preview-registry.ts in step with the iteration folders. */
   keepRegistry(): void {
     try {
-      (recipeFor(this.options.environment.recipe) ?? fallbackRecipe).syncPreview(this.repoRoot);
+      recipeOf(this.options.environment)?.syncPreview(this.repoRoot);
     } catch {
       // A folder being written mid-scan; the next tick catches up.
     }

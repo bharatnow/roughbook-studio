@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { readEnvironment } from '../environment/read.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { recipeOf } from '../recipes/index.js';
 import { iterationExists } from '../runs/slots.js';
 import { listRuns } from '../runs/store.js';
 import type { Command } from './context.js';
@@ -44,7 +44,7 @@ export const screenshot: Command = {
     }
     // The preview setup renders only the iterations it knows of.
     const environment = await readEnvironment(repoRoot);
-    (recipeFor(environment.recipe) ?? fallbackRecipe).syncPreview(repoRoot);
+    recipeOf(environment)?.syncPreview(repoRoot);
     const shots = await context.screenshot(
       repoRoot,
       devUrl(values['dev-url'], context.env, environment.start.url),

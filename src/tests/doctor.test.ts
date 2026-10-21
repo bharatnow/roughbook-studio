@@ -6,8 +6,11 @@ import vm from 'node:vm';
 import { exitCodeFor, redactedReport, renderReport, runDoctor } from '../doctor/run.js';
 import type { DoctorReport, DoctorTools, Probe } from '../doctor/types.js';
 import { findSentinel } from '../doctor/sentinel.js';
+import { readEnvironmentSync } from '../environment/read.js';
 import { parseCommandLine, resolveCommandLine } from '../launch/processes.js';
 import { next } from '../recipes/next/index.js';
+import { approveCommands, environmentCommands } from '../repo/approvals.js';
+import { applyPrep, planPrep } from '../repo/prep.js';
 import { pageSetup } from '../screenshot/browser.js';
 import { tempDir } from './helpers.js';
 
@@ -20,14 +23,29 @@ const LINK = {
 };
 const DEV = 'http://localhost:3000';
 
-async function tempRepo(files: Record<string, string> = {}): Promise<string> {
+/**
+ * A repo prepared as init prepares a Next.js one (the route files in place, so the setup-files
+ * check has them to compare), with its environment's commands approved on this machine, unless a
+ * test says otherwise.
+ */
+async function tempRepo(
+  files: Record<string, string> = {},
+  options: { approve?: boolean } = {}
+): Promise<string> {
   const repo = await tempDir('roughbook-doctor-');
-  fs.mkdirSync(path.join(repo, 'rough'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'rough', 'roughbook.json'), `${JSON.stringify(LINK)}\n`);
+  fs.mkdirSync(path.join(repo, 'src', 'app'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'package.json'), '{"name":"app"}\n');
+  applyPrep(planPrep(repo, { link: LINK, recipe: next }));
   for (const [name, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(repo, name)), { recursive: true });
     fs.writeFileSync(path.join(repo, name), content);
+  }
+  if (options.approve !== false) {
+    try {
+      await approveCommands(repo, environmentCommands(readEnvironmentSync(repo, LINK)));
+    } catch {
+      // An environment made to fail its own check has nothing to approve.
+    }
   }
   return repo;
 }
@@ -70,6 +88,7 @@ function fakeTools(
     exposed: boolean;
     overlay: boolean;
     noFixture: boolean;
+    missingTool: string;
     production: 'ok' | 'leaks' | 'down';
   }> = {}
 ): DoctorTools & { built: string[]; served: string[]; shots: string[] } {
@@ -105,6 +124,7 @@ function fakeTools(
     served,
     shots,
     browser: '/fake/chrome',
+    which: program => (faults.missingTool === program ? null : `/fake/bin/${program}`),
     fetch: (async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(
         typeof input === 'string' ? input : input instanceof URL ? input : input.url
@@ -131,7 +151,8 @@ function fakeTools(
         ready: good && !faults.neverReady && !faults.hidden && page.status === 200,
         error: page.status >= 400 ? `HTTP ${page.status}` : null,
         visibleOverlays: faults.overlay && overlays.length ? 1 : 0,
-        exceptions: []
+        exceptions: [],
+        text: faults.hidden ? 'Not found' : page.body.replace(/<[^>]+>/g, ' ')
       };
       return probe;
     },
@@ -206,6 +227,7 @@ describe('roughbook doctor', () => {
     assert.equal(report.outcome, 'pass');
     assert.equal(exitCodeFor(report.outcome), 0);
     assert.deepEqual(statuses(report), {
+      prerequisites: 'pass',
       environment: 'pass',
       app: 'pass',
       renders: 'pass',
@@ -216,7 +238,7 @@ describe('roughbook doctor', () => {
       fresh: 'pass',
       gate: 'pass',
       loopback: 'pass',
-      'setup-files': 'skip',
+      'setup-files': 'pass',
       speed: 'skip'
     });
     assert.deepEqual(tools.built, ['npm run build']);
@@ -337,8 +359,54 @@ production: node server.js @ http://127.0.0.1:3999
     const repo = await tempRepo({ 'rough/environment.md': '---\nfamily: cobol\n---\n' });
     const report = await runDoctor(repo, { devUrl: DEV, tools: fakeTools(repo) });
     assert.deepEqual(failing(report), ['environment']);
-    assert.match(report.checks[0]!.detail, /environment\.md: family/);
-    assert.ok(report.checks.slice(1).every(check => check.status === 'skip'));
+    assert.equal(report.checks[0]!.id, 'prerequisites');
+    assert.equal(report.checks[0]!.status, 'skip');
+    assert.match(report.checks[1]!.detail, /environment\.md: family/);
+    assert.ok(report.checks.slice(2).every(check => check.status === 'skip'));
+  });
+
+  it('runs nothing until the commands are approved on this machine, and approves them with --yes', async () => {
+    const repo = await tempRepo({}, { approve: false });
+    const tools = fakeTools(repo);
+    const report = await runDoctor(repo, { devUrl: DEV, tools });
+    assert.deepEqual(failing(report), ['environment']);
+    const environment = report.checks.find(check => check.id === 'environment')!;
+    assert.match(environment.detail, /not approved.*npm run build/);
+    assert.match(environment.fix ?? '', /--yes/);
+    assert.deepEqual(tools.built, []);
+    assert.ok(report.checks.slice(2).every(check => check.status === 'skip'));
+
+    // A CI checkout's owner approves them without a terminal; the approval is kept for next time.
+    const approved = await runDoctor(repo, { devUrl: DEV, tools, approve: true });
+    assert.deepEqual(failing(approved), []);
+    assert.deepEqual(tools.built, ['npm run build']);
+    const again = await runDoctor(repo, { devUrl: DEV, tools: fakeTools(repo) });
+    assert.deepEqual(failing(again), []);
+  });
+
+  it('names a tool the commands need that is not on the PATH, with how to install it', async () => {
+    const repo = await tempRepo();
+    const report = await runDoctor(repo, {
+      devUrl: DEV,
+      tools: fakeTools(repo, { missingTool: 'npm' })
+    });
+    assert.deepEqual(failing(report), ['prerequisites']);
+    const check = report.checks[0]!;
+    assert.match(check.detail, /npm/);
+    assert.match(check.fix ?? '', /nodejs\.org/);
+    // The rest still runs: a missing tool is one finding, not a stop.
+    assert.equal(statuses(report).renders, 'pass');
+  });
+
+  it('checks the setup files: a recipe file the recipe would write differently fails it', async () => {
+    const repo = await tempRepo();
+    const route = path.join(repo, 'src', 'app', 'rough-preview', '[...slug]', 'ready.tsx');
+    fs.writeFileSync(route, fs.readFileSync(route, 'utf8').replace('"ready"', '"done"'));
+    const report = await runDoctor(repo, { devUrl: DEV, tools: fakeTools(repo) });
+    assert.deepEqual(failing(report), ['setup-files']);
+    const check = report.checks.find(item => item.id === 'setup-files')!;
+    assert.match(check.detail, /ready\.tsx/);
+    assert.match(check.fix ?? '', /setup --upgrade/);
   });
 
   it('skips the loopback check on a machine with no network address', async () => {

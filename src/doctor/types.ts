@@ -1,10 +1,11 @@
 // What `roughbook doctor` proves about a repo: the preview contract's checks, each with what it
 // found and what to fix (ROUGHBOOK-FRAMEWORKS-PLAN.md, "roughbook doctor"). Its result is the same
 // on the designer's machine, in a team's CI and over a recipe's fixture in Roughbook's own.
-import type { Family, Gate, PreviewMode, Viewport } from '../environment/types.js';
+import type { Family, Gate, PreviewMode, Shell, Viewport } from '../environment/types.js';
 import type { Served } from '../launch/processes.js';
 
 export type CheckId =
+  | 'prerequisites'
   | 'environment'
   | 'app'
   | 'renders'
@@ -64,6 +65,11 @@ export type Probe = {
   visibleOverlays: number;
   /** Uncaught errors the page threw, in the browser's words: why hydration may not have happened. */
   exceptions: string[];
+  /**
+   * The page's visible text once settled, for a preview the browser renders on the client: the
+   * HTML the server sent then holds none of the iteration, and this does.
+   */
+  text: string;
 };
 
 /** A process the runtime gate started, answering at its address until stopped. */
@@ -85,10 +91,23 @@ export type DoctorTools = {
     size: Viewport;
     overlays: string[];
   }): Promise<boolean>;
-  /** Runs a command to its end in `cwd`; the exit code, or null when it timed out. */
-  exec(command: string, cwd: string, timeoutMs: number): Promise<{ code: number | null }>;
+  /** Runs a command to its end in `cwd`, in the declared shell; the exit code, or null when it timed out. */
+  exec(
+    command: string,
+    cwd: string,
+    timeoutMs: number,
+    shell: Shell
+  ): Promise<{ code: number | null }>;
   /** Starts a command in `cwd` and waits until `url` answers; null when it did not in time. */
-  serve(command: string, cwd: string, url: string, timeoutMs: number): Promise<Served | null>;
+  serve(
+    command: string,
+    cwd: string,
+    url: string,
+    timeoutMs: number,
+    shell: Shell
+  ): Promise<Served | null>;
+  /** Where a program is on the PATH as the shell sees it, or null: doctor's step 0. */
+  which(program: string): string | null;
   /** This machine's addresses on the network, IPv4, not loopback. */
   addresses(): string[];
   /** Waiting and the clock, so a test need not wait for real. */
@@ -103,5 +122,10 @@ export type DoctorOptions = {
   devUrl: string;
   /** Leave the production build out, and record the repo as unverified. */
   skipBuild?: boolean;
+  /**
+   * Approve the environment's commands on this machine before running, as a CI checkout's owner
+   * does with --yes; without it, an unapproved command fails the environment check.
+   */
+  approve?: boolean;
   tools?: Partial<DoctorTools>;
 };

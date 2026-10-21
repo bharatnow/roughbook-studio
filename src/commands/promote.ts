@@ -78,6 +78,11 @@ export const promote: Command = {
     for (const file of prepared.copied) io.out(`  Copied ${file}`);
     if (prepared.wroteCopy)
       io.out(`  Wrote the approved copy to rough/${page}/${component}/copy.md`);
+    if (prepared.copyFile) {
+      io.out(
+        `  This repo keeps copy in ${prepared.copyFile} (rough/environment.md, copy: localized): the agent lands the approved copy there.`
+      );
+    }
     for (const asset of prepared.missing) {
       io.out(`  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`);
     }

@@ -64,7 +64,13 @@ export type StartedRun = {
    * the prompt names the entry file (placeholders.entry), which the repo's environment decides.
    */
   prompt: string;
-  placeholders?: { assetOrigin: string; entry?: string };
+  placeholders?: {
+    assetOrigin: string;
+    entry?: string;
+    termPage?: string;
+    termComponent?: string;
+    environment?: string;
+  };
   checks: Check[];
 };
 

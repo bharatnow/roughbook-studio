@@ -286,7 +286,15 @@ describe('roughbook init', () => {
     );
 
     const link = api.requests.find(request => request.url.endsWith('/links'))!;
-    assert.deepEqual(link.body, { project: 'landing', framework: 'next-16', roughCommitted: true });
+    // Detection's tokens and family go up with the link; nothing else about the repo does.
+    assert.deepEqual(link.body, {
+      project: 'landing',
+      framework: 'next-16',
+      roughCommitted: true,
+      stack: ['next-16'],
+      family: 'react-like'
+    });
+    assert.ok(io.lines.some(line => line.startsWith('Stack: Next.js 16 (next-16)')));
     assert.ok(io.lines.some(line => line.includes('Landing (landing)')));
     // A viewer's organization is not offered.
     assert.ok(!io.lines.some(line => line.includes('Client')));
@@ -299,6 +307,8 @@ describe('roughbook init', () => {
       orgId: ORG,
       project: 'landing',
       roughCommitted: true,
+      stack: ['next-16'],
+      family: 'react-like',
       appDir: 'src/app'
     });
     assert.equal((await readLocalLink(repo))?.linkId, 'link-1');
@@ -377,9 +387,24 @@ describe('roughbook init', () => {
 
     assert.equal(await run(['init', '--project', 'nowhere', '--yes'], repo, api.fetch), 1);
     assert.match(io.errors.join(' '), /No project nowhere/);
+    // A git repo with no package.json is an app too (any stack): no recipe fits, so the workspace
+    // is written and the setup run is the next step; no preview route is written into it.
     const empty = await tempDir();
-    assert.equal(await run(['init', '--project', 'site', '--yes'], empty, api.fetch), 1);
-    assert.match(io.errors.join(' '), /no package\.json/);
+    assert.equal(
+      await run(['init', '--project', 'site', '--yes'], empty, api.fetch),
+      0,
+      io.errors.join('\n')
+    );
+    assert.ok(io.lines.some(line => /No recipe fits/.test(line)));
+    assert.ok(io.lines.some(line => /roughbook setup/.test(line)));
+    assert.ok(fs.existsSync(path.join(empty, 'rough', 'AGENTS.md')));
+    assert.ok(!fs.existsSync(path.join(empty, 'app')));
+    assert.match(
+      fs.readFileSync(path.join(empty, 'rough', 'AGENTS.md'), 'utf8'),
+      /environment\.md/
+    );
+    const emptyLink = api.requests.filter(request => request.url.endsWith('/links')).at(-1)!;
+    assert.deepEqual(emptyLink.body, { project: 'site', framework: null, roughCommitted: true });
   });
 
   it('takes a choice by its name or slug in any case, and names a new project before making it', async () => {

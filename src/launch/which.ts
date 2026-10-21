@@ -139,3 +139,31 @@ export function compareVersions(a: string, b: string): number {
   }
   return 0;
 }
+
+/**
+ * A program on PATH by name, as a shell would find it: the name itself, and on Windows the
+ * executable extensions PATHEXT lists (.exe, .cmd, .bat, .com, .ps1 among them). For doctor's
+ * prerequisites check: whether the tools an environment's commands need are here at all.
+ */
+export function findProgramOnPath(name: string, lookup: Lookup): string | null {
+  const p = pathApi(lookup.platform);
+  const probe = lookup.probe ?? diskProbe;
+  if (name.includes('/') || name.includes('\\')) return probe.exists(name) ? name : null;
+  const extensions =
+    lookup.platform === 'win32'
+      ? [
+          '',
+          ...(lookup.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD;.PS1')
+            .split(';')
+            .filter(Boolean)
+            .map(extension => extension.toLowerCase())
+        ]
+      : [''];
+  for (const dir of pathDirs(lookup.env, lookup.platform)) {
+    for (const extension of extensions) {
+      const file = p.join(dir, `${name}${extension}`);
+      if (probe.exists(file)) return file;
+    }
+  }
+  return null;
+}

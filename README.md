@@ -1,4 +1,6 @@
-| `roughbook doctor [--json] [--report] [--skip-build]` | Checks this repo's preview setup against the contract (below) and says what to fix; `--json` for a team's CI, `--report` writes a redacted bundle for a support ticket, `--skip-build` leaves the production build out and records the repo as unverified |
+| `roughbook doctor [--json] [--report] [--skip-build] [--yes]` | Checks this repo's preview setup against the contract (below) and says what to fix; `--json` for a team's CI, `--report` names the redacted bundle it writes for a support ticket, `--skip-build` leaves the production build out and records the repo as unverified, `--yes` approves the environment's commands on this machine |
+| `roughbook setup [--fix \| --apply \| --upgrade]` | Has your agent build this repo's preview setup in an interactive session (any stack); `--fix` sends doctor's failures back to it, `--apply` writes the templates in `rough/setup/` into place without an agent, `--upgrade` rewrites a recipe's setup |
+| `roughbook uninstall` | Removes the preview setup from the app, exactly the files `rough/environment.md` lists and a recipe's own, and nothing else; `rough/` stays |
 
 # Roughbook studio
 
@@ -42,11 +44,15 @@ its own copy and asks before fetching each new one.
 | `roughbook telemetry [on\|off]`                          | Shares usage analytics from this studio, or stops; with no argument, says which                                                                                                                                                                                                                                                                                     |
 | `roughbook logout`                                       | Signs this machine out, here and on the server                                                                                                                                                                                                                                                                                                                      |
 
-`init` asks which project the repo works on, by its number, name or slug, or `n` for a new one,
-whose name it shows back before creating it (or `--project <slug>`, `--new <name>`, with
-`--org <id>` when two organizations share a slug) and whether to commit `rough/` (`--commit`, the
-default, or `--no-commit`); `--yes` applies without asking. `--scratch <dir>` first makes a minimal
-Next.js 16 app with Tailwind v4 and a git repository there. It then:
+`init` works in any repo with git, package.json or not. It first reads the repo's marker files and
+says what it found: the stack as short tokens (`laravel-13`, `blade`, `php-8`; `next-16`,
+`react-19`), the family of checks that goes with it, the package manager, a container setup and
+the repo's own agent rule files. Those tokens and the family go to the server with the link, and
+nothing else about the repo. It asks which project the repo works on, by its number, name or slug,
+or `n` for a new one, whose name it shows back before creating it (or `--project <slug>`,
+`--new <name>`, with `--org <id>` when two organizations share a slug) and whether to commit
+`rough/` (`--commit`, the default, or `--no-commit`); `--yes` applies without asking. `--scratch
+<dir>` first makes a minimal Next.js 16 app with Tailwind v4 and a git repository there. It then:
 
 - writes `rough/` with `README.md`, `AGENTS.md` (the iteration rules every agent reads),
   `CLAUDE.md` (pointing at them) and `roughbook.json` (the organization and project, no paths);
@@ -61,6 +67,50 @@ Next.js 16 app with Tailwind v4 and a git repository there. It then:
 
 A file the studio did not write is never replaced; it is listed for you to change by hand. Running
 `init` again changes nothing, and it adopts a repo prepared by Roughbook v2.
+
+The preview route above is the Next.js recipe's. When no recipe fits the stack, `init` writes the
+workspace alone and offers the **setup run** (`roughbook setup`): an interactive session of your
+agent that reads the repo, writes `rough/environment.md` and the templates in `rough/setup/`, builds
+the preview setup in the repo's own stack and a sample iteration for `doctor`, and may run the
+app's commands; it never runs unattended. When it says the setup is ready, start the app and run
+`roughbook doctor`; `roughbook setup --fix` takes its findings back to the agent. On a teammate's
+clone, `init` finds `rough/environment.md`, shows the templates it is about to apply and the
+commands it is about to approve, applies and approves them, and runs `doctor` when the app answers.
+
+## The environment
+
+`rough/environment.md` is the repo's environment: a header between `---` lines the studio reads,
+then prose for agents, written by the setup run (or implied by a recipe), reviewed by you and
+committed. The header is `key: value` lines and `key:` with `- item` lines. Its fields: `contract`
+(1), `recipe` (`next`, or `none` when your agent built the setup), `stack` and `family`, `mode`
+(`live`, `snapshot` or `standalone`), `entry` (the file every iteration has), `sources` and
+`code` (extensions the checks and the import check read), `placement`, `wrapper`, `runtime`
+(`local`, or `container @ <url>`), `shell`, `start` (`<command> @ <url>`, or the address alone),
+`preview` (`/path/{key}`), `viewports` (`name WxH [mobile]`), `variants`, `ignore`, `overlays`,
+`fixture`, `build` and `buildOutput`, `gate` (`build`, `runtime` or `both`), `production`
+(`<command> @ <url>`), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
+`promoteExtensions`, `assets` and `assetsCopy`, `copy` (`inline`, or `localized <file>`), `terms`
+(`page: view`, `component: partial`), `workshop`, `setupFiles` and `devDependencies`. A command
+differs on Windows through its `…Windows` twin (`shellWindows`, `startWindows`, `buildWindows`,
+`productionWindows`, `checksWindows`). With `recipe: none`, `entry`, `sources`, `start`, `preview`
+(live) and `gate` are required. A header the studio cannot read is refused with the field named,
+and nothing in the prose is ever interpreted.
+
+Every command the environment names runs in the shell it declares (`none` starts the program by
+name, as before; `bash`, `sh`, `zsh`, `powershell`, `pwsh` or `cmd` are started by name with the
+line as their one command), never the machine's default shell, one at a time per repo, and only
+after you have approved it on this machine: `init`, `setup --apply` and `doctor` show each command
+with its shell and ask, and keep the approval by its hash in `rough/.roughbook/approvals.json`, so
+a command changed by a commit is asked again and a committed file never runs code on a teammate's
+machine unseen.
+
+`setupFiles` lists every file the setup adds or changes outside `rough/`, each with its template in
+`rough/setup/`: a whole file at `rough/setup/<path>`, or lines added to a file the app already has
+as `<path> (snippet)` with the lines at `rough/setup/<path>.snippet`. `setup --apply` and `init` on
+a clone write them into place (a snippet is appended once), and `uninstall` takes exactly them out.
+`rough/setup/sample/good/` and `rough/setup/sample/broken/` hold the iterations `doctor` renders
+for a repo with no recipe, with `{{roughbook:marker}}` and `{{roughbook:fixture}}` where their text
+shows.
 
 ## Local UI
 
@@ -124,6 +174,9 @@ for a backend on this machine; anything but this machine must be https.
 | Your analytics answer          | `settings.json` too; the backend keeps it as well    |
 | Analytics events not yet sent  | `events.json` in the user config folder              |
 | Runs, snapshots, the outbox    | `rough/.roughbook/`, never committed                 |
+| Approved commands, by hash     | `rough/.roughbook/approvals.json`, never committed   |
+| Setup runs and doctor's report | `rough/.roughbook/setup/`, `doctor-report.json`      |
+| The repo's environment         | `rough/environment.md` and `rough/setup/`, committed |
 | Screenshots                    | `rough/.screenshots/`, never committed               |
 
 The user config folder is `%APPDATA%\Roughbook` on Windows, `~/Library/Application Support/Roughbook`
@@ -237,22 +290,28 @@ only; and every file the setup adds outside `rough/` is listed in `rough/environ
 
 ## Doctor
 
-`roughbook doctor` proves the contract on this repo, with the app's dev server running: it writes
-two iterations of its own under a page of its own, `rough/doctor-check-<id>/` (one that renders,
-one that fails), asks the dev server about them as the studio would, takes screenshots at every
-viewport, changes the iteration and waits for the change to show, runs the production build and
-searches its output for the iteration, tries the preview from this machine's network address, and
-takes its iterations away again. Each check passes, fails with what to fix, or is skipped with the
-reason. The renders check tells three failures apart: the dev server never sent the iteration, the
+`roughbook doctor` proves the contract on this repo, with the app's dev server running. It first
+checks the prerequisites (every program the environment's commands name is on the PATH, with how
+to install each missing one) and that the environment reads and its commands are approved here;
+then it writes two iterations of its own under a page of its own, `rough/doctor-check-<id>/` (one
+that renders, one that fails; a recipe's own, or the setup run's samples from `rough/setup/sample/`),
+asks the dev server about them as the studio would, takes screenshots at every viewport, changes
+the iteration and waits for the change to show, runs the production build and searches its output
+for the iteration (or serves production and expects 404), tries the preview from this machine's
+network address, checks that every setup file is in place and matches its template (and, after a
+setup run, that nothing else outside `rough/` changed), and takes its iterations away again. Each
+check passes, fails with what to fix, or is skipped with the reason. The renders check tells three failures apart: the dev server never sent the iteration, the
 app sent it but the page shows something else (a layout or wrapper that decides what to show by
 path, and so must let the preview's address through in development), or the page shows it and
 never posts ready; the checks that need the iteration on the page are skipped after the second.
 The page's name is new on every run because a dev server's watcher (webpack's, on Windows) loses
 a folder that was deleted and made again, and would miss the change to the iteration. The exit code
 is 0 when every check passed, 1 when one failed, and 2 when the build was skipped (`--skip-build`),
-which leaves the repo unverified. `--json` prints the report for a team's own CI; `--report`
-writes `rough/.roughbook/doctor-report.json`, the checks and the versions with no path and nothing
-from the repo, for a support ticket.
+which leaves the repo unverified. `--json` prints the report for a team's own CI. Every run writes
+`rough/.roughbook/doctor-report.json`, the checks and the versions with no path and nothing from
+the repo, which `setup --fix` reads and `--report` names for a support ticket. The outcome, the
+mode, the family, the stack tokens and the ids of the checks that failed go to the server with the
+link, so ratings and analytics can be read by stack; nothing else does.
 
 The conformance suite is doctor over each recipe's fixture: `npm run build`, then
 `npm run conformance -- next` copies `conformance/fixtures/next` to a temp folder, installs it,
@@ -272,7 +331,10 @@ src/
   screenshot/   headless Chrome, Chromium or Edge, at desktop and phone widths
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion
-  repo/         the repo root, repo prep and the preview route, the link file, scratch apps
+  repo/         the repo root, repo prep, the link file, command approvals, the setup templates
+  recipes/      everything that names a stack: the detection table, the Next.js recipe, tool hints
+  environment/  rough/environment.md: its header's fields, read for this operating system
+  doctor/       roughbook doctor: the contract, its checks, the sentinel search
   fs/           whole-file JSON writes and the lock the CLI and local server share
   server/       the local server: its API, the built-in terminal's sessions, who may ask
   tests/

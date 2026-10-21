@@ -6,12 +6,31 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultEnvironment, previewUrl, readEnvironment } from '../environment/read.js';
+import {
+  ENVIRONMENT_FILE,
+  defaultEnvironment,
+  previewUrl,
+  readEnvironment
+} from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { programOf } from '../launch/processes.js';
+import { installHint } from '../recipes/tools.js';
+import { recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
+import {
+  approveCommands,
+  describeCommand,
+  environmentCommands,
+  readApprovals,
+  unapprovedCommands
+} from '../repo/approvals.js';
 import { iterationDir } from '../repo/iterations.js';
+import { readRepoLink } from '../repo/link.js';
+import { PREP_FILES, planPrep } from '../repo/prep.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { checkSetupFiles } from '../repo/setup.js';
+import { openSetup } from '../runs/setup.js';
+import { allChanged, compareFiles, hashRepo, ignored, readSnapshot } from '../runs/snapshot.js';
 import { STUDIO_VERSION } from '../version.js';
 import { findSentinel } from './sentinel.js';
 import { realTools } from './tools.js';
@@ -35,7 +54,8 @@ const BROKEN = 'iteration-02';
 const MISSING = 'iteration-99';
 
 const NAMES: Record<CheckId, string> = {
-  environment: 'The environment reads',
+  prerequisites: 'The tools the commands need are here',
+  environment: 'The environment reads and its commands are approved',
   app: 'The app answers',
   renders: 'An iteration renders and says so',
   fixture: 'The fixture reaches the iteration',
@@ -50,6 +70,7 @@ const NAMES: Record<CheckId, string> = {
 };
 
 const ORDER: CheckId[] = [
+  'prerequisites',
   'environment',
   'app',
   'renders',
@@ -71,6 +92,39 @@ function result(
   fix: string | null = null
 ) {
   return { id, name: NAMES[id], status, detail, fix };
+}
+
+/** The stand-ins a setup run's sample iteration carries, which doctor fills before rendering it. */
+export const SAMPLE_MARKER = '{{roughbook:marker}}';
+export const SAMPLE_FIXTURE = '{{roughbook:fixture}}';
+
+/**
+ * The sample iterations a setup run wrote for a stack with no recipe: rough/setup/sample/good/
+ * (renders the marker and its fixture) and rough/setup/sample/broken/ (fails to render), their
+ * files flat, with the stand-ins filled. Null when either is missing or empty.
+ */
+export function setupSamples(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  input: { marker: string; fixtureNote: string }
+): { good: Record<string, string>; broken: Record<string, string> } | null {
+  const read = (which: string): Record<string, string> | null => {
+    const dir = path.join(repoRoot, ROUGH_DIR, 'setup', 'sample', which);
+    if (!fs.existsSync(dir)) return null;
+    const files: Record<string, string> = {};
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      files[entry.name] = fs
+        .readFileSync(path.join(dir, entry.name), 'utf8')
+        .replaceAll(SAMPLE_MARKER, () => input.marker)
+        .replaceAll(SAMPLE_FIXTURE, () => input.fixtureNote);
+    }
+    return Object.keys(files).length ? files : null;
+  };
+  const good = read('good');
+  const broken = read('broken');
+  if (!good || !broken || !good[environment.entry] || !broken[environment.entry]) return null;
+  return { good, broken };
 }
 
 /** Removes every folder doctor made under rough/: this run's, or a crashed run's. */
@@ -141,7 +195,7 @@ function summarize(environment: RepoEnvironment): DoctorReport['environment'] {
 }
 
 export async function runDoctor(repoRoot: string, options: DoctorOptions): Promise<DoctorReport> {
-  const tools: DoctorTools = { ...realTools(process.env), ...options.tools };
+  const tools: DoctorTools = { ...realTools(process.env, repoRoot), ...options.tools };
   const checks: CheckResult[] = [];
   const skipFrom = (id: CheckId, detail: string) => {
     for (const next of ORDER.slice(ORDER.indexOf(id))) checks.push(result(next, 'skip', detail));
@@ -153,28 +207,84 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     checks
   });
 
-  // 1. The environment.
+  // 1. The environment, and the commands it names approved on this machine (decision 18).
   let environment: RepoEnvironment;
+  const link = await readRepoLink(repoRoot).catch(() => null);
   try {
-    environment = await readEnvironment(repoRoot);
+    environment = await readEnvironment(repoRoot, link);
   } catch (error) {
+    checks.push(result('prerequisites', 'skip', 'Not checked: the environment could not be read.'));
     checks.push(
       result(
         'environment',
         'fail',
         error instanceof Error ? error.message : String(error),
-        `Fix the header of ${ROUGH_DIR}/environment.md, or run roughbook setup to write it again.`
+        `Fix the header of ${ROUGH_DIR}/${ENVIRONMENT_FILE}, or run roughbook setup to write it again.`
       )
     );
     skipFrom('app', 'Not checked: the environment could not be read.');
     return report(defaultEnvironment());
   }
-  const recipe: Recipe = recipeFor(environment.recipe) ?? fallbackRecipe;
+  const recipe: Recipe | null = recipeOf(environment);
+  const setupName = recipe ? recipe.name : 'Your agent\u2019s setup (no recipe)';
+
+  // 0. The prerequisites: every program the commands name, on the PATH the declared shell sees.
+  const programs = [
+    ...new Set(
+      environmentCommands(environment).flatMap(item => programOf(item.command, item.shell))
+    )
+  ];
+  const missingTools = programs.filter(program => !tools.which(program));
+  if (missingTools.length) {
+    checks.push(
+      result(
+        'prerequisites',
+        'fail',
+        `Not on the PATH: ${missingTools.join(', ')}.`,
+        missingTools.map(tool => `${tool}: ${installHint(tool)}`).join(' ')
+      )
+    );
+  } else {
+    checks.push(
+      result(
+        'prerequisites',
+        'pass',
+        `${
+          programs.length
+            ? `${programs.join(', ')} ${programs.length === 1 ? 'is' : 'are'} on the PATH`
+            : 'The environment names no command to run'
+        }${tools.browser ? '' : '; no browser was found for screenshots (set ROUGHBOOK_BROWSER)'}.`
+      )
+    );
+  }
+
+  const approvals = await readApprovals(repoRoot);
+  let pending = unapprovedCommands(environment, approvals);
+  if (pending.length && options.approve) {
+    await approveCommands(repoRoot, pending);
+    pending = [];
+  }
+  if (pending.length) {
+    checks.push(
+      result(
+        'environment',
+        'fail',
+        `${pending.length} command${pending.length === 1 ? ' is' : 's are'} not approved on this machine: ${pending.map(describeCommand).join('; ')}.`,
+        'Run roughbook doctor in a terminal and approve them when asked, or roughbook doctor --yes once you have read them (decision 18 of the frameworks plan: a committed file never runs code on your machine unseen).'
+      )
+    );
+    skipFrom('app', 'Not checked: the commands are not approved.');
+    return report(environment);
+  }
   checks.push(
     result(
       'environment',
       'pass',
-      `${recipe.name} (${environment.family}, ${environment.mode} preview, gate: ${environment.gate}).`
+      `${setupName} (${environment.family}, ${environment.mode} preview, gate: ${environment.gate}${
+        environment.runtime.kind === 'container'
+          ? `, in a container at ${environment.runtime.url}`
+          : ''
+      })${programs.length ? `; ${programs.length === 1 ? 'its command is' : 'its commands are'} approved` : ''}.`
     )
   );
   if (environment.mode !== 'live') {
@@ -189,7 +299,24 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   const base = options.devUrl.replace(/\/+$/, '');
   const marker = `roughbook-doctor-${randomBytes(4).toString('hex')}`;
   const fixtureNote = `fixture-${randomBytes(3).toString('hex')}`;
-  const samples = recipe.doctorSamples({ marker, fixtureNote });
+  // A recipe knows how to write an iteration in its stack; the setup run writes samples for a
+  // stack with no recipe, in rough/setup/sample/, with stand-ins for the marker and the fixture.
+  const samples = recipe
+    ? recipe.doctorSamples({ marker, fixtureNote })
+    : setupSamples(repoRoot, environment, { marker, fixtureNote });
+  if (!samples) {
+    checks.push(
+      result('app', 'skip', 'Not checked: there is no sample iteration to render.'),
+      result(
+        'renders',
+        'fail',
+        `${ROUGH_DIR}/setup/sample/good/ and ${ROUGH_DIR}/setup/sample/broken/ are missing: the setup run writes one iteration that renders (its ${environment.entry}, with ${SAMPLE_MARKER} where text shows${environment.fixture ? `, and ${environment.fixture} with ${SAMPLE_FIXTURE} in a value it shows` : ''}) and one that fails.`,
+        'Run roughbook setup --fix so your agent writes the sample iterations, or write them by hand after rough/CONTRACT.md.'
+      )
+    );
+    skipFrom('fixture', 'Not checked: there is no sample iteration.');
+    return report(environment);
+  }
   // A page named anew each run: a dev server's watcher (webpack's, on Windows) loses a folder
   // that was deleted and made again, and would then miss the change to the iteration.
   const page = `${DOCTOR_PAGE}-${randomBytes(2).toString('hex')}`;
@@ -201,9 +328,28 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   clearDoctorFolders(repoRoot);
   writeFiles(repoRoot, goodFolder, samples.good);
   writeFiles(repoRoot, brokenFolder, samples.broken);
-  recipe.syncPreview(repoRoot);
+  recipe?.syncPreview(repoRoot);
   try {
-    // 2. The app.
+    // 2. The app, and the container it runs in when it does.
+    if (environment.runtime.kind === 'container') {
+      const container = await ask(
+        tools,
+        environment.runtime.url,
+        seconds(environment.timeouts.start)
+      );
+      if (!container) {
+        checks.push(
+          result(
+            'app',
+            'fail',
+            `The container at ${environment.runtime.url} did not answer.`,
+            'Start the container the environment names (runtime), and run roughbook doctor again.'
+          )
+        );
+        skipFrom('renders', 'Not checked: the container did not answer.');
+        return report(environment);
+      }
+    }
     const home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
     if (!home) {
       checks.push(
@@ -211,13 +357,25 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           'app',
           'fail',
           `Nothing answered at ${base}.`,
-          `Start the app's dev server there (its usual address is ${environment.start.url}), or name it with --dev-url, and run roughbook doctor again.`
+          `Start the app's dev server there (its usual address is ${environment.start.url}${
+            environment.start.command ? `, started with ${environment.start.command}` : ''
+          }), or name it with --dev-url, and run roughbook doctor again.`
         )
       );
       skipFrom('renders', 'Not checked: the app did not answer.');
       return report(environment);
     }
-    checks.push(result('app', 'pass', `${base} answered (HTTP ${home.status}).`));
+    checks.push(
+      result(
+        'app',
+        'pass',
+        `${base} answered (HTTP ${home.status})${
+          environment.runtime.kind === 'container'
+            ? `, from the container at ${environment.runtime.url}`
+            : ''
+        }.`
+      )
+    );
 
     // 3. The states: a rendered iteration, a failed one, a missing one.
     const previewMs = seconds(environment.timeouts.preview);
@@ -225,25 +383,32 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       previewUrl(base, page, DOCTOR_COMPONENT, iteration, environment);
     // A dev server notices the new iteration and the rewritten preview setup on its own time (a
     // recompile tick, or a first compile of the route), so the page is asked until it shows the
-    // iteration, within the preview timeout.
+    // iteration, within the preview timeout: in the HTML the server sends, or, for a preview the
+    // browser renders on the client (a bundler's page, a workshop), in the page's text once it
+    // settled, which the probe reads.
+    const probeAt = (target: string, expect?: string) =>
+      tools.probe({ url: target, overlays: environment.overlays, timeoutMs: previewMs, expect });
     const showing = async (needle: string) => {
       const deadline = tools.now() + previewMs;
       let last: Awaited<ReturnType<typeof ask>> = null;
+      let probe: Awaited<ReturnType<typeof probeAt>> | null = null;
       for (;;) {
         last = await ask(tools, url(GOOD), previewMs);
-        if (last?.text.includes(needle)) return { answer: last, shown: true };
-        if (tools.now() >= deadline) return { answer: last, shown: false };
+        if (last?.text.includes(needle)) return { answer: last, shown: true, probe };
+        if (last?.status === 200 && tools.browser) {
+          probe = await probeAt(url(GOOD), needle);
+          if (probe.text.includes(needle)) return { answer: last, shown: true, probe };
+        }
+        if (tools.now() >= deadline) return { answer: last, shown: false, probe };
         await tools.sleep(500);
       }
     };
     const first = await showing(marker);
     const good = first.answer;
-    const goodProbe = await tools.probe({
-      url: url(GOOD),
-      overlays: environment.overlays,
-      timeoutMs: previewMs,
-      expect: marker
-    });
+    const goodProbe = first.probe ?? (await probeAt(url(GOOD), marker));
+    /** Whether the server's HTML or the rendered page shows a text. */
+    const pageShows = (needle: string) =>
+      Boolean(good?.text.includes(needle)) || goodProbe.text.includes(needle);
     const rendered = good?.status === 200 && first.shown;
     // The server sent the iteration, but the browser shows something else: a layout of the app's
     // that decides what to show by path, showing its own view instead of the route. Nothing that
@@ -301,7 +466,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
 
     if (!environment.fixture) {
       checks.push(result('fixture', 'skip', "This stack's preview takes no fixture."));
-    } else if (good?.text.includes(fixtureNote)) {
+    } else if (pageShows(fixtureNote)) {
       checks.push(
         result('fixture', 'pass', `The sample's ${environment.fixture} reached the iteration.`)
       );
@@ -434,7 +599,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       }
     }
 
-    // 5. Freshness.
+    // 5. Freshness: in the server's HTML, or in the page the browser renders.
     const changed = `${marker}-changed`;
     rewrite(repoRoot, goodFolder, marker, changed);
     const deadline = tools.now() + previewMs;
@@ -444,6 +609,12 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       if (again?.text.includes(changed)) {
         fresh = true;
         break;
+      }
+      if (again?.status === 200 && tools.browser && !good?.text.includes(marker)) {
+        if ((await probeAt(url(GOOD), changed)).text.includes(changed)) {
+          fresh = true;
+          break;
+        }
       }
       if (tools.now() >= deadline) break;
       await tools.sleep(500);
@@ -479,7 +650,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           const built = await tools.exec(
             environment.build.command,
             repoRoot,
-            seconds(environment.timeouts.build)
+            seconds(environment.timeouts.build),
+            environment.shell
           );
           if (built.code === null) {
             problems.push(
@@ -517,7 +689,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
             environment.production.command,
             repoRoot,
             environment.production.url,
-            seconds(environment.timeouts.start)
+            seconds(environment.timeouts.start),
+            environment.shell
           );
           if (!served) {
             problems.push(
@@ -576,7 +749,13 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       const outside = new URL(url(GOOD));
       outside.hostname = address;
       const exposed = await ask(tools, outside.toString(), 5000);
-      const open = exposed?.status === 200 && exposed.text.includes(changed);
+      // A page the browser renders would show the iteration from the network too.
+      const open =
+        exposed?.status === 200 &&
+        (exposed.text.includes(changed) ||
+          (Boolean(tools.browser) &&
+            !good?.text.includes(marker) &&
+            (await probeAt(outside.toString(), changed)).text.includes(changed)));
       checks.push(
         open
           ? result(
@@ -595,13 +774,9 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       );
     }
 
-    checks.push(
-      result(
-        'setup-files',
-        'skip',
-        'Not checked yet: listed setup files come with F3 of the frameworks plan.'
-      )
-    );
+    // 8. The setup files: each listed one in place and matching its template, the recipe's own
+    // files as the recipe writes them now, and nothing else changed outside rough/ by the setup run.
+    checks.push(await setupFilesCheck(repoRoot, environment, recipe, link));
     checks.push(
       result(
         'speed',
@@ -612,10 +787,104 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     return report(environment);
   } finally {
     fs.rmSync(path.join(repoRoot, ...own.split('/')), { recursive: true, force: true });
-    recipe.syncPreview(repoRoot);
+    recipe?.syncPreview(repoRoot);
     fs.rmSync(shotsDir, { recursive: true, force: true });
   }
 }
+
+/**
+ * Check 8: every file the setup wrote outside rough/ is listed with its template and matches it
+ * (decision 28); a recipe's files are what the recipe writes now; and when a setup run is open,
+ * nothing else outside rough/ changed since it started, besides init's own prep files and the
+ * manifests a dev dependency touches with approval (decision 19).
+ */
+async function setupFilesCheck(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  recipe: Recipe | null,
+  link: Awaited<ReturnType<typeof readRepoLink>>
+): Promise<CheckResult> {
+  const problems = checkSetupFiles(repoRoot, environment);
+  const fixes: string[] = [];
+  if (problems.length) {
+    fixes.push(
+      `Make each file in setupFiles match its template in ${ROUGH_DIR}/setup/ (roughbook setup --apply writes the templates into place), and list every template.`
+    );
+  }
+  let recipeFiles: string[] = [];
+  if (recipe && link) {
+    recipeFiles = recipe.setupFiles(repoRoot, link);
+    const plan = planPrep(repoRoot, { link, recipe });
+    const stale = plan.changes.filter(change => recipeFiles.includes(change.file));
+    if (stale.length) {
+      problems.push(
+        `The ${recipe.name} recipe would write ${stale.map(change => change.file).join(', ')} differently now.`
+      );
+      fixes.push('Run roughbook setup --upgrade to bring the preview setup up to date.');
+    }
+  }
+  const setup = await openSetup(repoRoot);
+  const snapshot = setup ? await readSnapshot(repoRoot, setup.id) : null;
+  if (snapshot) {
+    const now = await hashRepo(repoRoot, environment.ignore);
+    const listed = new Set([
+      ...environment.setupFiles.map(file => file.path),
+      ...recipeFiles,
+      ...PREP_FILES,
+      ...MANIFESTS
+    ]);
+    // The setup run wrote the environment, whose ignore list the snapshot before it did not have:
+    // a file that only left the listing because the environment now ignores its folder, and is
+    // still on disk, did not change.
+    const unlisted = allChanged(compareFiles(snapshot.files, now.files)).filter(
+      file =>
+        !file.startsWith(`${ROUGH_DIR}/`) &&
+        !listed.has(file) &&
+        !(
+          !(file in now.files) &&
+          ignored(file, environment.ignore) &&
+          fs.existsSync(path.join(repoRoot, ...file.split('/')))
+        )
+    );
+    if (unlisted.length) {
+      problems.push(
+        `The setup run changed ${unlisted.length} file${unlisted.length === 1 ? '' : 's'} outside ${ROUGH_DIR}/ that setupFiles does not list: ${unlisted.slice(0, 5).join(', ')}${unlisted.length > 5 ? ', \u2026' : ''}.`
+      );
+      fixes.push(
+        `List each in setupFiles with its template in ${ROUGH_DIR}/setup/ (a whole file, or "<path> (snippet)" for lines added to a file the app has), or put it back (contract point 6).`
+      );
+    }
+  }
+  if (problems.length) return result('setup-files', 'fail', problems.join(' '), fixes.join(' '));
+  const count = environment.setupFiles.length + recipeFiles.length;
+  return result(
+    'setup-files',
+    'pass',
+    count
+      ? `${count} setup file${count === 1 ? '' : 's'} in place and matching${snapshot ? ', and nothing else changed outside rough/ since the setup run started' : ''}.`
+      : `The setup writes nothing outside ${ROUGH_DIR}/.`
+  );
+}
+
+/** Manifests and lockfiles a dev dependency added with approval changes (decision 19). */
+const MANIFESTS = [
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+  'composer.json',
+  'composer.lock',
+  'Gemfile',
+  'Gemfile.lock',
+  'pubspec.yaml',
+  'pubspec.lock',
+  'requirements.txt',
+  'pyproject.toml',
+  'poetry.lock',
+  'uv.lock'
+];
 
 /** The report as lines for the terminal. */
 export function renderReport(report: DoctorReport): string[] {

@@ -8,9 +8,10 @@ import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import type { AssetScope, ComponentRecord, Promotion, ProjectTree } from '../api/types.js';
 import { readEnvironment } from '../environment/read.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { fallbackRecipe, recipeOf } from '../recipes/index.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
+import { pascalCase } from '../repo/names.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { hasExtension } from './checks.js';
 import { assertTarget } from './slots.js';
@@ -142,6 +143,8 @@ export type PreparedPromotion = {
   /** Assets the iteration refers to that neither the project nor the library has. */
   missing: AssetName[];
   wroteCopy: boolean;
+  /** The localized file approved copy lands in, when the environment says so (decision 34). */
+  copyFile: string | null;
 };
 
 /** The app's public folder: given, beside the app's package.json, or the project's. */
@@ -149,13 +152,16 @@ export function publicDirFor(
   repoRoot: string,
   link: RepoLink,
   tree: ProjectTree,
-  given?: string
+  given?: string,
+  environmentDir: string | null = null
 ): string {
   if (given !== undefined) {
     const folder = repoFolder(given);
     if (!folder) throw new Error('The public folder must be a folder inside the repo.');
     return folder;
   }
+  // The environment's assets folder decides (decision 31); the project's delivery is the default.
+  if (environmentDir) return repoFolder(environmentDir) ?? 'public';
   if (link.appDir) {
     let dir = toDisk(repoRoot, link.appDir);
     while (dir.startsWith(repoRoot) && !fs.existsSync(path.join(dir, 'package.json'))) {
@@ -180,7 +186,7 @@ export async function preparePromotion(
   assertTarget(page, component, iteration);
   const record = findComponent(tree, page, component);
   const environment = await readEnvironment(repoRoot, link);
-  const recipe = recipeFor(environment.recipe) ?? fallbackRecipe;
+  const recipe = recipeOf(environment);
   const folder = toDisk(repoRoot, iterationDir(page, component, iteration));
   if (!fs.existsSync(path.join(folder, environment.entry))) {
     throw new Error(
@@ -188,17 +194,23 @@ export async function preparePromotion(
     );
   }
 
-  const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir);
+  const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir, environment.assets.dir);
+  // Where components go and what they are named: the environment's promote field decides
+  // (decision 31); the project's delivery is the default, through the recipe for a recipe repo.
+  const extensions = environment.promote.extensions;
+  const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
   const targetFile = (
     options.targetFile ??
-    recipe.promoteDefault(
-      tree.delivery.componentsDir,
-      record.name,
-      folder =>
-        fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
-    )
+    (recipe
+      ? recipe.promoteDefault(
+          componentsDir,
+          record.name,
+          folder =>
+            fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
+        )
+      : `${componentsDir}/${pascalCase(record.name)}${extensions[0] ?? ''}`)
   ).replace(/\\/g, '/');
-  const problem = checkTargetFile(targetFile, publicDir, recipe.promoteExtensions);
+  const problem = checkTargetFile(targetFile, publicDir, extensions);
   if (problem) throw new Error(problem);
   if (fs.existsSync(toDisk(repoRoot, targetFile))) {
     throw new Error(
@@ -246,6 +258,7 @@ export async function preparePromotion(
     publicDir,
     copied,
     missing,
-    wroteCopy: promotion.copyMarkdown !== null
+    wroteCopy: promotion.copyMarkdown !== null,
+    copyFile: environment.copy.kind === 'localized' ? environment.copy.file : null
   };
 }

@@ -147,26 +147,45 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   return { changes, manual, ignoredFromBuild, gitWanted };
 }
 
+/** How the setup run is told to set a Next.js app up, when no route from this recipe fits as it is. */
+const SETUP_NOTES = `This repo is on Next.js with the App Router, which has a recipe: roughbook init writes the
+development-only route <app>/${PREVIEW_ROUTE}/[...slug]/ (page, ready, error and not-found files),
+rough/preview.tsx for the app's providers, and the generated rough/${REGISTRY_FILE} that loads each
+iteration's index.tsx and preview.json. The route renders only when NODE_ENV is "development", in a
+branch the bundler drops from production builds (gate: build), answers notFound() to a host that is
+not this machine, and posts the ready and error messages. With Cache Components on it exports
+instant = false so a missing iteration still answers 404. Start from that setup; change it only
+where this app's layout, providers or Tailwind configuration need it, and keep the environment's
+recipe line as recipe: next so the studio keeps maintaining the registry.`;
+
 export const next: Recipe = {
   id: 'next',
   name: 'Next.js',
+  version: 1,
+  setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
-  environment(): RepoEnvironment {
+  environment(link): RepoEnvironment {
     return {
       contract: 1,
       recipe: 'next',
-      stack: [],
+      recipeVersion: 1,
+      stack: link?.stack ?? [],
       family: 'react-like',
       mode: 'live',
       entry: 'index.tsx',
       sources: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.json', '.md', '.svg'],
       code: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'],
-      start: { url: 'http://localhost:3000' },
+      placement: { kind: 'rough' },
+      wrapper: `${ROUGH_DIR}/preview.tsx`,
+      runtime: { kind: 'local' },
+      shell: 'none',
+      start: { command: 'npm run dev', url: 'http://localhost:3000' },
       preview: `/${PREVIEW_ROUTE}/{key}`,
       viewports: [
         { name: 'desktop', width: 1440, height: 900, mobile: false },
         { name: 'mobile', width: 390, height: 844, mobile: true }
       ],
+      variants: ['light'],
       ignore: ['node_modules', '.git', '.next', '.turbo', '.vercel', 'dist', 'out', 'build'],
       overlays: ['nextjs-portal'],
       fixture: FIXTURE,
@@ -174,10 +193,24 @@ export const next: Recipe = {
       build: { command: 'npm run build', output: ['.next/server', '.next/static', 'out'] },
       gate: 'build',
       production: null,
-      timeouts: { start: 60, preview: 150, build: 600 }
+      checks: [],
+      timeouts: { start: 60, preview: 150, build: 600 },
+      promote: { dir: null, extensions: ['.tsx', '.jsx'] },
+      assets: { dir: null, copy: false },
+      copy: { kind: 'inline' },
+      terms: { page: 'page', component: 'component' },
+      workshop: null,
+      setupFiles: [],
+      devDependencies: []
     };
   },
   planPreview,
+  setupFiles: (repo, link) =>
+    link.appDir
+      ? previewRouteFiles(link.appDir, { cacheComponents: usesCacheComponents(repo) }).map(
+          route => route.file
+        )
+      : [],
   agentRules:
     environment => `- \`${environment.entry}\` renders inside the app's own pages, as a server component in the
   Next.js App Router. If it uses state, effects, event handlers, browser APIs or

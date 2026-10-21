@@ -20,7 +20,7 @@ const SKIPPED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
  * Whether a file is in a folder the environment ignores: a bare name (`node_modules`) at any
  * depth, a path (`packages/web/dist`) at that place only.
  */
-function ignored(file: string, ignore: string[]): boolean {
+export function ignored(file: string, ignore: string[]): boolean {
   const folders = file.split('/').slice(0, -1);
   return ignore.some(entry => {
     const dir = entry.replace(/\/+$/, '');

@@ -58,13 +58,22 @@ async function tempRepo(files: Record<string, string>): Promise<string> {
 const read = (repo: string, name: string) => fs.readFileSync(path.join(repo, name), 'utf8');
 
 describe('preparing a repo', () => {
-  it('needs an absolute folder with a package.json', async () => {
+  it('needs an absolute folder that is a git repo or has a project file, package.json or not', async () => {
     const repo = await tempRepo({ 'package.json': '{}' });
     assert.deepEqual(checkRepo(repo), []);
     assert.match(checkRepo('client')[0]!, /absolute/);
     assert.match(checkRepo(path.join(repo, 'missing'))[0]!, /does not exist/);
+    // A git repo is an app whatever its stack (F3 of the frameworks plan).
     fs.rmSync(path.join(repo, 'package.json'));
-    assert.match(checkRepo(repo)[0]!, /no package\.json/);
+    assert.deepEqual(checkRepo(repo), []);
+    fs.rmSync(path.join(repo, '.git'), { recursive: true });
+    assert.match(checkRepo(repo)[0]!, /no git repository, no package\.json/);
+    // Another stack's manifest is enough, and so is a page in a folder init is run in.
+    fs.writeFileSync(path.join(repo, 'composer.json'), '{}');
+    assert.deepEqual(checkRepo(repo), []);
+    fs.rmSync(path.join(repo, 'composer.json'));
+    fs.writeFileSync(path.join(repo, 'index.html'), '<h1>Hi</h1>');
+    assert.deepEqual(checkRepo(repo), []);
     assert.match(checkRepo(repo, repo)[0]!, /home folder/);
     assert.match(checkRepo(path.dirname(repo), repo)[0]!, /home folder/);
   });
@@ -72,13 +81,19 @@ describe('preparing a repo', () => {
   it("finds the app's package.json above where init runs, but never outside its git repo", async () => {
     const repo = await tempRepo({ 'package.json': '{}', 'src/app/x/.keep': '' });
     assert.equal(appRoot(path.join(repo, 'src', 'app', 'x')), repo);
+    // Any manifest the detection table knows marks the app; a loose page on the way up does not.
+    const php = await tempRepo({ 'composer.json': '{}', 'resources/views/.keep': '' });
+    assert.equal(appRoot(path.join(php, 'resources', 'views')), php);
+    const pages = await tempRepo({ 'index.html': '', 'deep/.keep': '' });
+    assert.equal(appRoot(path.join(pages, 'deep')), pages);
     const outer = await tempRepo({
       'package.json': '{}',
       'client/.git/HEAD': '',
       'client/src/.keep': ''
     });
+    // A git repo with no package.json is an app too; the search never leaves it for the outer one.
     const inner = path.join(outer, 'client', 'src');
-    assert.equal(appRoot(inner), inner);
+    assert.equal(appRoot(inner), path.join(outer, 'client'));
   });
 
   it('prepares a Next.js 16 repo with rough/ committed, previews and all, and a second run changes nothing', async () => {

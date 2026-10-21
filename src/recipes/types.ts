@@ -21,12 +21,18 @@ export type PreviewPlan = {
 export type Recipe = {
   id: string;
   name: string;
+  /** Bumped when the preview setup changes, so `setup --upgrade` knows a repo is behind. */
+  version: number;
+  /** What the setup run's prompt gets when this recipe fits: how the preview is usually set up here. */
+  setupNotes: string;
   /** The folder the preview setup lives in, repo-relative, or null when the repo has none. */
   appDir(repo: string): string | null;
   /** The environment of a repo this recipe set up, or of one linked before environments existed. */
   environment(link: RepoLink | null): RepoEnvironment;
   /** The preview setup for a repo, planned without writing anything. */
   planPreview(repo: string, link: RepoLink): PreviewPlan;
+  /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
+  setupFiles(repo: string, link: RepoLink): string[];
   /** The stack's own rules in rough/AGENTS.md, after the rules every stack shares. */
   agentRules(environment: RepoEnvironment): string;
   /** rough/tsconfig.json, or null when the repo has no TypeScript settings to extend. */

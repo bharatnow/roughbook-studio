@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { hasProjectMarker } from '../recipes/detect.js';
 
 /** The studio's folder in the client's repo. */
 export const ROUGH_DIR = 'rough';
@@ -53,11 +54,18 @@ export function statePath(repoRoot: string, ...parts: string[]): string {
 }
 
 /**
- * The app `init` run from `start` means: the nearest folder upwards with a package.json, within
+ * Whether a folder looks like an app the studio can work in: a git repository, or a project
+ * manifest the detection table knows (a package.json, a composer.json, a Gemfile, a pubspec, …).
+ * Any stack, with or without a package.json (F3 of the frameworks plan).
+ */
+export function looksLikeApp(dir: string): boolean {
+  return existsSync(path.join(dir, '.git')) || hasProjectMarker(dir);
+}
+
+/**
+ * The app `init` run from `start` means: the nearest folder upwards that looks like an app, within
  * the same git repo. `start` itself when there is none, for checkRepo to refuse.
  */
 export function appRoot(start: string, home?: string): string {
-  return (
-    searchUp(start, dir => existsSync(path.join(dir, 'package.json')), home) ?? path.resolve(start)
-  );
+  return searchUp(start, looksLikeApp, home) ?? path.resolve(start);
 }
