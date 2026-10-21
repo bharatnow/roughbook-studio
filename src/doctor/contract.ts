@@ -42,5 +42,14 @@ through. Written for the agent that sets a repo up or changes its preview setup.
 6. **Listed.** Every file the preview setup adds or changes outside rough/ is listed in
    rough/environment.md, so it can be checked and removed.
 
+In standalone mode (\`mode: standalone\`) the studio's own server is the preview, and meets points 2
+to 5 itself: it serves an iteration's HTML entry as it is, or bundles a React one with esbuild,
+inside a page that loads the site's stylesheets (\`stylesheets\`, as the site's pages link them) and
+serves the site's folder (\`public\`) at its root. An iteration links its own files relative to its
+folder (\`./photo.jpg\`) and the site's files from the root (\`/images/logo.svg\`), as the site's
+pages do. An HTML iteration reads its fixture from \`window.roughbookFixture\`; a React one gets it as
+its props. The setup writes nothing outside rough/ then; point 1 is about the site itself, which
+must not publish or serve rough/.
+
 ${OURS}; it rewrites this file.
 `;

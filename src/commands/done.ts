@@ -3,7 +3,9 @@ import type { StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
 import { outboxFor } from '../api/outbox.js';
 import { defaultEnvironment, previewUrl, readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
+import { withPreviews } from '../standalone/server.js';
 import { assessRun, finishRun, type FinishOptions } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import type { Shots } from '../screenshot/iteration.js';
@@ -28,7 +30,16 @@ export function devUrl(
   return url;
 }
 
-export type CompleteOptions = FinishOptions & { devUrl: string; screenshots: boolean };
+export type CompleteOptions = FinishOptions & {
+  devUrl: string;
+  screenshots: boolean;
+  /**
+   * The environment as previews are asked through it, when the caller serves them (the local UI's
+   * standalone site, its token in the preview path). Otherwise it is read here, and standalone
+   * previews get a server of their own for the screenshots.
+   */
+  environment?: RepoEnvironment;
+};
 
 /**
  * Finishes one run; warms its preview, so a dev server that compiles on first request has it
@@ -48,26 +59,35 @@ export async function finishWithScreenshots(
   if (run.failure || run.outcome === 'cancelled' || run.outcome === 'failed') {
     return { run, shots: null };
   }
-  const environment = await readEnvironment(repoRoot, link);
+  const read = options.environment ?? (await readEnvironment(repoRoot, link));
+  // A standalone server started only for this would be gone before anyone looked.
+  if (!options.screenshots && !options.environment && read.mode === 'standalone') {
+    return { run, shots: null };
+  }
   const target = { page: run.page, component: run.component, iteration: run.iteration };
-  const answer = await context.askPreview(
-    previewUrl(options.devUrl, target.page, target.component, target.iteration, environment),
-    environment.timeouts.preview * 1000
-  );
-  if (!options.screenshots) return { run, shots: null };
-  const shots = await queued(repoRoot, () =>
-    context.screenshot(
-      repoRoot,
-      options.devUrl,
-      target,
-      context.env,
-      undefined,
-      undefined,
-      undefined,
-      environment,
-      { answer }
-    )
-  );
+  const shoot = async (url: string, environment: RepoEnvironment) => {
+    const answer = await context.askPreview(
+      previewUrl(url, target.page, target.component, target.iteration, environment),
+      environment.timeouts.preview * 1000
+    );
+    if (!options.screenshots) return null;
+    return queued(repoRoot, () =>
+      context.screenshot(
+        repoRoot,
+        url,
+        target,
+        context.env,
+        undefined,
+        undefined,
+        undefined,
+        environment,
+        { answer }
+      )
+    );
+  };
+  const shots = options.environment
+    ? await shoot(options.devUrl, read)
+    : await withPreviews(repoRoot, read, options.devUrl, shoot);
   return { run, shots };
 }
 

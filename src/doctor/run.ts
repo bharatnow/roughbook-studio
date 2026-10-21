@@ -34,6 +34,8 @@ import { openSetup } from '../runs/setup.js';
 import { allChanged, compareFiles, hashRepo, ignored, readSnapshot } from '../runs/snapshot.js';
 import type { takeScreenshot } from '../screenshot/browser.js';
 import { screenshotIteration } from '../screenshot/iteration.js';
+import { siteFile } from '../standalone/files.js';
+import { startStandaloneServer, type StandaloneServer } from '../standalone/server.js';
 import { STUDIO_VERSION } from '../version.js';
 import { findSentinel } from './sentinel.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -293,16 +295,19 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       })${programs.length ? `; ${programs.length === 1 ? 'its command is' : 'its commands are'} approved` : ''}.`
     )
   );
-  if (environment.mode !== 'live') {
+  if (environment.mode === 'snapshot') {
     skipFrom(
       'app',
-      `Not checked yet: ${environment.mode} previews are checked from F${environment.mode === 'snapshot' ? '6' : '5'} of the frameworks plan.`
+      'Not checked yet: snapshot previews are checked from F6 of the frameworks plan.'
     );
     return report(environment);
   }
 
   const seconds = (count: number) => count * 1000;
-  const base = options.devUrl.replace(/\/+$/, '');
+  /** Where previews are asked: the app's dev server, or the standalone server doctor starts. */
+  let base = options.devUrl.replace(/\/+$/, '');
+  /** The environment as previews are asked through it: in standalone mode, with the token. */
+  let shown = environment;
   const marker = `roughbook-doctor-${randomBytes(4).toString('hex')}`;
   const fixtureNote = `fixture-${randomBytes(3).toString('hex')}`;
   // A recipe knows how to write an iteration in its stack; the setup run writes samples for a
@@ -337,73 +342,107 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   recipe?.syncPreview(repoRoot);
   /** The app, when doctor started it itself (--speed with nothing answering), stopped at the end. */
   let startedApp: Served | null = null;
+  /** The studio's own server, in standalone mode, stopped at the end. */
+  let standalone: StandaloneServer | null = null;
   let coldStartedAt: number | null = null;
   let coldStartMs: number | null = null;
   try {
-    // 2. The app, and the container it runs in when it does.
-    if (environment.runtime.kind === 'container') {
-      const container = await ask(
-        tools,
-        environment.runtime.url,
-        seconds(environment.timeouts.start)
-      );
-      if (!container) {
+    // 2. The app: in standalone mode, the studio's own server and the site's files it loads,
+    // since nothing of the app runs for a preview; otherwise the app's dev server, and the
+    // container it runs in when it does.
+    if (environment.mode === 'standalone') {
+      standalone = await startStandaloneServer(repoRoot, () => environment);
+      base = standalone.url;
+      shown = standalone.environment;
+      const missing = siteProblems(repoRoot, environment);
+      if (missing.length) {
         checks.push(
           result(
             'app',
             'fail',
-            `The container at ${environment.runtime.url} did not answer.`,
-            'Start the container the environment names (runtime), and run roughbook doctor again.'
+            missing.join(' '),
+            "Name the site's folder (public) and its stylesheets as its pages link them, each a path under that folder or a full address (stylesheets), in rough/environment.md."
           )
         );
-        skipFrom('renders', 'Not checked: the container did not answer.');
+        skipFrom('renders', 'Not checked: the site the previews load is not all there.');
         return report(environment);
       }
-    }
-    let home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
-    if (!home && options.startApp && environment.start.command) {
-      // As roughbook start does: the approved start command, in its shell, timed from here to
-      // the first preview for the cold-start budget.
-      coldStartedAt = tools.now();
-      startedApp = await tools.serve(
-        environment.start.command,
-        repoRoot,
-        `${base}/`,
-        seconds(environment.timeouts.start),
-        environment.shell
-      );
-      if (startedApp) home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
-    }
-    if (!home) {
+      const sheets = environment.stylesheets;
       checks.push(
         result(
           'app',
-          'fail',
-          `Nothing answered at ${base}.`,
-          `Start the app's dev server there (its usual address is ${environment.start.url}${
-            environment.start.command ? `, started with ${environment.start.command}` : ''
-          }), or name it with --dev-url, and run roughbook doctor again.`
+          'pass',
+          `The studio's standalone server started at ${base}${
+            environment.public
+              ? `, with ${environment.public === '.' ? 'the repo' : `${environment.public}/`} as the site's root`
+              : ''
+          }${sheets.length ? `; it loads ${sheets.join(', ')}` : '; it loads no stylesheet of the site'}.`
         )
       );
-      skipFrom('renders', 'Not checked: the app did not answer.');
-      return report(environment);
+    } else {
+      if (environment.runtime.kind === 'container') {
+        const container = await ask(
+          tools,
+          environment.runtime.url,
+          seconds(environment.timeouts.start)
+        );
+        if (!container) {
+          checks.push(
+            result(
+              'app',
+              'fail',
+              `The container at ${environment.runtime.url} did not answer.`,
+              'Start the container the environment names (runtime), and run roughbook doctor again.'
+            )
+          );
+          skipFrom('renders', 'Not checked: the container did not answer.');
+          return report(environment);
+        }
+      }
+      let home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
+      if (!home && options.startApp && environment.start.command) {
+        // As roughbook start does: the approved start command, in its shell, timed from here to
+        // the first preview for the cold-start budget.
+        coldStartedAt = tools.now();
+        startedApp = await tools.serve(
+          environment.start.command,
+          repoRoot,
+          `${base}/`,
+          seconds(environment.timeouts.start),
+          environment.shell
+        );
+        if (startedApp) home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
+      }
+      if (!home) {
+        checks.push(
+          result(
+            'app',
+            'fail',
+            `Nothing answered at ${base}.`,
+            `Start the app's dev server there (its usual address is ${environment.start.url}${
+              environment.start.command ? `, started with ${environment.start.command}` : ''
+            }), or name it with --dev-url, and run roughbook doctor again.`
+          )
+        );
+        skipFrom('renders', 'Not checked: the app did not answer.');
+        return report(environment);
+      }
+      checks.push(
+        result(
+          'app',
+          'pass',
+          `${base} answered (HTTP ${home.status})${
+            environment.runtime.kind === 'container'
+              ? `, from the container at ${environment.runtime.url}`
+              : ''
+          }${startedApp ? `, started by doctor with ${environment.start.command}` : ''}.`
+        )
+      );
     }
-    checks.push(
-      result(
-        'app',
-        'pass',
-        `${base} answered (HTTP ${home.status})${
-          environment.runtime.kind === 'container'
-            ? `, from the container at ${environment.runtime.url}`
-            : ''
-        }${startedApp ? `, started by doctor with ${environment.start.command}` : ''}.`
-      )
-    );
 
     // 3. The states: a rendered iteration, a failed one, a missing one.
     const previewMs = seconds(environment.timeouts.preview);
-    const url = (iteration: string) =>
-      previewUrl(base, page, DOCTOR_COMPONENT, iteration, environment);
+    const url = (iteration: string) => previewUrl(base, page, DOCTOR_COMPONENT, iteration, shown);
     // A dev server notices the new iteration and the rewritten preview setup on its own time (a
     // recompile tick, or a first compile of the route), so the page is asked until it shows the
     // iteration, within the preview timeout: in the HTML the server sends, or, for a preview the
@@ -667,10 +706,33 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     } else {
       const problems: string[] = [];
       const fixes: string[] = [];
+      /** What held, in words, where the gate is not the plain build or route (below). */
+      const held: string[] = [];
+      // A site with no build is published as it is: its folders are what reaches production.
+      const published = !environment.build.command && environment.build.output.length > 0;
+      // A standalone preview is the studio's, so what the served site must not hand out is rough/.
+      const servesSite = environment.mode === 'standalone';
       if (environment.gate === 'build' || environment.gate === 'both') {
-        if (!environment.build.command) {
+        if (published) {
+          const folders = environment.build.output.join(', ');
+          const leaked = findSentinel(repoRoot, environment.build.output, changed);
+          if (leaked.length) {
+            problems.push(
+              `The folders the site publishes as they are (${folders}) hold the sample iteration: ${leaked.slice(0, 3).join(', ')}${leaked.length > 3 ? ', …' : ''}.`
+            );
+            fixes.push(
+              'Nothing from rough/ may be published: publish a folder that does not hold rough/ (buildOutput), or keep rough/ out of what the site deploys (contract point 1).'
+            );
+          } else {
+            held.push(
+              `nothing is built, and the folders published as they are (${folders}) hold nothing from rough/`
+            );
+          }
+        } else if (!environment.build.command) {
           problems.push('The gate is the build, but the environment names no build command.');
-          fixes.push('Name the production build command in rough/environment.md (build).');
+          fixes.push(
+            'Name the production build command in rough/environment.md (build), or, for a site published as it is, build: none and the folders it publishes (buildOutput).'
+          );
         } else {
           const built = await tools.exec(
             environment.build.command,
@@ -699,7 +761,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
               fixes.push(
                 'Nothing from rough/ may reach the production build; keep the preview setup to development (contract point 1).'
               );
-            }
+            } else held.push('the production build passed and holds nothing from rough/');
           }
         }
       }
@@ -726,18 +788,42 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
             );
           } else {
             try {
-              const answer = await ask(
-                tools,
-                previewUrl(
-                  environment.production.url,
-                  DOCTOR_PAGE,
-                  DOCTOR_COMPONENT,
-                  GOOD,
-                  environment
-                ),
-                previewMs
-              );
-              if (!answer || answer.status !== 404) {
+              // The sample iteration's own file, which a site serving its folder as it is would
+              // hand out; for a live preview, its route.
+              const asked = servesSite
+                ? `${environment.production.url}/${iterationDir(page, DOCTOR_COMPONENT, GOOD)}/${environment.entry}`
+                : previewUrl(
+                    environment.production.url,
+                    DOCTOR_PAGE,
+                    DOCTOR_COMPONENT,
+                    GOOD,
+                    environment
+                  );
+              const answer = await ask(tools, asked, previewMs);
+              if (servesSite) {
+                // What counts is whether the sample's own text came back, as the build gate looks
+                // for it: a server may answer a missing file with a page of the site's own (PHP's
+                // built-in server walks up to the nearest index.php), which is not the iteration.
+                const leaked =
+                  answer !== null &&
+                  answer.status >= 200 &&
+                  answer.status < 300 &&
+                  answer.text.includes(changed);
+                if (answer && !leaked) {
+                  held.push(
+                    `in production mode the site does not serve rough/ (the sample's ${environment.entry} answered HTTP ${answer.status}${answer.status < 300 ? ' with a page of the site’s own' : ''})`
+                  );
+                } else {
+                  problems.push(
+                    answer
+                      ? `In production mode the site served the sample iteration's own file, ${new URL(asked).pathname}: rough/ must not be on the site.`
+                      : `In production mode the site did not answer for the sample iteration's own file, ${new URL(asked).pathname}, so it cannot be shown to keep rough/ off the site.`
+                  );
+                  fixes.push(
+                    'Serve the site from a folder that does not hold rough/ (a document root such as public/), or refuse /rough/ there (contract point 1).'
+                  );
+                }
+              } else if (!answer || answer.status !== 404) {
                 problems.push(
                   `In production mode the preview answered ${answer ? `HTTP ${answer.status}` : 'nothing'}, not 404.`
                 );
@@ -751,17 +837,20 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           }
         }
       }
+      const said = held.join(', and ');
       checks.push(
         problems.length
           ? result('gate', 'fail', problems.join(' '), fixes.join(' '))
           : result(
               'gate',
               'pass',
-              environment.gate === 'build'
-                ? 'The production build passed and holds nothing from rough/.'
-                : environment.gate === 'runtime'
-                  ? 'In production mode the preview answers 404.'
-                  : 'The production build holds nothing from rough/, and in production mode the preview answers 404.'
+              published || servesSite
+                ? `${said.charAt(0).toUpperCase()}${said.slice(1)}.`
+                : environment.gate === 'build'
+                  ? 'The production build passed and holds nothing from rough/.'
+                  : environment.gate === 'runtime'
+                    ? 'In production mode the preview answers 404.'
+                    : 'The production build holds nothing from rough/, and in production mode the preview answers 404.'
             )
       );
     }
@@ -819,6 +908,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     const measures: SpeedMeasures = {
       previewVisibleMs: null,
       coldStartMs,
+      ...(standalone ? { noColdStart: 'nothing of the app starts for a standalone preview' } : {}),
       screenshotsMs: null,
       shots: 0,
       again: 0,
@@ -871,11 +961,11 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       };
       const answered = async (asked: string) => ({ status: 200, url: asked });
       const shotsAt = tools.now();
-      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, environment);
+      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, shown);
       measures.screenshotsMs = tools.now() - shotsAt;
       measures.shots = count;
       count = 0;
-      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, environment);
+      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, shown);
       measures.again = count;
     }
     const judged = judgeSpeed(measures);
@@ -894,7 +984,30 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     recipe?.syncPreview(repoRoot);
     fs.rmSync(shotsDir, { recursive: true, force: true });
     if (startedApp) await startedApp.stop();
+    if (standalone) await standalone.close();
   }
+}
+
+/**
+ * What the standalone previews would miss of the site: its public folder, or a stylesheet the
+ * environment names on the site that is not in it. Addresses elsewhere are the browser's to load.
+ */
+function siteProblems(repoRoot: string, environment: RepoEnvironment): string[] {
+  const problems: string[] = [];
+  const folder = environment.public;
+  const root = folder ? path.join(repoRoot, ...(folder === '.' ? [] : folder.split('/'))) : null;
+  if (folder && root && !(fs.existsSync(root) && fs.statSync(root).isDirectory())) {
+    problems.push(`The site's folder ${folder}/ (public) is not in the repo.`);
+    return problems;
+  }
+  for (const sheet of environment.stylesheets.filter(item => item.startsWith('/'))) {
+    if (!root || !siteFile(root, sheet.split('?')[0]!)) {
+      problems.push(
+        `stylesheets names ${sheet}, which is not in the site's folder${folder ? ` (${folder === '.' ? 'the repo' : `${folder}/`})` : ''}.`
+      );
+    }
+  }
+  return problems;
 }
 
 /**

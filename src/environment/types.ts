@@ -100,6 +100,17 @@ export type RepoEnvironment = {
    * reload, or the studio, by reloading the frame when the files change (the contract, point 4).
    */
   reload: 'app' | 'studio';
+  /**
+   * Standalone mode: the site's stylesheets as its pages link them, each a path on the site
+   * (served from the public folder) or a full address, loaded before the iteration.
+   */
+  stylesheets: string[];
+  /**
+   * Standalone mode: the folder served at the site's root, repo-relative (`.` for the repo
+   * itself), so the stylesheets and an iteration's links to the site's files resolve as on the
+   * site; null when there is none.
+   */
+  public: string | null;
   /** Folders a repo snapshot and the watcher skip, repo-relative; what no repo commits. */
   ignore: string[];
   /** Selectors of the app's own development overlays, hidden in screenshots. */

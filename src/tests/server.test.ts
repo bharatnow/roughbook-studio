@@ -176,6 +176,8 @@ describe('the local server', () => {
   let next = 1;
   /** Screenshots asked for, as "<dev url> <page>/<component>/<iteration>". */
   const shots: string[] = [];
+  /** The preview path each screenshot was asked through, as the environment it was given says. */
+  const shotPreviews: string[] = [];
   /** Whether the app answers at the dev URL, and what was asked of it. */
   let appUp = false;
   const askedApp: string[] = [];
@@ -418,8 +420,9 @@ describe('the local server', () => {
         error: null,
         usage: null
       }),
-      screenshot: async (_repo, devUrl, target) => {
+      screenshot: async (_repo, devUrl, target, _env, _take, _browser, _check, environment) => {
         shots.push(`${devUrl} ${target.page}/${target.component}/${target.iteration}`);
+        shotPreviews.push(environment?.preview ?? '');
         return { files: {}, warning: null };
       },
       askPreview: async url => {
@@ -994,6 +997,96 @@ describe('the local server', () => {
     const back = (await api('GET', '/api/state')).json.data;
     assert.equal(back.environment.reload, 'app');
     assert.equal(back.environmentProblem, null);
+  });
+
+  it('shows standalone previews on its own port under localhost, with a token of their own', async () => {
+    const files = {
+      'rough/environment.md':
+        '---\ncontract: 1\nrecipe: none\nfamily: markup-css\nmode: standalone\nentry: index.html\nsources:\n  - .html\npublic: public\nstylesheets:\n  - /css/site.css\ngate: build\nbuild: none\nbuildOutput:\n  - public\n---\n',
+      'rough/home/hero/iteration-77/index.html': '<section>Standalone hero 4c1</section>\n',
+      'public/css/site.css': 'body { margin: 0; }\n'
+    };
+    for (const [name, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(repo, name)), { recursive: true });
+      fs.writeFileSync(path.join(repo, name), content);
+    }
+    const asked = askedApp.length;
+    try {
+      const state = (await api('GET', '/api/state')).json.data;
+      assert.equal(state.environmentProblem, null);
+      assert.equal(state.environment.mode, 'standalone');
+      // The site is this server under its other name: another origin, so an iteration's code
+      // never reaches the page that holds the token.
+      assert.equal(state.devUrl, `http://localhost:${port}`);
+      const template: string = state.environment.preview;
+      assert.match(template, /^\/rough-preview\/\{key\}\/\?roughbook-token=[\w-]{20,}$/);
+      assert.ok(!template.includes(LOCAL_TOKEN));
+      assert.equal(state.environment.reload, 'studio');
+      // The studio's own server is the app: up, with nothing to start or ask.
+      assert.equal(state.app.status, 'up');
+      assert.equal(askedApp.length, asked);
+      const started = await api('POST', '/api/app/start');
+      assert.equal(started.status, 400);
+      assert.match(started.json.message, /standalone/);
+
+      const site = `localhost:${port}`;
+      const preview = template.replace('{key}', 'home/hero/iteration-77');
+      const shown = await raw(port, 'GET', preview, { host: site });
+      assert.equal(shown.status, 200);
+      const body = shown.body.toString('utf8');
+      assert.ok(body.includes('Standalone hero 4c1'));
+      assert.ok(body.includes('href="/css/site.css"'));
+      assert.match(
+        String(shown.headers['content-security-policy']),
+        new RegExp(`frame-ancestors http://127\\.0\\.0\\.1:${port}`)
+      );
+      // Without its token the site answers nothing, and the UI's token is not its token.
+      assert.equal(
+        (await raw(port, 'GET', '/rough-preview/home/hero/iteration-77/', { host: site })).status,
+        401
+      );
+      assert.equal(
+        (
+          await raw(port, 'GET', '/api/state', {
+            host: site,
+            authorization: `Bearer ${LOCAL_TOKEN}`
+          })
+        ).status,
+        401
+      );
+      // The site's pages cannot call the UI's API, even holding its token.
+      assert.equal(
+        (
+          await raw(port, 'GET', '/api/state', {
+            host: `127.0.0.1:${port}`,
+            origin: `http://${site}`,
+            authorization: `Bearer ${LOCAL_TOKEN}`
+          })
+        ).status,
+        403
+      );
+      // The UI's own name still serves the UI, not the site.
+      assert.equal((await raw(port, 'GET', preview, { host: `127.0.0.1:${port}` })).status, 503);
+
+      // Screenshots go through the same address and token as the frame.
+      const before = shots.length;
+      assert.equal(
+        (await api('POST', '/api/iterations/home/hero/iteration-77/screenshots', {})).status,
+        200
+      );
+      assert.deepEqual(shots.slice(before), [`http://localhost:${port} home/hero/iteration-77`]);
+      assert.equal(shotPreviews.at(-1), template);
+    } finally {
+      for (const name of Object.keys(files)) fs.rmSync(path.join(repo, name), { force: true });
+      fs.rmSync(path.join(repo, 'rough', 'home', 'hero', 'iteration-77'), {
+        recursive: true,
+        force: true
+      });
+      fs.rmSync(path.join(repo, 'public'), { recursive: true, force: true });
+    }
+    const back = (await api('GET', '/api/state')).json.data;
+    assert.equal(back.environment.mode, 'live');
+    assert.equal(back.devUrl, DEV_URL);
   });
 
   it('tells the page which iterations changed since it last asked, as the watcher sees them', async () => {

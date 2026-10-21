@@ -3,6 +3,7 @@ import { readEnvironment } from '../environment/read.js';
 import { recipeOf } from '../recipes/index.js';
 import { iterationExists } from '../runs/slots.js';
 import { listRuns } from '../runs/store.js';
+import { withPreviews } from '../standalone/server.js';
 import type { Command } from './context.js';
 import { devUrl } from './done.js';
 import { parseIteration } from './shared.js';
@@ -45,11 +46,22 @@ export const screenshot: Command = {
     // The preview setup renders only the iterations it knows of.
     const environment = await readEnvironment(repoRoot);
     recipeOf(environment)?.syncPreview(repoRoot);
-    const shots = await context.screenshot(
+    // Through the app's dev server, or a standalone server of its own for the time it takes.
+    const shots = await withPreviews(
       repoRoot,
+      environment,
       devUrl(values['dev-url'], context.env, environment.start.url),
-      target,
-      context.env
+      (url, shown) =>
+        context.screenshot(
+          repoRoot,
+          url,
+          target,
+          context.env,
+          undefined,
+          undefined,
+          undefined,
+          shown
+        )
     );
     const files = Object.values(shots.files);
     if (files.length) io.out(`${label}: ${files.join(', ')}`);

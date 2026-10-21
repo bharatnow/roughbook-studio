@@ -1,6 +1,7 @@
 // The local server: the built UI, its JSON API, the asset files iterations load through the
 // repo's dev server, and the built-in terminal's socket. 127.0.0.1 only; see security.ts for who
-// may ask what.
+// may ask what. In standalone mode the same port under the name localhost is the standalone
+// previews' site (standalone/server.ts), an origin apart from the UI's.
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -128,7 +129,11 @@ function contentSecurityPolicy(port: number, devUrl: string): string {
 
 export function createLocalServer(options: LocalServerOptions): http.Server {
   const { studio, port, token } = options;
-  const devOrigin = new URL(options.devUrl).origin;
+  /** Where iterations render, as it is now: the app's dev server, or this port's site. */
+  const devOrigin = () => new URL(studio.devUrl).origin;
+  /** The UI's own origins; in standalone mode never the site's, whose pages run iterations. */
+  const uiOrigins = () =>
+    studio.standaloneMode ? [`http://127.0.0.1:${port}`] : localOrigins(port);
   const shotKey = imageKey(token);
 
   const routes: Route[] = [
@@ -223,7 +228,7 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
         message: 'Open the link roughbook start printed.'
       });
     }
-    if (!originAllowed(request, port)) {
+    if (!originAllowed(request, port, uiOrigins())) {
       return sendJson(response, 403, { error: 'FORBIDDEN', message: 'Not this page.' });
     }
     for (const item of routes) {
@@ -273,7 +278,9 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
           "default-src 'none'; style-src 'unsafe-inline'; sandbox";
       }
       // 3D models are fetched by script, which needs the dev server named.
-      if (request.headers.origin === devOrigin) headers['access-control-allow-origin'] = devOrigin;
+      if (request.headers.origin === devOrigin()) {
+        headers['access-control-allow-origin'] = devOrigin();
+      }
       response.writeHead(200, headers).end(bytes);
     } catch (error) {
       const { status } = failure(error);
@@ -348,7 +355,7 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     };
     if (extension === '.html') {
       headers['cache-control'] = 'no-store';
-      headers['content-security-policy'] = contentSecurityPolicy(port, options.devUrl);
+      headers['content-security-policy'] = contentSecurityPolicy(port, studio.devUrl);
     } else if (pathname.startsWith('/assets/')) {
       // The UI's bundler names these by their content.
       headers['cache-control'] = 'public, max-age=31536000, immutable';
@@ -362,6 +369,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
   }
 
   const server = http.createServer((request, response) => {
+    // The standalone previews, when the environment's mode says so: this port under localhost.
+    if (studio.standaloneMode && request.headers.host === studio.siteHost) {
+      studio.standalone(request, response);
+      return;
+    }
     // A page whose own domain resolves to 127.0.0.1 still names that domain as the Host.
     if (!hostAllowed(request, port)) {
       response.writeHead(403, { 'content-type': 'text/plain' }).end('Not this host.');
@@ -392,8 +404,9 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     const id = /^\/api\/terminals\/([0-9a-f-]{36})$/.exec(pathname)?.[1];
     const allowed =
       hostAllowed(request, port) &&
+      !(studio.standaloneMode && request.headers.host === studio.siteHost) &&
       request.headers.origin !== undefined &&
-      originAllowed(request, port) &&
+      originAllowed(request, port, uiOrigins()) &&
       sameToken(offeredToken(request), token) &&
       id !== undefined &&
       studio.terminals?.get(id) !== null &&

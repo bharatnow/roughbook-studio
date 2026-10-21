@@ -43,11 +43,17 @@ import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
 import { SHOTS_MANIFEST, screenshotPath, type ShotOptions } from '../screenshot/iteration.js';
+import {
+  createStandaloneHandler,
+  withToken,
+  type StandaloneHandler
+} from '../standalone/server.js';
 import { EVENT_CATALOG } from '../telemetry/catalog.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
 import { ChangeFeed, changedKey } from './changes.js';
 import { ProjectCache } from './projectCache.js';
+import { newToken } from './security.js';
 import { Terminals, type TerminalInfo } from './terminals.js';
 
 export type LocalStudioOptions = {
@@ -336,18 +342,51 @@ export class LocalStudio {
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
   private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
+  /**
+   * The standalone previews' own token: in their addresses, which the iteration's code can read,
+   * so never the UI's, and good for nothing but previews.
+   */
+  private readonly previewToken = newToken();
+  /** The standalone server, on this port under the name localhost (see standalone/server.ts). */
+  readonly standalone: StandaloneHandler;
 
   constructor(private readonly options: LocalStudioOptions) {
     this.terminals = options.pty.ok ? new Terminals(options.pty.pty) : null;
     this.outbox = outboxFor(options.context.repoRoot);
+    this.standalone = createStandaloneHandler({
+      repoRoot: options.context.repoRoot,
+      environment: () => this.environment,
+      token: this.previewToken,
+      hosts: [this.siteHost],
+      frameAncestors: [`http://127.0.0.1:${options.port}`]
+    });
   }
 
   get repoRoot(): string {
     return this.options.context.repoRoot;
   }
 
+  /** Whether the studio's own server shows the previews (the environment's mode, as it is now). */
+  get standaloneMode(): boolean {
+    return this.environment.mode === 'standalone';
+  }
+
+  /**
+   * The standalone previews' Host: this port under its other name, an origin apart from the UI's
+   * page at 127.0.0.1, so an iteration's code never reaches the page or its token.
+   */
+  get siteHost(): string {
+    return `localhost:${this.options.port}`;
+  }
+
+  /** Where iterations render: the app's dev server, or this server's site in standalone mode. */
   get devUrl(): string {
-    return this.options.devUrl;
+    return this.standaloneMode ? `http://${this.siteHost}` : this.options.devUrl;
+  }
+
+  /** The environment as the frame and the screenshots ask previews: with the token in standalone mode. */
+  previewEnvironment(): RepoEnvironment {
+    return withToken(this.environment, this.previewToken);
   }
 
   /**
@@ -385,7 +424,7 @@ export class LocalStudio {
 
   /** The environment as the page's frame needs it. */
   async environmentView(): Promise<EnvironmentView> {
-    const environment = this.environment;
+    const environment = this.previewEnvironment();
     const approvals = await readApprovals(this.repoRoot);
     const command = environment.start.command;
     return {
@@ -406,6 +445,8 @@ export class LocalStudio {
 
   /** The app's state, with the last line of its session while it starts. */
   appView(): AppView {
+    // In standalone mode the studio's own server is the app, up while the studio is.
+    if (this.standaloneMode) return { status: 'up', terminal: null, since: null, lastLine: null };
     const terminal = this.app.terminal ? this.terminals?.get(this.app.terminal) : null;
     if (this.app.status === 'starting' && terminal?.status === 'exited') {
       this.app = { ...this.app, status: 'down' };
@@ -421,6 +462,7 @@ export class LocalStudio {
 
   /** Asks the app once whether it answers at its address, and keeps the answer for the page. */
   async checkApp(): Promise<AppView> {
+    if (this.standaloneMode) return this.appView();
     const answer = await this.options.context.askPreview(`${this.options.devUrl}/`, APP_ASK_MS);
     if (answer) {
       this.app = {
@@ -446,6 +488,11 @@ export class LocalStudio {
     terminal: TerminalInfo | null;
   }> {
     const environment = this.environment;
+    if (this.standaloneMode) {
+      throw new BadRequest(
+        `In standalone mode the studio's own server shows the previews, at ${this.devUrl}; there is no app to start.`
+      );
+    }
     const command = environment.start.command;
     if (!command) throw new BadRequest('The environment names no command that starts the app.');
     if (!this.terminals) {
@@ -537,7 +584,7 @@ export class LocalStudio {
 
   private async reshoot(key: string): Promise<void> {
     try {
-      if (this.app.status !== 'up') return;
+      if (this.appView().status !== 'up') return;
       const [page, component, iteration] = key.split('/') as [string, string, string];
       if (!iterationExists(this.repoRoot, page, component, iteration)) return;
       const open = (await listRuns(this.repoRoot)).some(
@@ -571,7 +618,8 @@ export class LocalStudio {
   }
 
   async state() {
-    const { link, devUrl, port, pty, api } = this.options;
+    const { link, port, pty, api } = this.options;
+    const devUrl = this.devUrl;
     const [settings, agents, pending, dropped] = await Promise.all([
       readSettings(this.options.context.configDir),
       this.agents(),
@@ -826,7 +874,8 @@ export class LocalStudio {
         {
           outcome,
           usage,
-          devUrl: this.options.devUrl,
+          devUrl: this.devUrl,
+          environment: this.previewEnvironment(),
           screenshots: true,
           by: 'headless'
         }
@@ -874,7 +923,8 @@ export class LocalStudio {
       {
         outcome,
         mine: mine as string[] | undefined,
-        devUrl: this.options.devUrl,
+        devUrl: this.devUrl,
+        environment: this.previewEnvironment(),
         screenshots: true,
         by: 'local-ui'
       }
@@ -1082,12 +1132,12 @@ export class LocalStudio {
         `${target.page}/${target.component}/${target.iteration} is not in this repo.`
       );
     }
-    const environment = this.environment;
+    const environment = this.previewEnvironment();
     recipeOf(environment)?.syncPreview(this.repoRoot);
     return queued(this.repoRoot, () =>
       this.context.screenshot(
         this.repoRoot,
-        this.options.devUrl,
+        this.devUrl,
         target,
         this.context.env,
         undefined,

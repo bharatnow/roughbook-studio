@@ -90,15 +90,16 @@ committed. The header is `key: value` lines and `key:` with `- item` lines. Its 
 language tag such as `en` or `ar`, `large-text`, or a word of the setup's own, which reach the
 preview as `roughbook-scheme`, `roughbook-dir`, `roughbook-lang`, `roughbook-text` and
 `roughbook-variant` query parameters), `reload` (`app` when the stack reloads a changed iteration
-itself, `studio` when the frame reloads it on a change), `ignore`, `overlays`,
+itself, `studio` when the frame reloads it on a change), `stylesheets` and `public` (standalone
+mode, below), `ignore`, `overlays`,
 `fixture`, `build` and `buildOutput`, `gate` (`build`, `runtime` or `both`), `production`
 (`<command> @ <url>`), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
 `promoteExtensions`, `assets` and `assetsCopy`, `copy` (`inline`, or `localized <file>`), `terms`
 (`page: view`, `component: partial`), `workshop`, `setupFiles` and `devDependencies`. A command
 differs on Windows through its `…Windows` twin (`shellWindows`, `startWindows`, `buildWindows`,
-`productionWindows`, `checksWindows`). With `recipe: none`, `entry`, `sources`, `start`, `preview`
-(live) and `gate` are required. A header the studio cannot read is refused with the field named,
-and nothing in the prose is ever interpreted.
+`productionWindows`, `checksWindows`). With `recipe: none`, `entry`, `sources`, `start` (not in
+standalone mode), `preview` (live) and `gate` are required. A header the studio cannot read is
+refused with the field named, and nothing in the prose is ever interpreted.
 
 Every command the environment names runs in the shell it declares (`none` starts the program by
 name, as before; `bash`, `sh`, `zsh`, `powershell`, `pwsh` or `cmd` are started by name with the
@@ -301,6 +302,33 @@ iteration posts `{ roughbook: "ready", id }` to the page's parent and a missing 
 iteration's files shows without a restart; the preview answers requests addressed to this machine
 only; and every file the setup adds outside `rough/` is listed in `rough/environment.md`.
 
+## Standalone mode
+
+For a repo no live dev server suits (a plain HTML site, a PHP site with no Node.js tooling, a
+design-system repo), `mode: standalone` makes the studio's own server the preview, so the setup
+writes nothing outside `rough/`. It serves an iteration's HTML entry (`index.html`, a fragment or a
+whole page) as it is, or bundles a React one (`index.tsx`, `index.jsx`) with esbuild against the
+repo's own `react` and `react-dom`, at `/rough-preview/<page>/<component>/<iteration>/`, inside a
+page that loads the site's stylesheets. `public` names the folder served at the site's root (`.`
+for the repo itself), so the iteration's links to the site's files (`/images/logo.svg`) resolve as
+on the site, while its own files are linked relative to its folder; `stylesheets` lists the
+stylesheets as the site's pages link them, a path under that folder (`/css/site.css`) or a full
+address. An HTML `wrapper` holds `{{roughbook:iteration}}` where the iteration goes; a React one is
+a component that takes `children`. The fixture reaches an HTML iteration as
+`window.roughbookFixture` and a React one as its props, and the variants reach the page's root
+(`lang`, `dir`, a `dark` class with `color-scheme: dark`). The server answers 200, 404 for a key with
+no iteration and 500 for one it cannot render (with the reason, such as esbuild's error), posts the
+ready and error messages itself, and renders again on every request, so `reload` is `studio`.
+
+It listens on 127.0.0.1 only: in the local UI on the studio's own port under the name `localhost`,
+an origin apart from the UI's page at `127.0.0.1`, so an iteration's code never reaches the UI or
+its token; for `doctor`, `screenshot` and a run finished outside the UI, on a free port for the time
+it takes. Every request carries the previews' own token (in the address, which the frame and the
+screenshots get from the studio) unless the browser marks it as the preview page's own
+(`Sec-Fetch-Site: same-origin`), which no other site can. The gate is about the site itself:
+`build: none` with the folders it publishes as they are in `buildOutput` (none may hold `rough/`), or
+`gate: runtime` with `production` serving the site, which must not hand out `rough/`.
+
 ## Doctor
 
 `roughbook doctor` proves the contract on this repo, with the app's dev server running (with
@@ -328,6 +356,13 @@ which leaves the repo unverified. `--json` prints the report for a team's own CI
 the repo, which `setup --fix` reads and `--report` names for a support ticket. The outcome, the
 mode, the family, the stack tokens and the ids of the checks that failed go to the server with the
 link, so ratings and analytics can be read by stack; nothing else does.
+
+In standalone mode doctor starts the studio's own server instead of asking the app, checks that the
+site's folder and the stylesheets on it are there, and runs the same checks through it; the gate
+searches the folders the site publishes for the sample iteration (`build: none`), or asks the site
+in production mode for the sample's own file under `rough/` and expects anything but that file
+back: a 404, or a page of the site's own, as PHP's built-in server answers a missing file
+(`gate: runtime`).
 
 The twelfth check, `--speed`, measures the speed budgets of ROUGHBOOK-FRAMEWORKS-PLAN.md on a third
 sample iteration, as a finished run leaves one: the preview visible (warmed once, then until it
@@ -367,8 +402,10 @@ src/
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion
   repo/         the repo root, repo prep, the link file, command approvals, the setup templates
-  recipes/      everything that names a stack: the detection table, the Next.js recipe, tool hints
+  recipes/      everything that names a stack: the detection table, the Next.js recipe, tool hints,
+                and the standalone server's renderers (HTML as it is, React through esbuild)
   environment/  rough/environment.md: its header's fields, read for this operating system
+  standalone/   the standalone server: the page around an iteration, its files, who may ask
   doctor/       roughbook doctor: the contract, its checks, the sentinel search
   fs/           whole-file JSON writes and the lock the CLI and local server share
   server/       the local server: its API, the built-in terminal's sessions, who may ask

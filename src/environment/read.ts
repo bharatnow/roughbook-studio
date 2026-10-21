@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import { currentOs, hostPlatform } from '../launch/platform.js';
 import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { STANDALONE_ENTRIES, standaloneRenderer } from '../recipes/standalone/index.js';
 import { readRepoLink, type RepoLink } from '../repo/link.js';
 import { ROUGH_DIR, roughPath } from '../repo/root.js';
 import { bareEnvironment } from './bare.js';
@@ -39,6 +40,12 @@ export const ENTRY_PLACEHOLDER = '{{roughbook:entry}}';
 export const TERM_PAGE_PLACEHOLDER = '{{roughbook:term-page}}';
 export const TERM_COMPONENT_PLACEHOLDER = '{{roughbook:term-component}}';
 export const ENVIRONMENT_PLACEHOLDER = '{{roughbook:environment}}';
+
+/**
+ * The preview path in standalone mode: the studio's own server's, whatever the stack. It ends with
+ * a slash, so an iteration's own files resolve inside its folder.
+ */
+export const STANDALONE_PREVIEW = '/rough-preview/{key}/';
 
 /** What the environment line says when the repo has one. */
 export const ENVIRONMENT_LINE = `Read ${ROUGH_DIR}/${ENVIRONMENT_FILE} before writing: it says how this repo's components, styles and tokens work, and what an iteration here must hold.`;
@@ -199,10 +206,18 @@ export function environmentFromHeader(
     refuse('recipe', `names ${recipeId}, which this studio does not have.`);
   }
   const base = recipe ? recipe.environment(link) : bareEnvironment(link);
-  // With no recipe, the file must say what a recipe would have, in the table's order.
+  // With no recipe, the file must say what a recipe would have, in the table's order. Standalone
+  // previews need nothing of the app running, so no start command or preview path.
   if (!recipe) {
-    const live = (text(fields, 'mode') ?? base.mode) === 'live';
-    for (const field of ['entry', 'sources', 'start', ...(live ? ['preview'] : []), 'gate']) {
+    const named = text(fields, 'mode') ?? base.mode;
+    const own = named === 'standalone' ? [] : ['start'];
+    for (const field of [
+      'entry',
+      'sources',
+      ...own,
+      ...(named === 'live' ? ['preview'] : []),
+      'gate'
+    ]) {
       if (fields[field] === undefined) {
         refuse(field, 'is required when no recipe set this repo up (recipe: none).');
       }
@@ -297,6 +312,70 @@ export function environmentFromHeader(
   if (variants?.some(item => !/^[a-z][a-z0-9-]*$/.test(item))) {
     refuse('variants', 'are words such as light, dark, en or ar, one per line.');
   }
+  // Standalone mode: the folder the site serves at its root, and its stylesheets as its pages
+  // link them, which the studio's own server loads around every iteration.
+  const publicText = text(fields, 'public');
+  let publicDir: string | null | undefined;
+  if (publicText !== undefined) {
+    const value = publicText.trim();
+    if (value === 'none') publicDir = null;
+    else if (value === '.' || value === './') publicDir = '.';
+    else {
+      publicDir = repoPath('public', value);
+      if (publicDir === ROUGH_DIR || publicDir.startsWith(`${ROUGH_DIR}/`)) {
+        refuse(
+          'public',
+          `is the site's own folder, served at its root; ${ROUGH_DIR}/ is shown at the previews' addresses, never from it.`
+        );
+      }
+    }
+  }
+  const stylesheets = list(fields, 'stylesheets');
+  for (const item of stylesheets ?? []) {
+    const address = /^https?:\/\/\S+$/.test(item);
+    const onSite =
+      /^\/[^\s#]*$/.test(item) &&
+      !item
+        .split('?')[0]!
+        .split('/')
+        .some(segment => segment === '..' || segment === '.');
+    if (!address && !onSite) {
+      refuse(
+        'stylesheets',
+        `lists each stylesheet as the site's pages link it: a path on the site starting with / (served from the public folder), or a full address; not "${item}".`
+      );
+    }
+  }
+  const servedFrom = publicDir === undefined ? base.public : publicDir;
+  const onSiteSheet = (stylesheets ?? base.stylesheets).find(item => item.startsWith('/'));
+  if (onSiteSheet && servedFrom === null) {
+    refuse(
+      'stylesheets',
+      `names ${onSiteSheet}, a path on the site, but public names no folder to serve it from.`
+    );
+  }
+  const shownBy = (mode as PreviewMode | undefined) ?? base.mode;
+  if (shownBy === 'standalone') {
+    if (preview !== undefined && preview !== STANDALONE_PREVIEW) {
+      refuse(
+        'preview',
+        `is the studio's own in standalone mode (${STANDALONE_PREVIEW}); leave it out.`
+      );
+    }
+    if (reload === 'app') {
+      refuse(
+        'reload',
+        "is studio in standalone mode: the studio's own server shows a change when the frame reloads."
+      );
+    }
+    const shownEntry = entry ?? base.entry;
+    if (!standaloneRenderer(shownEntry)) {
+      refuse(
+        'entry',
+        `is ${shownEntry || 'missing'}; standalone mode shows ${STANDALONE_ENTRIES}.`
+      );
+    }
+  }
   const checks = listForOs(fields, 'checks', os);
   const promote = text(fields, 'promote');
   const promoteExtensions = list(fields, 'promoteExtensions');
@@ -348,10 +427,15 @@ export function environmentFromHeader(
     runtime: runtime ?? base.runtime,
     shell: (shell as Shell | undefined) ?? base.shell,
     start: start ? { command: start.command, url: start.url } : base.start,
-    preview: preview ?? base.preview,
+    preview: shownBy === 'standalone' ? STANDALONE_PREVIEW : (preview ?? base.preview),
     viewports: viewports ?? base.viewports,
     variants: variants ?? base.variants,
-    reload: (reload as 'app' | 'studio' | undefined) ?? base.reload,
+    reload:
+      shownBy === 'standalone'
+        ? 'studio'
+        : ((reload as 'app' | 'studio' | undefined) ?? base.reload),
+    stylesheets: stylesheets ?? base.stylesheets,
+    public: servedFrom,
     ignore: list(fields, 'ignore') ?? base.ignore,
     overlays: list(fields, 'overlays') ?? base.overlays,
     fixture: fixture === undefined ? base.fixture : fixture === 'none' ? null : fixture,

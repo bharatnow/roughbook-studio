@@ -18,6 +18,8 @@ export type SpeedMeasures = {
   previewVisibleMs: number | null;
   /** Null when the app was already running, so there was no cold start to measure. */
   coldStartMs: number | null;
+  /** Why there is no cold start, when it is not that the app was already running. */
+  noColdStart?: string;
   screenshotsMs: number | null;
   /** How many screenshots the first pass took, and how many the second took with nothing changed. */
   shots: number;
@@ -48,7 +50,7 @@ export function judgeSpeed(
     }
   }
   if (measures.coldStartMs === null) {
-    parts.push('cold start not measured: the app was already running');
+    parts.push(`cold start not measured: ${measures.noColdStart ?? 'the app was already running'}`);
   } else {
     parts.push(`cold start in ${seconds(measures.coldStartMs)} (${budget(budgets.coldStartMs)})`);
     if (measures.coldStartMs > budgets.coldStartMs) {

@@ -40,10 +40,14 @@ export function hostAllowed(request: IncomingMessage, port: number): boolean {
   return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
 }
 
-/** An Origin header, when sent, must be this server's own page. */
-export function originAllowed(request: IncomingMessage, port: number): boolean {
+/** An Origin header, when sent, must be this server's own page: one of `origins`. */
+export function originAllowed(
+  request: IncomingMessage,
+  port: number,
+  origins: string[] = localOrigins(port)
+): boolean {
   const origin = request.headers.origin;
-  return origin === undefined || localOrigins(port).includes(origin);
+  return origin === undefined || origins.includes(origin);
 }
 
 export function bearerToken(request: IncomingMessage): string | undefined {

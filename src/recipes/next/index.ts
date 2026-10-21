@@ -188,6 +188,8 @@ export const next: Recipe = {
       ],
       variants: ['light'],
       reload: 'app',
+      stylesheets: [],
+      public: null,
       ignore: ['node_modules', '.git', '.next', '.turbo', '.vercel', 'dist', 'out', 'build'],
       overlays: ['nextjs-portal'],
       fixture: FIXTURE,

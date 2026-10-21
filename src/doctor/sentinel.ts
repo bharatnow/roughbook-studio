@@ -20,7 +20,7 @@ export function findSentinel(repo: string, output: string[], sentinel: string): 
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      const rel = `${relative}/${entry.name}`;
+      const rel = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) walk(full, rel);
       else if (entry.isFile()) {
         try {
@@ -33,7 +33,10 @@ export function findSentinel(repo: string, output: string[], sentinel: string): 
     }
   };
   for (const folder of output) {
-    walk(path.join(repo, ...folder.split('/')), folder.replace(/\/+$/, ''));
+    // `.` is the repo itself, as a site published from its root lists it.
+    const clean =
+      folder === '.' || folder === './' ? '' : folder.replace(/^\.\//, '').replace(/\/+$/, '');
+    walk(path.join(repo, ...clean.split('/')), clean);
   }
   return found.sort();
 }

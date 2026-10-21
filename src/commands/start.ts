@@ -72,6 +72,12 @@ async function startApp(
 ): Promise<void> {
   const { io } = context;
   const environment = studio.environment;
+  if (studio.standaloneMode) {
+    io.out(
+      `Iterations render through the studio's own server at ${studio.devUrl} (standalone mode); nothing of the app needs to run.`
+    );
+    return;
+  }
   const command = environment.start.command;
   const where = `Iterations render through ${dev}`;
   if (!command || environment.start.url !== dev) {
@@ -151,7 +157,7 @@ export const start: Command = {
 
     const url = `http://127.0.0.1:${port}/#token=${token}`;
     io.out(`Roughbook is open for ${link.project} at ${url}`);
-    if (values['no-app'])
+    if (values['no-app'] && !studio.standaloneMode)
       io.out(`Iterations render through ${dev}; start the app's dev server there.`);
     else await startApp(context, studio, repoRoot, dev);
     if (!pty.ok) io.out(`Runs open in your own terminal: ${pty.reason}`);

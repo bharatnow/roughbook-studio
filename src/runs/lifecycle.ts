@@ -168,9 +168,11 @@ export async function startRuns(
       run.placeholders ?? {},
       { hasEnvironmentFile: hasEnvironmentFile(repoRoot) }
     );
-    const preview = options.devUrl
-      ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
-      : null;
+    // A standalone preview is the studio's, behind its token: the agent is not sent to it.
+    const preview =
+      options.devUrl && environment.mode !== 'standalone'
+        ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
+        : null;
     writePrompt(
       repoRoot,
       record.promptFile,
