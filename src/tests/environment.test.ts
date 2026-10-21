@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  ENTRY_NOTE_PLACEHOLDER,
   ENTRY_PLACEHOLDER,
   ENVIRONMENT_LINE,
   ENVIRONMENT_PLACEHOLDER,
@@ -399,6 +400,45 @@ describe('the environment', () => {
     assert.equal(
       fillEnvironment('Entry: <e>', { ...environment, entry: 'index.vue' }, { entry: '<e>' }),
       'Entry: index.vue'
+    );
+  });
+
+  it("says a React-like family's entry has a default export, and names any other entry alone", () => {
+    const prompt = `Entry file is ${ENTRY_PLACEHOLDER}${ENTRY_NOTE_PLACEHOLDER}.\nKeep the entry file as ${ENTRY_PLACEHOLDER}${ENTRY_NOTE_PLACEHOLDER}.\n`;
+    // A repo with no environment file reads as the fallback recipe's, as the prompt always said.
+    assert.equal(
+      fillEnvironment(prompt, defaultEnvironment()),
+      'Entry file is index.tsx with a default export.\nKeep the entry file as index.tsx with a default export.\n'
+    );
+    assert.equal(
+      fillEnvironment(prompt, {
+        ...defaultEnvironment(),
+        family: 'react-like',
+        entry: 'index.jsx'
+      }),
+      'Entry file is index.jsx with a default export.\nKeep the entry file as index.jsx with a default export.\n'
+    );
+    // A page of a static or PHP site, a template, or anything the studio has no family for.
+    for (const [family, entry] of [
+      ['markup-css', 'index.html'],
+      ['markup-css', 'index.blade.php'],
+      ['unknown', 'index.php']
+    ] as const) {
+      assert.equal(
+        fillEnvironment(prompt, { ...defaultEnvironment(), family, entry }),
+        `Entry file is ${entry}.\nKeep the entry file as ${entry}.\n`,
+        family
+      );
+    }
+    // The backend may name its stand-in.
+    assert.equal(ENTRY_NOTE_PLACEHOLDER, '{{roughbook:entry-note}}');
+    assert.equal(
+      fillEnvironment(
+        'Entry: <e><n>.',
+        { ...defaultEnvironment(), family: 'markup-css', entry: 'index.html' },
+        { entry: '<e>', entryNote: '<n>' }
+      ),
+      'Entry: index.html.'
     );
   });
 

@@ -33,10 +33,12 @@ export const SETUP_DIR = 'setup';
 
 /**
  * The stand-ins the backend writes where a prompt names what the repo's environment decides
- * (decision 15 of the frameworks plan): the entry file, the stack's words for page and component,
- * and the line that points the agent at rough/environment.md, which stays out of a repo with none.
+ * (decision 15 of the frameworks plan): the entry file and what its family asks of it, the stack's
+ * words for page and component, and the line that points the agent at rough/environment.md, which
+ * stays out of a repo with none.
  */
 export const ENTRY_PLACEHOLDER = '{{roughbook:entry}}';
+export const ENTRY_NOTE_PLACEHOLDER = '{{roughbook:entry-note}}';
 export const TERM_PAGE_PLACEHOLDER = '{{roughbook:term-page}}';
 export const TERM_COMPONENT_PLACEHOLDER = '{{roughbook:term-component}}';
 export const ENVIRONMENT_PLACEHOLDER = '{{roughbook:environment}}';
@@ -555,17 +557,27 @@ function capitalized(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
+/**
+ * What a prompt says of the entry file after its name: a React-like family's entry is a module
+ * whose default export is the iteration; any other's, such as a page or a template, is named alone.
+ */
+export function entryNote(environment: RepoEnvironment): string {
+  return environment.family === 'react-like' ? ' with a default export' : '';
+}
+
 export type Placeholders = {
   entry?: string;
+  entryNote?: string;
   termPage?: string;
   termComponent?: string;
   environment?: string;
 };
 
 /**
- * A prompt with the environment's values where the backend left its stand-ins: the entry file,
- * the stack's words for page and component as labels, and the line about rough/environment.md,
- * which is taken out, with its line break, when the repo has no environment file.
+ * A prompt with the environment's values where the backend left its stand-ins: the entry file and
+ * its family's note on it, the stack's words for page and component as labels, and the line about
+ * rough/environment.md, which is taken out, with its line break, when the repo has no environment
+ * file.
  */
 export function fillEnvironment(
   prompt: string,
@@ -578,6 +590,7 @@ export function fillEnvironment(
   const escaped = environmentStandIn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return prompt
     .replaceAll(placeholders.entry ?? ENTRY_PLACEHOLDER, () => environment.entry)
+    .replaceAll(placeholders.entryNote ?? ENTRY_NOTE_PLACEHOLDER, () => entryNote(environment))
     .replaceAll(placeholders.termPage ?? TERM_PAGE_PLACEHOLDER, () =>
       capitalized(environment.terms.page)
     )

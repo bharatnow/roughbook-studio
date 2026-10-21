@@ -61,12 +61,14 @@ export type StartedRun = {
   targetFolder: string;
   /**
    * With stand-ins where the studio's own address belongs (placeholders.assetOrigin) and where
-   * the prompt names the entry file (placeholders.entry), which the repo's environment decides.
+   * the prompt names the entry file (placeholders.entry) and what its family asks of it
+   * (placeholders.entryNote), which the repo's environment decides.
    */
   prompt: string;
   placeholders?: {
     assetOrigin: string;
     entry?: string;
+    entryNote?: string;
     termPage?: string;
     termComponent?: string;
     environment?: string;
