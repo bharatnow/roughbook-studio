@@ -95,6 +95,11 @@ export type RepoEnvironment = {
   viewports: Viewport[];
   /** Colour schemes, locales and text sizes the frame and screenshots cover (decision 33); words only here. */
   variants: string[];
+  /**
+   * Who shows a change to an iteration's files in the frame: the app itself, through its own hot
+   * reload, or the studio, by reloading the frame when the files change (the contract, point 4).
+   */
+  reload: 'app' | 'studio';
   /** Folders a repo snapshot and the watcher skip, repo-relative; what no repo commits. */
   ignore: string[];
   /** Selectors of the app's own development overlays, hidden in screenshots. */

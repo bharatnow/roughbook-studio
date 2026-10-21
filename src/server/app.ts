@@ -170,9 +170,21 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       async (request, params) =>
         studio.decide(target(params), parseDecision(await readBody(request)))
     ),
-    route('POST', '/api/iterations/:page/:component/:iteration/screenshots', (_request, params) =>
-      studio.screenshots(target(params))
+    route(
+      'POST',
+      '/api/iterations/:page/:component/:iteration/screenshots',
+      async (request, params) =>
+        studio.screenshots(target(params), { force: (await readBody(request)).force !== false })
     ),
+    // What changed in rough/ since the page last asked; `wait` holds the answer until something does.
+    route('GET', '/api/changes', request => {
+      const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams;
+      const since = Math.max(0, Number(query.get('since')) || 0);
+      const wait = Math.min(25_000, Math.max(0, Number(query.get('wait')) || 0));
+      return studio.changes.wait(since, wait);
+    }),
+    route('GET', '/api/app', () => studio.checkApp()),
+    route('POST', '/api/app/start', () => studio.startApp()),
     route('GET', '/api/ratings/:page/:component', (_request, params) =>
       studio.ratings(params.page!, params.component!)
     ),
@@ -274,9 +286,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
    * key. A card asks again each time it is drawn, and is answered 304 while the file is the same.
    */
   function screenshot(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
-    const match = /^\/api\/iterations\/([^/]+)\/([^/]+)\/([^/]+)\/screenshots\/([a-z]+)$/.exec(
-      url.pathname
-    );
+    const match =
+      /^\/api\/iterations\/([^/]+)\/([^/]+)\/([^/]+)\/screenshots\/([a-z][a-z0-9-]*)$/.exec(
+        url.pathname
+      );
     if (!match || request.method !== 'GET') return false;
     const key = url.searchParams.get('key') ?? undefined;
     if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {

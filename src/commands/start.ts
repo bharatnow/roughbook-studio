@@ -5,15 +5,20 @@ import { parseArgs } from 'node:util';
 import { DEFAULT_LOCAL_PORT, readSettings, saveSettings } from '../config/settings.js';
 import { loadPty } from '../launch/pty.js';
 import { requireRepoLink } from '../repo/link.js';
+import { closeKeptBrowsers } from '../screenshot/browser.js';
 import { createLocalServer } from '../server/app.js';
 import { newToken } from '../server/security.js';
 import { LocalStudio } from '../server/studio.js';
-import { requireApi, type Command } from './context.js';
+import { requireApi, type Command, type CommandContext } from './context.js';
 import { devUrl } from './done.js';
 import { readEnvironment } from '../environment/read.js';
+import { approveEnvironment } from './setup.js';
 
 const REGISTRY_EVERY_MS = 1500;
 const OUTBOX_EVERY_MS = 30_000;
+/** How often the app is asked whether it answers: often while it starts, rarely once it does. */
+const APP_STARTING_EVERY_MS = 2000;
+const APP_UP_EVERY_MS = 15_000;
 
 /** The built UI: beside the compiled commands in the package, or in dist/ when run from source. */
 export function findUiDir(): string | null {
@@ -53,10 +58,51 @@ function parsePort(text: string): number {
   return port;
 }
 
+/**
+ * Starts the app for previews with the environment's approved start command, in the studio's
+ * terminals, unless something already answers at its address (ROUGHBOOK-FRAMEWORKS-PLAN.md,
+ * "The preview frame"). With no start command, no built-in terminal, or no approval, it says what
+ * to run by hand instead.
+ */
+async function startApp(
+  context: CommandContext,
+  studio: LocalStudio,
+  repoRoot: string,
+  dev: string
+): Promise<void> {
+  const { io } = context;
+  const environment = studio.environment;
+  const command = environment.start.command;
+  const where = `Iterations render through ${dev}`;
+  if (!command || environment.start.url !== dev) {
+    io.out(`${where}; start the app's dev server there.`);
+    return;
+  }
+  if ((await studio.checkApp()).status === 'up') {
+    io.out(`The app answers at ${dev}; iterations render through it.`);
+    return;
+  }
+  if (!studio.terminals) {
+    io.out(`${where}. Start the app there: ${command}`);
+    return;
+  }
+  const approved = await approveEnvironment(context, repoRoot, environment, false);
+  if (!approved) {
+    io.out(`${where}. Start the app there yourself: ${command}`);
+    return;
+  }
+  const result = await studio.startApp();
+  io.out(
+    result.started
+      ? `Starting the app: ${command} (in the studio's terminals; ${where.toLowerCase()}).`
+      : `${result.reason ?? 'The app was not started.'} ${where}.`
+  );
+}
+
 export const start: Command = {
   name: 'start',
   summary: 'Open the local UI: iterations, review, runs, Done and promote',
-  usage: 'start [--port <port>] [--dev-url <url>] [--no-open]',
+  usage: 'start [--port <port>] [--dev-url <url>] [--no-open] [--no-app]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
@@ -65,7 +111,8 @@ export const start: Command = {
       options: {
         port: { type: 'string' },
         'dev-url': { type: 'string' },
-        'no-open': { type: 'boolean', default: false }
+        'no-open': { type: 'boolean', default: false },
+        'no-app': { type: 'boolean', default: false }
       }
     });
     const repoRoot = context.repoRoot!;
@@ -76,14 +123,13 @@ export const start: Command = {
     const saved = settings.localPort ?? DEFAULT_LOCAL_PORT;
     const port = values.port ? parsePort(values.port) : saved;
     const dev = devUrl(values['dev-url'], context.env, environment.start.url);
-    const pty = loadPty(context.env);
+    const pty = context.pty ?? loadPty(context.env);
 
     const studio = new LocalStudio({
       context: { ...context, repoRoot },
       api,
       link,
       devUrl: dev,
-      environment,
       port,
       pty
     });
@@ -105,7 +151,9 @@ export const start: Command = {
 
     const url = `http://127.0.0.1:${port}/#token=${token}`;
     io.out(`Roughbook is open for ${link.project} at ${url}`);
-    io.out(`Iterations render through ${dev}; start the app's dev server there.`);
+    if (values['no-app'])
+      io.out(`Iterations render through ${dev}; start the app's dev server there.`);
+    else await startApp(context, studio, repoRoot, dev);
     if (!pty.ok) io.out(`Runs open in your own terminal: ${pty.reason}`);
     io.out('Press Ctrl+C to stop.');
     if (!values['no-open'] && !(await context.openUrl(url))) {
@@ -113,9 +161,28 @@ export const start: Command = {
     }
 
     studio.keepRegistry();
-    void studio.flushOutbox();
-    void studio.heartbeat();
-    void studio.reportStarted();
+    // Started now and awaited at the end, so nothing writes to the state folder after Stopped.
+    const started = Promise.allSettled([
+      studio.flushOutbox(),
+      studio.heartbeat(),
+      studio.reportStarted()
+    ]);
+    // Iteration folders are watched while the UI is open: the frame reloads on a change where the
+    // stack has no hot reload, and the changed iteration's screenshots are taken again.
+    const stopWatching = studio.watch();
+    let appTimer: NodeJS.Timeout | null = null;
+    let stopping = false;
+    let appCheck: Promise<unknown> = Promise.resolve();
+    const keepApp = () => {
+      appCheck = studio.checkApp().then(app => {
+        if (stopping) return;
+        appTimer = setTimeout(
+          keepApp,
+          app.status === 'up' ? APP_UP_EVERY_MS : APP_STARTING_EVERY_MS
+        );
+      });
+    };
+    keepApp();
     const timers = [
       setInterval(() => studio.keepRegistry(), REGISTRY_EVERY_MS),
       setInterval(() => void studio.flushOutbox(), OUTBOX_EVERY_MS),
@@ -123,8 +190,13 @@ export const start: Command = {
     ];
 
     await context.waitForStop();
+    stopping = true;
     for (const timer of timers) clearInterval(timer);
+    if (appTimer) clearTimeout(appTimer);
+    stopWatching();
+    await Promise.allSettled([started, appCheck]);
     studio.close();
+    await closeKeptBrowsers();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     io.out('Stopped. Sessions in the built-in terminal were ended.');

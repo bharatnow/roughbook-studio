@@ -161,14 +161,15 @@ recipe line as recipe: next so the studio keeps maintaining the registry.`;
 export const next: Recipe = {
   id: 'next',
   name: 'Next.js',
-  version: 1,
+  // 2: the route applies the variant the studio asks for in the address (F4).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
     return {
       contract: 1,
       recipe: 'next',
-      recipeVersion: 1,
+      recipeVersion: 2,
       stack: link?.stack ?? [],
       family: 'react-like',
       mode: 'live',
@@ -186,6 +187,7 @@ export const next: Recipe = {
         { name: 'mobile', width: 390, height: 844, mobile: true }
       ],
       variants: ['light'],
+      reload: 'app',
       ignore: ['node_modules', '.git', '.next', '.turbo', '.vercel', 'dist', 'out', 'build'],
       overlays: ['nextjs-portal'],
       fixture: FIXTURE,

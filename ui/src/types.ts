@@ -13,6 +13,41 @@ export type AgentView = {
   headless: { ready: true } | { ready: false; reason: string };
 };
 
+/** One variant the frame and the screenshots cover, as the server resolved its word. */
+export type VariantView = {
+  id: string;
+  label: string;
+  scheme: 'light' | 'dark' | null;
+  dir: 'ltr' | 'rtl' | null;
+  lang: string | null;
+  text: 'large' | null;
+};
+
+/** The repo's environment as the frame needs it: read again by the server whenever the file changes. */
+export type EnvironmentView = {
+  mode: 'live' | 'snapshot' | 'standalone';
+  /** The preview's path template, with `{key}` where `<page>/<component>/<iteration>` goes. */
+  preview: string;
+  viewports: { name: string; width: number; height: number; mobile: boolean }[];
+  variants: VariantView[];
+  /** The stack's own words for page and component. */
+  terms: { page: string; component: string };
+  /** Who shows a change: the app's own hot reload, or the studio reloading the frame. */
+  reload: 'app' | 'studio';
+  start: { command: string | null; url: string; approved: boolean };
+  timeouts: { preview: number };
+};
+
+/** What the app the previews come from is doing, as the server last saw it. */
+export type AppView = {
+  status: 'unknown' | 'starting' | 'up' | 'down';
+  /** The terminal session the studio started it in, when it did. */
+  terminal: string | null;
+  since: string | null;
+  /** The last line the app printed while starting. */
+  lastLine: string | null;
+};
+
 export type StudioState = {
   version: string;
   project: { orgId: string; slug: string };
@@ -23,9 +58,16 @@ export type StudioState = {
   agents: AgentView[];
   defaultAgent: string | null;
   outbox: { pending: number; dropped: { path: string; code: string; droppedAt: string }[] };
+  environment: EnvironmentView;
+  /** Why rough/environment.md cannot be read now, or null. */
+  environmentProblem: string | null;
+  app: AppView;
   /** What a card's <img> puts in a screenshot's address, since it cannot send the token. */
   shotKey?: string;
 };
+
+/** What changed in rough/ since the page last asked, numbered by the server. */
+export type Changes = { seq: number; keys: string[] };
 
 export type Feedback = {
   likes: string[];
@@ -85,7 +127,13 @@ export type ProjectView = {
     delivery: { componentsDir: string; publicDir: string };
     pages: Page[];
   };
-  local: { iterations: string[]; screenshots: Record<string, string[]> };
+  local: {
+    iterations: string[];
+    /** Each iteration's screenshots by name: the viewport, with the variant after the first. */
+    screenshots: Record<string, string[]>;
+    /** When each iteration's screenshots were last taken, where the studio recorded it. */
+    screenshotsAt?: Record<string, string>;
+  };
 };
 
 export type Finding = { code: string; message: string };

@@ -3,7 +3,7 @@
 // checks who is asking and turns these into JSON.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ALL_AGENTS } from '../agents/index.js';
+import { ALL_AGENTS, hostLookup } from '../agents/index.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import type { AgentAdapter, AgentEvent, Detection, TerminalAdapter } from '../agents/types.js';
 import type { StudioApi } from '../api/client.js';
@@ -20,24 +20,33 @@ import {
   type EditorLaunched
 } from '../commands/shared.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
+import { ENVIRONMENT_FILE, defaultEnvironment, readEnvironmentSync } from '../environment/read.js';
+import { resolveVariants, screenshotSet, type ResolvedVariant } from '../environment/variants.js';
 import { currentOs } from '../launch/platform.js';
+import { resolveCommandLine } from '../launch/processes.js';
 import type { PtySupport } from '../launch/pty.js';
+import { findProgramOnPath } from '../launch/which.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
-import type { RepoEnvironment } from '../environment/types.js';
+import type { RepoEnvironment, Terms, Viewport } from '../environment/types.js';
 import { recipeOf } from '../recipes/index.js';
+import { isApproved, readApprovals } from '../repo/approvals.js';
 import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
+import { roughPath } from '../repo/root.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
+import { queued } from '../runs/queue.js';
+import { watchRepo } from '../runs/watch.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
 import { pullAdvice, pullSketch } from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
 import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
-import { screenshotPath } from '../screenshot/iteration.js';
+import { SHOTS_MANIFEST, screenshotPath, type ShotOptions } from '../screenshot/iteration.js';
 import { EVENT_CATALOG } from '../telemetry/catalog.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
+import { ChangeFeed, changedKey } from './changes.js';
 import { ProjectCache } from './projectCache.js';
 import { Terminals, type TerminalInfo } from './terminals.js';
 
@@ -46,10 +55,38 @@ export type LocalStudioOptions = {
   api: StudioApi;
   link: RepoLink;
   devUrl: string;
-  environment: RepoEnvironment;
   port: number;
   pty: PtySupport;
 };
+
+/** The repo's environment as the page needs it for the frame: no path, no command line but the start's. */
+export type EnvironmentView = {
+  mode: RepoEnvironment['mode'];
+  /** The preview's path template, with `{key}`. */
+  preview: string;
+  viewports: Viewport[];
+  variants: ResolvedVariant[];
+  terms: Terms;
+  reload: RepoEnvironment['reload'];
+  /** The start command (null when the designer starts the app), its address, and whether it is approved here. */
+  start: { command: string | null; url: string; approved: boolean };
+  timeouts: { preview: number };
+};
+
+/** What the app the previews come from is doing, as the studio last saw it. */
+export type AppView = {
+  status: 'unknown' | 'starting' | 'up' | 'down';
+  /** The terminal session the studio started it in, when it did. */
+  terminal: string | null;
+  since: string | null;
+  /** The last line the app printed while starting, for the frame's progress. */
+  lastLine: string | null;
+};
+
+/** How long after the last write to an iteration its screenshots are taken again. */
+const RESHOT_AFTER_MS = 5000;
+/** How long the app is given to answer when asked whether it is up. */
+const APP_ASK_MS = 3000;
 
 /** An agent as the local UI lists it: no paths. */
 export type AgentView = Pick<
@@ -286,7 +323,16 @@ export function parseDecision(body: Record<string, unknown>): Decision {
 export class LocalStudio {
   readonly terminals: Terminals | null;
   readonly outbox: Outbox;
+  /** What changed in rough/ while the UI is open, numbered for the page (reload on change). */
+  readonly changes = new ChangeFeed();
   private readonly jobs = new Map<string, HeadlessJob>();
+  private environmentRead: {
+    stamp: string;
+    value: RepoEnvironment;
+    problem: string | null;
+  } | null = null;
+  private app: AppView = { status: 'unknown', terminal: null, since: null, lastLine: null };
+  private readonly reshots = new Map<string, NodeJS.Timeout>();
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
   private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
@@ -298,6 +344,210 @@ export class LocalStudio {
 
   get repoRoot(): string {
     return this.options.context.repoRoot;
+  }
+
+  get devUrl(): string {
+    return this.options.devUrl;
+  }
+
+  /**
+   * The repo's environment as it is now: rough/environment.md is read again whenever it changed,
+   * rather than once at start, so a setup run or an edit shows without restarting the studio. A
+   * file that cannot be read keeps the last good environment, and `environmentProblem` says why.
+   */
+  get environment(): RepoEnvironment {
+    let stamp = 'none';
+    try {
+      const stat = fs.statSync(roughPath(this.repoRoot, ENVIRONMENT_FILE));
+      stamp = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      // No file: the recipe's environment.
+    }
+    if (this.environmentRead?.stamp === stamp) return this.environmentRead.value;
+    try {
+      const value = readEnvironmentSync(this.repoRoot, this.options.link);
+      this.environmentRead = { stamp, value, problem: null };
+    } catch (error) {
+      this.environmentRead = {
+        stamp,
+        value: this.environmentRead?.value ?? defaultEnvironment(this.options.link),
+        problem: error instanceof Error ? error.message : String(error)
+      };
+    }
+    return this.environmentRead.value;
+  }
+
+  /** Why rough/environment.md cannot be read now, or null. */
+  get environmentProblem(): string | null {
+    void this.environment;
+    return this.environmentRead?.problem ?? null;
+  }
+
+  /** The environment as the page's frame needs it. */
+  async environmentView(): Promise<EnvironmentView> {
+    const environment = this.environment;
+    const approvals = await readApprovals(this.repoRoot);
+    const command = environment.start.command;
+    return {
+      mode: environment.mode,
+      preview: environment.preview,
+      viewports: environment.viewports,
+      variants: resolveVariants(environment.variants),
+      terms: environment.terms,
+      reload: environment.reload,
+      start: {
+        command,
+        url: environment.start.url,
+        approved: command ? isApproved(approvals, command, environment.shell) : false
+      },
+      timeouts: { preview: environment.timeouts.preview }
+    };
+  }
+
+  /** The app's state, with the last line of its session while it starts. */
+  appView(): AppView {
+    const terminal = this.app.terminal ? this.terminals?.get(this.app.terminal) : null;
+    if (this.app.status === 'starting' && terminal?.status === 'exited') {
+      this.app = { ...this.app, status: 'down' };
+    }
+    return {
+      ...this.app,
+      lastLine:
+        this.app.terminal && terminal?.status === 'running'
+          ? (this.terminals?.lastLine(this.app.terminal) ?? null)
+          : null
+    };
+  }
+
+  /** Asks the app once whether it answers at its address, and keeps the answer for the page. */
+  async checkApp(): Promise<AppView> {
+    const answer = await this.options.context.askPreview(`${this.options.devUrl}/`, APP_ASK_MS);
+    if (answer) {
+      this.app = {
+        ...this.app,
+        status: 'up',
+        since: this.app.status === 'up' ? this.app.since : new Date().toISOString()
+      };
+    } else {
+      const terminal = this.app.terminal ? this.terminals?.get(this.app.terminal) : null;
+      this.app = { ...this.app, status: terminal?.status === 'running' ? 'starting' : 'down' };
+    }
+    return this.appView();
+  }
+
+  /**
+   * Starts the app with the environment's start command, approved on this machine, in the
+   * built-in terminal, through the repo's queue; nothing when something already answers at its
+   * address or it is already starting.
+   */
+  async startApp(): Promise<{
+    started: boolean;
+    reason: string | null;
+    terminal: TerminalInfo | null;
+  }> {
+    const environment = this.environment;
+    const command = environment.start.command;
+    if (!command) throw new BadRequest('The environment names no command that starts the app.');
+    if (!this.terminals) {
+      throw new BadRequest(
+        `The built-in terminal is not available here; start the app yourself: ${command}`
+      );
+    }
+    if (!isApproved(await readApprovals(this.repoRoot), command, environment.shell)) {
+      throw new BadRequest(
+        `The start command is not approved on this machine (${command}). Run roughbook doctor in a terminal and approve it, or roughbook doctor --yes once you have read it.`
+      );
+    }
+    const running = this.app.terminal ? this.terminals.get(this.app.terminal) : null;
+    if (this.app.status === 'starting' && running?.status === 'running') {
+      return { started: false, reason: 'The app is already starting.', terminal: running };
+    }
+    if ((await this.checkApp()).status === 'up') {
+      return {
+        started: false,
+        reason: `The app already answers at ${this.options.devUrl}.`,
+        terminal: null
+      };
+    }
+    const resolved = resolveCommandLine(
+      command,
+      undefined,
+      undefined,
+      undefined,
+      environment.shell
+    );
+    if (!resolved) throw new BadRequest('The start command is empty.');
+    // The pseudo-terminal starts a program by its path, as the agents' sessions do, so the shell
+    // or program named is found on the PATH first; one not there is left as named, to fail aloud.
+    const program =
+      findProgramOnPath(resolved.command, hostLookup(this.options.context.env)) ?? resolved.command;
+    const terminal = await queued(this.repoRoot, async () =>
+      this.terminals!.start({
+        title: `App: ${command}`.slice(0, 60),
+        command: program,
+        args: resolved.args,
+        cwd: this.repoRoot,
+        env: this.options.context.env,
+        runId: null
+      })
+    );
+    this.app = {
+      status: 'starting',
+      terminal: terminal.id,
+      since: new Date().toISOString(),
+      lastLine: null
+    };
+    return { started: true, reason: null, terminal };
+  }
+
+  /**
+   * Watches the iteration folders while the UI is open: each change is numbered for the page,
+   * which reloads the frame where the stack has no hot reload, and the changed iteration's
+   * screenshots are taken again once its files have been still for a moment, unless an agent is
+   * still writing it. Returns a function that stops watching.
+   */
+  watch(): () => void {
+    const stop = watchRepo(
+      this.repoRoot,
+      file => {
+        const key = changedKey(file);
+        if (!key) return;
+        this.changes.note(key);
+        this.scheduleReshot(key);
+      },
+      this.environment.ignore
+    );
+    return () => {
+      stop();
+      for (const timer of this.reshots.values()) clearTimeout(timer);
+      this.reshots.clear();
+    };
+  }
+
+  private scheduleReshot(key: string): void {
+    const waiting = this.reshots.get(key);
+    if (waiting) clearTimeout(waiting);
+    const timer = setTimeout(() => {
+      this.reshots.delete(key);
+      void this.reshoot(key);
+    }, RESHOT_AFTER_MS);
+    timer.unref();
+    this.reshots.set(key, timer);
+  }
+
+  private async reshoot(key: string): Promise<void> {
+    try {
+      if (this.app.status !== 'up') return;
+      const [page, component, iteration] = key.split('/') as [string, string, string];
+      if (!iterationExists(this.repoRoot, page, component, iteration)) return;
+      const open = (await listRuns(this.repoRoot)).some(
+        run => run.status === 'started' && `${run.page}/${run.component}/${run.iteration}` === key
+      );
+      if (open) return;
+      await this.screenshots({ page, component, iteration });
+    } catch {
+      // The next change tries again; the designer can also ask for them on the stage.
+    }
   }
 
   /** Every agent, found or not; asked again after a minute, or when `fresh`. */
@@ -353,7 +603,10 @@ export class LocalStudio {
         capabilities: item.capabilities
       })),
       defaultAgent: settings.defaultAgent,
-      outbox: { pending: pending.length, dropped }
+      outbox: { pending: pending.length, dropped },
+      environment: await this.environmentView(),
+      environmentProblem: this.environmentProblem,
+      app: this.appView()
     };
   }
 
@@ -384,18 +637,32 @@ export class LocalStudio {
 
   /** The iterations in this repo and their screenshots, read from disk on every ask. */
   private local() {
-    const iterations = listIterations(this.repoRoot, this.options.environment.entry);
+    const environment = this.environment;
+    const iterations = listIterations(this.repoRoot, environment.entry);
     const screenshots: Record<string, string[]> = {};
+    const screenshotsAt: Record<string, string> = {};
+    const names = screenshotSet(environment.viewports, environment.variants).map(shot => shot.name);
     for (const key of iterations) {
       const [page, component, iteration] = key.split('/') as [string, string, string];
-      const sizes = this.options.environment.viewports
-        .map(viewport => viewport.name)
-        .filter(size => fs.existsSync(this.disk(screenshotPath(page, component, iteration, size))));
-      if (sizes.length) screenshots[key] = sizes;
+      const sizes = names.filter(size =>
+        fs.existsSync(this.disk(screenshotPath(page, component, iteration, size)))
+      );
+      if (!sizes.length) continue;
+      screenshots[key] = sizes;
+      try {
+        const manifest = path.join(
+          this.disk(screenshotPath(page, component, iteration, sizes[0]!)),
+          '..',
+          SHOTS_MANIFEST
+        );
+        screenshotsAt[key] = fs.statSync(manifest).mtime.toISOString();
+      } catch {
+        // Taken before manifests: the page shows them as they are.
+      }
     }
     // An iteration pulled or started from the CLI is new on the backend too.
     this.cache.notice('iterations', JSON.stringify(iterations));
-    return { iterations, screenshots };
+    return { iterations, screenshots, screenshotsAt };
   }
 
   async runs(): Promise<RunView[]> {
@@ -797,21 +1064,39 @@ export class LocalStudio {
   /** A screenshot's file, when the iteration has one at that size. */
   screenshotFile(target: ReviewTarget, size: string): string | null {
     this.assertIteration(target);
-    if (!this.options.environment.viewports.some(viewport => viewport.name === size)) return null;
+    const environment = this.environment;
+    const names = screenshotSet(environment.viewports, environment.variants).map(shot => shot.name);
+    if (!names.includes(size)) return null;
     const file = this.disk(screenshotPath(target.page, target.component, target.iteration, size));
     return fs.existsSync(file) ? file : null;
   }
 
-  /** Takes an iteration's screenshots again, as `roughbook screenshot` does. */
-  async screenshots(target: ReviewTarget) {
+  /**
+   * Takes an iteration's screenshots, as `roughbook screenshot` does: at every viewport and
+   * variant, again only when its files changed unless `force`, one job at a time per repo.
+   */
+  async screenshots(target: ReviewTarget, options: ShotOptions = {}) {
     this.assertIteration(target);
     if (!iterationExists(this.repoRoot, target.page, target.component, target.iteration)) {
       throw new BadRequest(
         `${target.page}/${target.component}/${target.iteration} is not in this repo.`
       );
     }
-    recipeOf(this.options.environment)?.syncPreview(this.repoRoot);
-    return this.context.screenshot(this.repoRoot, this.options.devUrl, target, this.context.env);
+    const environment = this.environment;
+    recipeOf(environment)?.syncPreview(this.repoRoot);
+    return queued(this.repoRoot, () =>
+      this.context.screenshot(
+        this.repoRoot,
+        this.options.devUrl,
+        target,
+        this.context.env,
+        undefined,
+        undefined,
+        undefined,
+        environment,
+        options
+      )
+    );
   }
 
   /** Sends what waits in the outbox; quiet when the server cannot be reached. */
@@ -827,7 +1112,7 @@ export class LocalStudio {
   /** Keeps rough/preview-registry.ts in step with the iteration folders. */
   keepRegistry(): void {
     try {
-      recipeOf(this.options.environment)?.syncPreview(this.repoRoot);
+      recipeOf(this.environment)?.syncPreview(this.repoRoot);
     } catch {
       // A folder being written mid-scan; the next tick catches up.
     }
@@ -887,6 +1172,8 @@ export class LocalStudio {
 
   close(): void {
     for (const job of this.jobs.values()) job.controller.abort();
+    for (const timer of this.reshots.values()) clearTimeout(timer);
+    this.reshots.clear();
     this.terminals?.stopAll();
   }
 

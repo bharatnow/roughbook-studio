@@ -30,7 +30,7 @@ its own copy and asks before fetching each new one.
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                                                                                                                                                                                                 |
 | `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                                                                                                                                                                                                 |
-| `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote                                                                                                                                                                                                             |
+| `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote; starts the app with the environment's approved start command unless something answers at its address (`--no-app` leaves it to you)                                                                         |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal (`--agent claude-code`, `codex`, `antigravity-cli` or `cursor-cli`), `--headless` runs it unattended, and `--agent cursor` (or `vscode`, `antigravity`, `windsurf`, `other`) opens the prompt in that editor |
 | `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it and asks whether they were yours (`--mine <path>` names them), takes screenshots, reports it                                                                                                                                                                                                   |
 | `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                                                                                                                                                                                                |
@@ -86,7 +86,11 @@ committed. The header is `key: value` lines and `key:` with `- item` lines. Its 
 (`live`, `snapshot` or `standalone`), `entry` (the file every iteration has), `sources` and
 `code` (extensions the checks and the import check read), `placement`, `wrapper`, `runtime`
 (`local`, or `container @ <url>`), `shell`, `start` (`<command> @ <url>`, or the address alone),
-`preview` (`/path/{key}`), `viewports` (`name WxH [mobile]`), `variants`, `ignore`, `overlays`,
+`preview` (`/path/{key}`), `viewports` (`name WxH [mobile]`), `variants` (`light`, `dark`, a
+language tag such as `en` or `ar`, `large-text`, or a word of the setup's own, which reach the
+preview as `roughbook-scheme`, `roughbook-dir`, `roughbook-lang`, `roughbook-text` and
+`roughbook-variant` query parameters), `reload` (`app` when the stack reloads a changed iteration
+itself, `studio` when the frame reloads it on a change), `ignore`, `overlays`,
 `fixture`, `build` and `buildOutput`, `gate` (`build`, `runtime` or `both`), `production`
 (`<command> @ <url>`), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
 `promoteExtensions`, `assets` and `assetsCopy`, `copy` (`inline`, or `localized <file>`), `terms`
@@ -121,13 +125,22 @@ the web sketches not pulled yet (each with Pull) and the runs an agent is making
 the foot starts new directions, forks and refinements with the agent of your choice; the
 selection's toolbar has each run's Done, Stop and Copy prompt, Compare (or Shift-click), the
 component's brief (read-only here, with a link to edit it on the web) and Promote; and ⌘K or
-Ctrl K finds every command. An iteration opens on its stage, rendered live by the app's own dev
-server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or `http://localhost:3000`) with the last screenshot when
-the dev server is not answering, with the review drawer, notes, select, reject and refine, and its
-run's report with Put it back for files changed outside it. One status dot in the bar holds the
-dev server, the outbox, the agents and the version. While it runs, it keeps
-`rough/preview-registry.ts` in step with the iteration folders and sends what waits in the
-outbox.
+Ctrl K finds every command. An iteration opens on its stage, in the preview frame
+(`@roughbook/ui`'s `PreviewFrame`, the same for every stack and mode): the page from the app's
+own dev server (`--dev-url`, `ROUGHBOOK_DEV_URL`, or the environment's `start` address) at each
+of the environment's viewports and in each of its variants, its state (starting, making, ready,
+failed, missing) with its message and the app's last line while it starts, Reload, Open, and the
+last screenshot when the app is not answering; beside it the review drawer, notes, select, reject
+and refine, and its run's report with Put it back for files changed outside it. The frame and the
+stage say the stack's own words for page and component beside Roughbook's (`terms`). Compare
+shows each column in the same frame, loaded only while on screen and four at most; the rest show
+their stills. One status dot in the bar holds the app's state (with Start the app when it is not
+answering), the outbox, the agents and the version. While it runs, it keeps
+`rough/preview-registry.ts` in step with the iteration folders, sends what waits in the outbox,
+reads `rough/environment.md` again whenever it changes, watches the iteration folders (the frame
+reloads on a change where the environment says `reload: studio`, and the changed iteration's
+screenshots are taken again once its files have been still for a few seconds, unless an agent is
+still writing it), and asks the app every few seconds whether it answers.
 
 Runs open in the **built-in terminal**, a dock at the foot of the canvas with one tab per session
 (xterm.js on `node-pty`), or in your own terminal if you choose. A session runs the agent itself, never a shell, and belongs to its run:
@@ -290,12 +303,15 @@ only; and every file the setup adds outside `rough/` is listed in `rough/environ
 
 ## Doctor
 
-`roughbook doctor` proves the contract on this repo, with the app's dev server running. It first
+`roughbook doctor` proves the contract on this repo, with the app's dev server running (with
+`--speed`, doctor starts it itself when nothing answers, with the approved start command, and
+stops it after). It first
 checks the prerequisites (every program the environment's commands name is on the PATH, with how
 to install each missing one) and that the environment reads and its commands are approved here;
 then it writes two iterations of its own under a page of its own, `rough/doctor-check-<id>/` (one
 that renders, one that fails; a recipe's own, or the setup run's samples from `rough/setup/sample/`),
-asks the dev server about them as the studio would, takes screenshots at every viewport, changes
+asks the dev server about them as the studio would, takes screenshots at every viewport and
+variant, changes
 the iteration and waits for the change to show, runs the production build and searches its output
 for the iteration (or serves production and expects 404), tries the preview from this machine's
 network address, checks that every setup file is in place and matches its template (and, after a
@@ -313,9 +329,28 @@ the repo, which `setup --fix` reads and `--report` names for a support ticket. T
 mode, the family, the stack tokens and the ids of the checks that failed go to the server with the
 link, so ratings and analytics can be read by stack; nothing else does.
 
+The twelfth check, `--speed`, measures the speed budgets of ROUGHBOOK-FRAMEWORKS-PLAN.md on a third
+sample iteration, as a finished run leaves one: the preview visible (warmed once, then until it
+shows and says ready) within 3 s; the cold start, from the start command to the first preview,
+within 60 s when doctor started the app; and the screenshots at every viewport and variant within
+15 s, taken once and not again when nothing changed. Each is said with its number and its budget.
+
 The conformance suite is doctor over each recipe's fixture: `npm run build`, then
 `npm run conformance -- next` copies `conformance/fixtures/next` to a temp folder, installs it,
-prepares it as `init` would, starts its dev server, runs doctor and takes everything down.
+prepares it as `init` would, starts its dev server, runs doctor and takes everything down;
+`--speed` lets doctor start the dev server itself, so the cold start is measured too.
+
+## Speed
+
+The budgets the plan sets are met the same way on every stack: the canvas shows still pictures
+(each card's first screenshot) and only the open iteration and a comparison are live; a run's
+preview is asked for once when the run finishes, so a dev server that compiles on first request
+has it ready before you look; one headless browser is kept for the session and its tab reused for
+every screenshot and probe (started on the first, closed after a few minutes idle or when the
+command ends); frames load only while on screen, four at most; and screenshots are taken once per
+iteration, at every viewport and variant, and again only when its files or the environment's
+viewports changed (`rough/.screenshots/<iteration>/shots.json` records what they were taken of;
+Take them again on the stage takes them anyway).
 
 ## Layout
 
@@ -328,7 +363,7 @@ src/
   agents/       one adapter per coding agent: finding it, terminal sessions, unattended runs
   launch/       everything that differs by OS: terminals, opening a browser, naming the OS
   mcp/          the MCP server: the protocol, the four tools, and adding it to editors
-  screenshot/   headless Chrome, Chromium or Edge, at desktop and phone widths
+  screenshot/   one headless Chrome, Chromium or Edge kept for the session, at every viewport and variant
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion
   repo/         the repo root, repo prep, the link file, command approvals, the setup templates

@@ -1,14 +1,21 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
+import { screenshotSet, withVariant } from '../environment/variants.js';
+import { readJson, writeJsonAtomic } from '../fs/json.js';
+import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { findBrowser, takeScreenshot } from './browser.js';
 
 export type Shots = {
-  /** Repo-relative paths of the screenshots written, by the viewport's name. */
+  /** Repo-relative paths of the screenshots, by name: the viewport, with the variant after the first. */
   files: Record<string, string>;
   /** Why some or all were not taken. */
   warning: string | null;
+  /** Nothing was taken: the iteration's files are as they were when the screenshots were last taken. */
+  skipped?: true;
 };
 
 /** Where an iteration's screenshots go: rough/.screenshots/, never committed. */
@@ -16,19 +23,48 @@ export function screenshotPath(page: string, component: string, iteration: strin
   return `${ROUGH_DIR}/.screenshots/${page}/${component}/${iteration}/${size}.png`;
 }
 
+/** Beside an iteration's screenshots: what they were taken of, so unchanged files are not taken again. */
+export const SHOTS_MANIFEST = 'shots.json';
+
+type Manifest = { hash: string; files: Record<string, string> };
+
+type Target = { page: string; component: string; iteration: string };
+
+function manifestFile(repoRoot: string, target: Target): string {
+  return path.join(
+    repoRoot,
+    ROUGH_DIR,
+    '.screenshots',
+    target.page,
+    target.component,
+    target.iteration,
+    SHOTS_MANIFEST
+  );
+}
+
 /** What the preview route answered, after redirects; null when nothing answered at all. */
 export type PreviewAnswer = { status: number; url: string } | null;
 
-/** Asks the preview route once before any screenshot, giving the dev server time to compile. */
-export async function checkPreview(url: string, timeoutMs = 150_000): Promise<PreviewAnswer> {
+/**
+ * Asks a preview once and reads nothing of it: the warming request a dev server that compiles on
+ * first request needs, and the look before any screenshot. Null when nothing answered in time.
+ */
+export async function askPreview(
+  url: string,
+  timeoutMs = 150_000,
+  fetchImpl: typeof fetch = fetch
+): Promise<PreviewAnswer> {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
     await response.body?.cancel();
     return { status: response.status, url: response.url || url };
   } catch {
     return null;
   }
 }
+
+/** Asks the preview route once before any screenshot, giving the dev server time to compile. */
+export const checkPreview = askPreview;
 
 /**
  * Why the preview cannot be photographed, or null when it can. A browser photographs whatever
@@ -57,16 +93,68 @@ export function previewProblem(url: string, devUrl: string, answer: PreviewAnswe
   return null;
 }
 
-/** A screenshot at each of the environment's viewports, through the repo's dev server. */
+/**
+ * A hash of everything the screenshots depend on: each file of the iteration's folder, and the
+ * viewports, variants and overlays they are taken with. Null when the folder is not there.
+ */
+export function iterationHash(
+  repoRoot: string,
+  target: Target,
+  environment: Pick<RepoEnvironment, 'viewports' | 'variants' | 'overlays'>
+): string | null {
+  const dir = path.join(
+    repoRoot,
+    ...iterationDir(target.page, target.component, target.iteration).split('/')
+  );
+  if (!fs.existsSync(dir)) return null;
+  const hash = createHash('sha256');
+  const walk = (folder: string, prefix: string) => {
+    const entries = fs
+      .readdirSync(folder, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const relative = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) walk(path.join(folder, entry.name), `${relative}/`);
+      else if (entry.isFile()) {
+        hash.update(`${relative}\0`);
+        hash.update(fs.readFileSync(path.join(folder, entry.name)));
+        hash.update('\0');
+      }
+    }
+  };
+  walk(dir, '');
+  hash.update(
+    JSON.stringify({
+      viewports: environment.viewports,
+      variants: environment.variants,
+      overlays: environment.overlays
+    })
+  );
+  return hash.digest('hex');
+}
+
+export type ShotOptions = {
+  /** Take them again even when nothing changed. */
+  force?: boolean;
+  /** What a warming request already found at the preview, so it is not asked again. */
+  answer?: PreviewAnswer;
+};
+
+/**
+ * A screenshot at each of the environment's viewports, in each of its variants, through the
+ * repo's dev server; taken once, and again only when the iteration's files changed
+ * (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Speed"), unless `force` says so.
+ */
 export async function screenshotIteration(
   repoRoot: string,
   devUrl: string,
-  target: { page: string; component: string; iteration: string },
+  target: Target,
   env: NodeJS.ProcessEnv,
   take: typeof takeScreenshot = takeScreenshot,
   browser: string | null = findBrowser(env),
-  check: typeof checkPreview = checkPreview,
-  environment?: RepoEnvironment
+  check: typeof askPreview = askPreview,
+  environment?: RepoEnvironment,
+  options: ShotOptions = {}
 ): Promise<Shots> {
   if (!browser) {
     return {
@@ -76,26 +164,39 @@ export async function screenshotIteration(
     };
   }
   const repo = environment ?? (await readEnvironment(repoRoot));
+  const hash = iterationHash(repoRoot, target, repo);
+  const manifest = hash ? await readJson<Manifest>(manifestFile(repoRoot, target)) : null;
+  if (!options.force && manifest && manifest.hash === hash) {
+    const present = Object.values(manifest.files).every(file =>
+      fs.existsSync(path.join(repoRoot, ...file.split('/')))
+    );
+    if (present) return { files: manifest.files, warning: null, skipped: true };
+  }
   const url = previewUrl(devUrl, target.page, target.component, target.iteration, repo);
-  const problem = previewProblem(url, devUrl, await check(url));
+  const answer = options.answer === undefined ? await check(url) : options.answer;
+  const problem = previewProblem(url, devUrl, answer);
   if (problem) return { files: {}, warning: problem };
   const files: Shots['files'] = {};
-  for (const viewport of repo.viewports) {
-    const relative = screenshotPath(target.page, target.component, target.iteration, viewport.name);
+  const set = screenshotSet(repo.viewports, repo.variants);
+  for (const shot of set) {
+    const viewport = repo.viewports.find(item => item.name === shot.viewport)!;
+    const relative = screenshotPath(target.page, target.component, target.iteration, shot.name);
     const ok = await take({
       browser,
-      url,
+      url: withVariant(url, shot.variant),
       file: path.join(repoRoot, ...relative.split('/')),
       size: viewport,
-      overlays: repo.overlays
+      overlays: repo.overlays,
+      variant: shot.variant
     });
-    if (ok) files[viewport.name] = relative;
+    if (ok) files[shot.name] = relative;
+  }
+  const all = Object.keys(files).length === set.length;
+  if (all && hash) {
+    await writeJsonAtomic(manifestFile(repoRoot, target), { hash, files } satisfies Manifest);
   }
   return {
     files,
-    warning:
-      Object.keys(files).length === repo.viewports.length
-        ? null
-        : `The screenshot failed. Is the app's dev server running at ${devUrl}?`
+    warning: all ? null : `The screenshot failed. Is the app's dev server running at ${devUrl}?`
   };
 }

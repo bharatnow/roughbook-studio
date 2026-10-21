@@ -10,8 +10,9 @@ import type { Io } from '../io.js';
 import { currentOs } from '../launch/platform.js';
 import { telemetryDisabled } from '../telemetry/events.js';
 import type { Launch } from '../launch/open.js';
+import type { PtySupport } from '../launch/pty.js';
 import type { TerminalPlan } from '../launch/terminal.js';
-import type { screenshotIteration } from '../screenshot/iteration.js';
+import type { askPreview, screenshotIteration } from '../screenshot/iteration.js';
 import { STUDIO_VERSION } from '../version.js';
 
 /** What every command is given. `repoRoot` is found once, by cli.ts, and passed down. */
@@ -44,6 +45,10 @@ export type CommandContext = {
   runCommand: typeof runCommand;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
+  /** Asks the app's dev server once: the warming request, and whether the app answers at all. */
+  askPreview: typeof askPreview;
+  /** The built-in terminal's pseudo-terminal, found once per process; a fake in tests. */
+  pty?: PtySupport;
   /** What roughbook doctor does outside the repo, replaced in tests. */
   doctorTools?: Partial<DoctorTools>;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */

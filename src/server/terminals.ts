@@ -104,6 +104,21 @@ export class Terminals {
     return [...this.sessions.values()].map(session => this.info(session));
   }
 
+  /** The last line a session printed, without its colours and cursor moves, for progress words. */
+  lastLine(id: string): string | null {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    const plain = session.scrollback
+      .slice(-4000)
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-9;?]*[A-Za-z]|\u001b\][^\u0007]*\u0007|\r/g, '');
+    const lines = plain
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    return lines.length ? lines[lines.length - 1]!.slice(0, 200) : null;
+  }
+
   get(id: string): TerminalInfo | null {
     const session = this.sessions.get(id);
     return session ? this.info(session) : null;

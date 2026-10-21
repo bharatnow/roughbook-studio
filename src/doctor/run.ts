@@ -13,7 +13,8 @@ import {
   readEnvironment
 } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { programOf } from '../launch/processes.js';
+import { screenshotSet, withVariant } from '../environment/variants.js';
+import { programOf, type Served } from '../launch/processes.js';
 import { installHint } from '../recipes/tools.js';
 import { recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
@@ -31,8 +32,11 @@ import { ROUGH_DIR } from '../repo/root.js';
 import { checkSetupFiles } from '../repo/setup.js';
 import { openSetup } from '../runs/setup.js';
 import { allChanged, compareFiles, hashRepo, ignored, readSnapshot } from '../runs/snapshot.js';
+import type { takeScreenshot } from '../screenshot/browser.js';
+import { screenshotIteration } from '../screenshot/iteration.js';
 import { STUDIO_VERSION } from '../version.js';
 import { findSentinel } from './sentinel.js';
+import { judgeSpeed, type SpeedMeasures } from './speed.js';
 import { realTools } from './tools.js';
 import type {
   CheckId,
@@ -51,6 +55,8 @@ export const DOCTOR_PAGE = 'doctor-check';
 export const DOCTOR_COMPONENT = 'sample';
 const GOOD = 'iteration-01';
 const BROKEN = 'iteration-02';
+/** The third sample, written during the speed check: a finished run, as the studio sees one. */
+const SPEED = 'iteration-03';
 const MISSING = 'iteration-99';
 
 const NAMES: Record<CheckId, string> = {
@@ -329,6 +335,10 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   writeFiles(repoRoot, goodFolder, samples.good);
   writeFiles(repoRoot, brokenFolder, samples.broken);
   recipe?.syncPreview(repoRoot);
+  /** The app, when doctor started it itself (--speed with nothing answering), stopped at the end. */
+  let startedApp: Served | null = null;
+  let coldStartedAt: number | null = null;
+  let coldStartMs: number | null = null;
   try {
     // 2. The app, and the container it runs in when it does.
     if (environment.runtime.kind === 'container') {
@@ -350,7 +360,20 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
         return report(environment);
       }
     }
-    const home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
+    let home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
+    if (!home && options.startApp && environment.start.command) {
+      // As roughbook start does: the approved start command, in its shell, timed from here to
+      // the first preview for the cold-start budget.
+      coldStartedAt = tools.now();
+      startedApp = await tools.serve(
+        environment.start.command,
+        repoRoot,
+        `${base}/`,
+        seconds(environment.timeouts.start),
+        environment.shell
+      );
+      if (startedApp) home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
+    }
     if (!home) {
       checks.push(
         result(
@@ -373,7 +396,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           environment.runtime.kind === 'container'
             ? `, from the container at ${environment.runtime.url}`
             : ''
-        }.`
+        }${startedApp ? `, started by doctor with ${environment.start.command}` : ''}.`
       )
     );
 
@@ -410,6 +433,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     const pageShows = (needle: string) =>
       Boolean(good?.text.includes(needle)) || goodProbe.text.includes(needle);
     const rendered = good?.status === 200 && first.shown;
+    if (coldStartedAt !== null && rendered) coldStartMs = tools.now() - coldStartedAt;
     // The server sent the iteration, but the browser shows something else: a layout of the app's
     // that decides what to show by path, showing its own view instead of the route. Nothing that
     // needs the iteration on the page can be judged until it shows, so those checks are skipped.
@@ -554,22 +578,23 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       );
     } else {
       const taken: string[] = [];
-      for (const viewport of environment.viewports) {
-        const file = path.join(shotsDir, `${viewport.name}.png`);
+      const set = screenshotSet(environment.viewports, environment.variants);
+      for (const shot of set) {
+        const viewport = environment.viewports.find(item => item.name === shot.viewport)!;
+        const file = path.join(shotsDir, `${shot.name}.png`);
         if (
           await tools.screenshot({
-            url: url(GOOD),
+            url: withVariant(url(GOOD), shot.variant),
             file,
             size: viewport,
-            overlays: environment.overlays
+            overlays: environment.overlays,
+            variant: shot.variant
           })
         ) {
-          taken.push(viewport.name);
+          taken.push(shot.name);
         }
       }
-      const missed = environment.viewports
-        .map(viewport => viewport.name)
-        .filter(name => !taken.includes(name));
+      const missed = set.map(shot => shot.name).filter(name => !taken.includes(name));
       if (missed.length) {
         checks.push(
           result(
@@ -777,18 +802,98 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     // 8. The setup files: each listed one in place and matching its template, the recipe's own
     // files as the recipe writes them now, and nothing else changed outside rough/ by the setup run.
     checks.push(await setupFilesCheck(repoRoot, environment, recipe, link));
-    checks.push(
-      result(
-        'speed',
-        'skip',
-        'Not checked yet: the speed budgets come with F4 of the frameworks plan.'
+
+    // 9. The speed budgets, with --speed: a new iteration (as a finished run leaves one), warmed
+    // once and timed until it shows and says ready; its screenshots at every viewport and
+    // variant, then again with nothing changed; and the cold start when doctor started the app.
+    if (!options.speed) {
+      checks.push(
+        result(
+          'speed',
+          'skip',
+          'Not checked: pass --speed to measure the budgets (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Speed").'
+        )
+      );
+      return report(environment);
+    }
+    const measures: SpeedMeasures = {
+      previewVisibleMs: null,
+      coldStartMs,
+      screenshotsMs: null,
+      shots: 0,
+      again: 0,
+      viewports: environment.viewports.length,
+      variants: Math.max(1, environment.variants.length)
+    };
+    const speedMarker = `${marker}-speed`;
+    writeFiles(
+      repoRoot,
+      iterationDir(page, DOCTOR_COMPONENT, SPEED),
+      Object.fromEntries(
+        Object.entries(samples.good).map(([file, content]) => [
+          file,
+          content.replaceAll(marker, speedMarker)
+        ])
       )
+    );
+    recipe?.syncPreview(repoRoot);
+    const startedAt = tools.now();
+    // The warming request, as a finished run makes it; then until the page shows it and says ready.
+    await ask(tools, url(SPEED), previewMs);
+    const until = tools.now() + previewMs;
+    for (;;) {
+      const answer = await ask(tools, url(SPEED), previewMs);
+      if (answer?.status === 200) {
+        const probe = tools.browser ? await probeAt(url(SPEED), speedMarker) : null;
+        const shown =
+          answer.text.includes(speedMarker) || Boolean(probe?.text.includes(speedMarker));
+        if (shown && (!tools.browser || probe?.ready)) {
+          measures.previewVisibleMs = tools.now() - startedAt;
+          break;
+        }
+      }
+      if (tools.now() >= until) break;
+      await tools.sleep(250);
+    }
+    if (tools.browser) {
+      const browser = tools.browser;
+      const target = { page, component: DOCTOR_COMPONENT, iteration: SPEED };
+      let count = 0;
+      const take: typeof takeScreenshot = async input => {
+        count += 1;
+        return tools.screenshot({
+          url: input.url,
+          file: input.file,
+          size: { name: '', ...input.size },
+          overlays: input.overlays ?? [],
+          variant: input.variant
+        });
+      };
+      const answered = async (asked: string) => ({ status: 200, url: asked });
+      const shotsAt = tools.now();
+      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, environment);
+      measures.screenshotsMs = tools.now() - shotsAt;
+      measures.shots = count;
+      count = 0;
+      await screenshotIteration(repoRoot, base, target, {}, take, browser, answered, environment);
+      measures.again = count;
+    }
+    const judged = judgeSpeed(measures);
+    checks.push(
+      judged.pass
+        ? result('speed', 'pass', judged.detail)
+        : result('speed', 'fail', judged.detail, judged.fix)
     );
     return report(environment);
   } finally {
     fs.rmSync(path.join(repoRoot, ...own.split('/')), { recursive: true, force: true });
+    fs.rmSync(path.join(repoRoot, ROUGH_DIR, '.screenshots', page), {
+      recursive: true,
+      force: true
+    });
     recipe?.syncPreview(repoRoot);
     fs.rmSync(shotsDir, { recursive: true, force: true });
+    if (startedApp) await startedApp.stop();
   }
 }
 

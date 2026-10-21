@@ -123,7 +123,8 @@ export function studioCanvasInput(
         generated: !pending,
         pullable: web && !pending
       };
-      const shot = !web && local.screenshots[`${where}/${iteration.id}`]?.includes('desktop');
+      // The first screenshot is the card's picture: the first viewport in the first variant.
+      const shot = web ? null : (local.screenshots[`${where}/${iteration.id}`]?.[0] ?? null);
       out.push({
         id: iteration.id,
         name: iteration.name,
@@ -131,7 +132,7 @@ export function studioCanvasInput(
         thumbnail: web
           ? SKETCH_PICTURE
           : shot
-            ? `${iterationPath(page, component.slug, iteration.id)}/screenshots/desktop${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
+            ? `${iterationPath(page, component.slug, iteration.id)}/screenshots/${shot}${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
             : null,
         // A sketch has no stage here: it opens where it is on the canvas.
         href: web ? `/${where}/iterations#${iteration.id}` : `/${where}/${iteration.id}`,

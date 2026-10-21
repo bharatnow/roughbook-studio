@@ -57,6 +57,8 @@ function targetOf(form: FormData) {
 export function StudioUiHost({ children }: { children: ReactNode }) {
   const { state, refresh, say } = useStudio();
   const devUrl = state?.devUrl ?? 'http://localhost:3000';
+  // The preview's path comes from the repo's environment, whatever the stack.
+  const previewTemplate = state?.environment.preview ?? '/rough-preview/{key}';
 
   const host = useMemo<UiHost>(() => {
     const decide = async (
@@ -86,7 +88,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
       Link: Anchor,
       navigate,
       previewSrc: ({ page, component, iteration }) =>
-        `${devUrl}/rough-preview/${page}/${component}/${iteration}`,
+        `${devUrl}${previewTemplate.replaceAll('{key}', `${page}/${component}/${iteration}`)}`,
       actions: {
         selectIteration: form =>
           decide(
@@ -171,7 +173,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, [devUrl, refresh, say]);
+  }, [devUrl, previewTemplate, refresh, say]);
 
   return <UiHostProvider host={host}>{children}</UiHostProvider>;
 }

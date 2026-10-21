@@ -2,6 +2,7 @@
 // found and what to fix (ROUGHBOOK-FRAMEWORKS-PLAN.md, "roughbook doctor"). Its result is the same
 // on the designer's machine, in a team's CI and over a recipe's fixture in Roughbook's own.
 import type { Family, Gate, PreviewMode, Shell, Viewport } from '../environment/types.js';
+import type { ResolvedVariant } from '../environment/variants.js';
 import type { Served } from '../launch/processes.js';
 
 export type CheckId =
@@ -90,6 +91,8 @@ export type DoctorTools = {
     file: string;
     size: Viewport;
     overlays: string[];
+    /** The variant to photograph in: its scheme and locale emulated by the browser. */
+    variant?: ResolvedVariant | null;
   }): Promise<boolean>;
   /** Runs a command to its end in `cwd`, in the declared shell; the exit code, or null when it timed out. */
   exec(
@@ -127,5 +130,12 @@ export type DoctorOptions = {
    * does with --yes; without it, an unapproved command fails the environment check.
    */
   approve?: boolean;
+  /** Measure the speed budgets too (the twelfth check), on a third sample iteration. */
+  speed?: boolean;
+  /**
+   * When nothing answers at the app's address, start it with the environment's start command
+   * (approved here), measure the cold start, and stop it after; as `roughbook start` does.
+   */
+  startApp?: boolean;
   tools?: Partial<DoctorTools>;
 };

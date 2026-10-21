@@ -21,7 +21,14 @@ export async function runDoctorHere(
   context: CommandContext,
   repoRoot: string,
   link: RepoLink,
-  options: { devUrl?: string; skipBuild?: boolean; yes?: boolean; json?: boolean }
+  options: {
+    devUrl?: string;
+    skipBuild?: boolean;
+    yes?: boolean;
+    json?: boolean;
+    /** Measure the speed budgets too, starting the app when nothing answers at its address. */
+    speed?: boolean;
+  }
 ): Promise<DoctorReport> {
   const { io } = context;
   // An environment that cannot be read is doctor's first finding, not a crash here.
@@ -34,6 +41,8 @@ export async function runDoctorHere(
     devUrl: url,
     skipBuild: options.skipBuild,
     approve: options.yes,
+    speed: options.speed,
+    startApp: options.speed,
     tools: context.doctorTools
   });
   if (options.json) io.out(JSON.stringify(report, null, 2));
@@ -80,7 +89,7 @@ async function tellServer(context: CommandContext, link: RepoLink, report: Docto
 export const doctor: Command = {
   name: 'doctor',
   summary: "Check this repo's preview setup against the contract, and say what to fix",
-  usage: 'doctor [--json] [--report] [--skip-build] [--yes] [--dev-url <url>]',
+  usage: 'doctor [--json] [--report] [--skip-build] [--speed] [--yes] [--dev-url <url>]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
@@ -90,6 +99,7 @@ export const doctor: Command = {
         json: { type: 'boolean', default: false },
         report: { type: 'boolean', default: false },
         'skip-build': { type: 'boolean', default: false },
+        speed: { type: 'boolean', default: false },
         yes: { type: 'boolean', short: 'y', default: false },
         'dev-url': { type: 'string' }
       }
@@ -99,6 +109,7 @@ export const doctor: Command = {
     const report = await runDoctorHere(context, repoRoot, link, {
       devUrl: values['dev-url'],
       skipBuild: values['skip-build'],
+      speed: values.speed,
       yes: values.yes,
       json: values.json
     });

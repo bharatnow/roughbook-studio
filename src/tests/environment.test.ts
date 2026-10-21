@@ -121,6 +121,7 @@ checks:
   - ./vendor/bin/pint --test
 checksWindows:
   - vendor/bin/pint.bat --test
+reload: app
 promote: resources/views/components
 promoteExtensions:
   - .blade.php
@@ -162,6 +163,8 @@ describe('the environment', () => {
     );
     assert.ok(environment.ignore.includes('.next'));
     assert.deepEqual(environment.overlays, ['nextjs-portal']);
+    // The stack reloads its own pages on a change, so the frame does not.
+    assert.equal(environment.reload, 'app');
     assert.ok(environment.sources.includes('.tsx') && environment.sources.includes('.css'));
     assert.ok(environment.code.includes('.tsx') && !environment.code.includes('.css'));
     // A repo with no link at all reads the same way, so snapshots and watching work there too.
@@ -253,6 +256,7 @@ describe('the environment', () => {
       ['phone', 'tablet', 'desktop']
     );
     assert.deepEqual(environment.variants, ['light', 'dark', 'en', 'ar']);
+    assert.equal(environment.reload, 'app');
     assert.deepEqual(environment.ignore, ['vendor', 'storage', 'node_modules', '.git']);
     assert.deepEqual(environment.overlays, []);
     assert.equal(environment.fixture, 'preview.json');
@@ -306,6 +310,7 @@ describe('the environment', () => {
     refused('---\nplacement: sideways\n---\n', 'placement');
     refused('---\nwrapper: ../outside.php\n---\n', 'wrapper');
     refused('---\nvariants:\n  - Dark Mode\n---\n', 'variants');
+    refused('---\nreload: sometimes\n---\n', 'reload');
     refused('---\nstart: none\n---\n', 'start');
     refused('---\nassetsCopy: maybe\n---\n', 'assetsCopy');
     refused('---\ncopy: translated\n---\n', 'copy');
@@ -337,6 +342,8 @@ describe('the environment', () => {
     assert.equal(minimal.family, 'markup-css');
     assert.equal(minimal.shell, 'none');
     assert.deepEqual(minimal.start, { command: null, url: 'http://localhost:8080' });
+    // With no recipe to say the stack reloads its own pages, the studio reloads the frame.
+    assert.equal(minimal.reload, 'studio');
     // The entry's extension is the one promote accepts when nothing says.
     assert.deepEqual(minimal.promote, { dir: null, extensions: ['.html'] });
     assert.deepEqual(minimal.terms, { page: 'page', component: 'component' });

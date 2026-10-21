@@ -1,10 +1,12 @@
-// Screenshots of an iteration through the repo's own dev server, at desktop and phone widths, so
-// the local UI can still show it after the app's code moves on and the live preview no longer
-// compiles. Uses a Chromium browser already on the machine, headless: nothing is downloaded.
-// Ported from roughbook runner/screenshot.ts (v2-local), which knew Windows and macOS; Linux
-// and Chromium are added. Headless Chrome will not make a window narrower than about 500 pixels,
-// so the viewport is set through the DevTools protocol over a pipe instead of --window-size,
-// and Chrome is preferred to Edge, which fills saved passwords in even into a fresh profile.
+// Screenshots and probes of an iteration through the repo's own dev server, at every viewport and
+// variant the environment names, so the local UI can still show it after the app's code moves on
+// and the live preview no longer compiles. Uses a Chromium browser already on the machine,
+// headless: nothing is downloaded. One browser is kept for the session and its tab reused
+// (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Speed"): starting Chrome cost most of every screenshot before.
+// Ported from roughbook runner/screenshot.ts (v2-local), which knew Windows and macOS; Linux and
+// Chromium are added. Headless Chrome will not make a window narrower than about 500 pixels, so
+// the viewport is set through the DevTools protocol over a pipe instead of --window-size, and
+// Chrome is preferred to Edge, which fills saved passwords in even into a fresh profile.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -13,6 +15,7 @@ import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Probe } from '../doctor/types.js';
 import { defaultEnvironment } from '../environment/read.js';
+import type { ResolvedVariant } from '../environment/variants.js';
 
 /**
  * Runs in the page before its own scripts: notes the preview's ready message (its `Ready` posts
@@ -68,12 +71,21 @@ export const SETTLED = settledScript(20000);
  * colour scheme, so the same iteration would be photographed differently on each machine: without
  * its entrance, or with a dark app body (a new app's default, in dark mode) as a black band below
  * a short iteration. Full motion, waited out by SETTLED, and the light scheme show every
- * iteration the same, wherever it is taken.
+ * iteration the same, wherever it is taken; a dark variant asks for the dark scheme instead.
  */
 export const EMULATED_MEDIA = [
   { name: 'prefers-reduced-motion', value: 'no-preference' },
   { name: 'prefers-color-scheme', value: 'light' }
 ];
+
+/** The media a page is photographed under in one variant: light unless the variant is dark. */
+export function emulatedMedia(variant: ResolvedVariant | null | undefined) {
+  return EMULATED_MEDIA.map(feature =>
+    feature.name === 'prefers-color-scheme' && variant?.scheme === 'dark'
+      ? { name: feature.name, value: 'dark' }
+      : feature
+  );
+}
 
 export type ScreenshotSize = { width: number; height: number; mobile: boolean };
 
@@ -154,6 +166,8 @@ class Pipe {
     sessionId?: string;
     handler(params: unknown): void;
   }[] = [];
+  /** Called with each call sent, for tests to see what the page was asked. */
+  onSend: ((method: string, params: Record<string, unknown>) => void) | null = null;
 
   constructor(
     private readonly output: Writable,
@@ -191,9 +205,15 @@ class Pipe {
 
   send<T>(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<T> {
     const id = this.next++;
+    this.onSend?.(method, params);
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: value => resolve(value as T), reject });
-      this.output.write(`${JSON.stringify({ id, method, params, sessionId })}\0`);
+      try {
+        this.output.write(`${JSON.stringify({ id, method, params, sessionId })}\0`);
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -205,6 +225,19 @@ class Pipe {
   on(method: string, sessionId: string | undefined, handler: (params: unknown) => void): void {
     this.listeners.push({ method, sessionId, handler });
   }
+
+  /** Forgets the listeners of one session, once its job is over. */
+  forget(sessionId: string): void {
+    for (let index = this.listeners.length - 1; index >= 0; index -= 1) {
+      if (this.listeners[index]!.sessionId === sessionId) this.listeners.splice(index, 1);
+    }
+  }
+
+  /** The browser is gone: every call still waiting fails now rather than never answering. */
+  dispose(): void {
+    for (const call of this.pending.values()) call.reject(new Error('the browser closed'));
+    this.pending.clear();
+  }
 }
 
 function within<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -215,71 +248,265 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** One page of the browser, attached: its DevTools calls and events. */
-type PageSession = {
+export type PageSession = {
   send<T>(method: string, params?: Record<string, unknown>): Promise<T>;
   event(method: string): Promise<void>;
   on(method: string, handler: (params: unknown) => void): void;
 };
 
-/**
- * Starts the browser on a fresh profile, opens one page at `size` with the setup script, and
- * runs `work` against it. The browser is closed and its profile removed whatever happens; null
- * when the browser failed or did not finish in time. Never throws.
- */
-async function withPage<T>(
-  {
-    browser,
-    size,
-    overlays,
-    timeoutMs
-  }: { browser: string; size: ScreenshotSize; overlays: string[]; timeoutMs: number },
-  work: (page: PageSession) => Promise<T>
-): Promise<T | null> {
-  const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
-  const child = spawn(browser, browserArgs(profile), {
+/** What the browser process gives the studio: its exit code, the two pipe ends, and a way to end it. */
+export type BrowserChild = {
+  pid?: number;
+  exitCode: number | null;
+  stdio: unknown[];
+  kill(): void;
+  on(event: 'exit' | 'error', listener: () => void): unknown;
+};
+
+/** Starts the browser process; replaced in tests by one that only speaks the protocol. */
+export type BrowserSpawn = (file: string, args: string[]) => BrowserChild;
+
+const realSpawn: BrowserSpawn = (file, args) =>
+  spawn(file, args, {
     stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'],
     windowsHide: true
-  });
-  child.on('error', () => {});
-  try {
-    const pipe = new Pipe(child.stdio[3] as Writable, child.stdio[4] as Readable);
-    const open = async () => {
-      const { targetId } = await pipe.send<{ targetId: string }>('Target.createTarget', {
-        url: 'about:blank'
-      });
-      const { sessionId } = await pipe.send<{ sessionId: string }>('Target.attachToTarget', {
-        targetId,
-        flatten: true
-      });
-      const page: PageSession = {
-        send: (method, params = {}) => pipe.send(method, params, sessionId),
-        event: method => pipe.event(method, sessionId),
-        on: (method, handler) => pipe.on(method, sessionId, handler)
-      };
-      await page.send('Page.enable');
-      await page.send('Emulation.setDeviceMetricsOverride', {
-        width: size.width,
-        height: size.height,
-        deviceScaleFactor: 1,
-        mobile: size.mobile
-      });
-      await page.send('Emulation.setEmulatedMedia', { features: EMULATED_MEDIA });
-      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: pageSetup(overlays) });
-      const value = await work(page);
-      await pipe.send('Browser.close').catch(() => undefined);
-      return value;
-    };
-    return await within(open(), timeoutMs);
-  } catch {
-    return null;
-  } finally {
-    if (child.exitCode === null) child.kill();
+  }) as unknown as BrowserChild;
+
+type Page = {
+  targetId: string;
+  sessionId: string;
+  session: PageSession;
+  busy: boolean;
+  /** The setup script registered for the current job, removed when the page is let go. */
+  setup: string | null;
+};
+
+/** How long a kept browser stays open with nothing to do before it closes itself. */
+const IDLE_MS = 3 * 60_000;
+
+/**
+ * One browser, kept for the session and its tab reused: started on the first screenshot or probe,
+ * on a fresh profile, closed when told or after a while with nothing to do, and started anew
+ * when next asked. Each job gets the tab with its own size, media, locale and setup script, and
+ * gives it back blank; a job that failed or timed out closes its tab instead, so the next starts
+ * clean. Never throws: a browser that could not start answers null.
+ */
+export class KeptBrowser {
+  private child: BrowserChild | null = null;
+  private pipe: Pipe | null = null;
+  private profile: string | null = null;
+  private starting: Promise<Pipe> | null = null;
+  private readonly pages: Page[] = [];
+  private idle: NodeJS.Timeout | null = null;
+  /** Called with each call sent to the browser, for tests. */
+  onSend: ((method: string, params: Record<string, unknown>) => void) | null = null;
+
+  constructor(
+    readonly executable: string,
+    private readonly options: { spawn?: BrowserSpawn; idleMs?: number; settleMs?: number } = {}
+  ) {}
+
+  get running(): boolean {
+    return this.child !== null && this.child.exitCode === null;
+  }
+
+  /** How long a page is given after it settled, for what animates outside the Web Animations API. */
+  get settleMs(): number {
+    return this.options.settleMs ?? 700;
+  }
+
+  private async start(): Promise<Pipe> {
+    if (this.pipe && this.running) return this.pipe;
+    if (this.starting) return this.starting;
+    this.starting = (async () => {
+      const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
+      const child = (this.options.spawn ?? realSpawn)(this.executable, browserArgs(profile));
+      const pipe = new Pipe(child.stdio[3] as Writable, child.stdio[4] as Readable);
+      pipe.onSend = (method, params) => this.onSend?.(method, params);
+      this.child = child;
+      this.pipe = pipe;
+      this.profile = profile;
+      this.pages.length = 0;
+      child.on('error', () => this.lost(child));
+      child.on('exit', () => this.lost(child));
+      return pipe;
+    })();
+    try {
+      return await this.starting;
+    } finally {
+      this.starting = null;
+    }
+  }
+
+  /** The browser went away on its own: forget it, and remove what it left. */
+  private lost(child: BrowserChild): void {
+    if (this.child !== child) return;
+    this.pipe?.dispose();
+    this.pipe = null;
+    this.child = null;
+    this.pages.length = 0;
+    this.removeProfile();
+  }
+
+  private removeProfile(): void {
+    const profile = this.profile;
+    this.profile = null;
+    if (!profile) return;
     try {
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
     } catch {
       // The browser may still hold its profile; it stays in the OS temp folder.
     }
   }
+
+  private async open(pipe: Pipe): Promise<Page> {
+    const { targetId } = await pipe.send<{ targetId: string }>('Target.createTarget', {
+      url: 'about:blank'
+    });
+    const { sessionId } = await pipe.send<{ sessionId: string }>('Target.attachToTarget', {
+      targetId,
+      flatten: true
+    });
+    const session: PageSession = {
+      send: (method, params = {}) => pipe.send(method, params, sessionId),
+      event: method => pipe.event(method, sessionId),
+      on: (method, handler) => pipe.on(method, sessionId, handler)
+    };
+    await session.send('Page.enable');
+    const page: Page = { targetId, sessionId, session, busy: false, setup: null };
+    this.pages.push(page);
+    return page;
+  }
+
+  private touch(): void {
+    if (this.idle) clearTimeout(this.idle);
+    this.idle = setTimeout(() => void this.close(), this.options.idleMs ?? IDLE_MS);
+    this.idle.unref();
+  }
+
+  /**
+   * Runs `work` against a page at `size`, emulating `variant` (its scheme and locale), with the
+   * setup script in place; null when the browser failed or `work` did not finish in time.
+   */
+  async withPage<T>(
+    input: {
+      size: ScreenshotSize;
+      overlays: string[];
+      variant?: ResolvedVariant | null;
+      timeoutMs: number;
+    },
+    work: (page: PageSession) => Promise<T>
+  ): Promise<T | null> {
+    if (this.idle) clearTimeout(this.idle);
+    let page: Page | null = null;
+    let done = false;
+    try {
+      const pipe = await within(this.start(), input.timeoutMs);
+      const free = this.pages.find(item => !item.busy);
+      page = free ?? (await within(this.open(pipe), input.timeoutMs));
+      page.busy = true;
+      const prepared = page;
+      const run = async () => {
+        const { session } = prepared;
+        await session.send('Emulation.setDeviceMetricsOverride', {
+          width: input.size.width,
+          height: input.size.height,
+          deviceScaleFactor: 1,
+          mobile: input.size.mobile
+        });
+        await session.send('Emulation.setEmulatedMedia', {
+          features: emulatedMedia(input.variant)
+        });
+        await session.send(
+          'Emulation.setLocaleOverride',
+          input.variant?.lang ? { locale: input.variant.lang } : {}
+        );
+        const { identifier } = await session.send<{ identifier: string }>(
+          'Page.addScriptToEvaluateOnNewDocument',
+          { source: pageSetup(input.overlays) }
+        );
+        prepared.setup = identifier;
+        return work(session);
+      };
+      const value = await within(run(), input.timeoutMs);
+      done = true;
+      return value;
+    } catch {
+      return null;
+    } finally {
+      if (page) await this.release(page, done);
+      this.touch();
+    }
+  }
+
+  /** Gives a page back blank for the next job, or closes one a job left in an unknown state. */
+  private async release(page: Page, clean: boolean): Promise<void> {
+    if (!this.pipe || !this.running) return;
+    const pipe = this.pipe;
+    pipe.forget(page.sessionId);
+    try {
+      if (clean) {
+        if (page.setup) {
+          await page.session.send('Page.removeScriptToEvaluateOnNewDocument', {
+            identifier: page.setup
+          });
+        }
+        await within(page.session.send('Page.navigate', { url: 'about:blank' }), 5000);
+        page.setup = null;
+        page.busy = false;
+        return;
+      }
+    } catch {
+      // Closed below.
+    }
+    const index = this.pages.indexOf(page);
+    if (index !== -1) this.pages.splice(index, 1);
+    await pipe.send('Target.closeTarget', { targetId: page.targetId }).catch(() => undefined);
+  }
+
+  /** Closes the browser and removes its profile; the next job starts a new one. */
+  async close(): Promise<void> {
+    if (this.idle) clearTimeout(this.idle);
+    this.idle = null;
+    if (this.starting) await this.starting.catch(() => undefined);
+    const child = this.child;
+    const pipe = this.pipe;
+    if (!child || !pipe) return;
+    this.child = null;
+    this.pipe = null;
+    this.pages.length = 0;
+    try {
+      await within(pipe.send('Browser.close'), 3000);
+    } catch {
+      // Ended below.
+    }
+    pipe.dispose();
+    if (child.exitCode === null) child.kill();
+    this.removeProfile();
+  }
+}
+
+const kept = new Map<string, KeptBrowser>();
+
+/** The browser kept for this process, by its executable: one for every screenshot and probe. */
+export function keptBrowser(executable: string): KeptBrowser {
+  let browser = kept.get(executable);
+  if (!browser) {
+    browser = new KeptBrowser(executable);
+    kept.set(executable, browser);
+  }
+  return browser;
+}
+
+/** Closes every browser this process kept, when a command ends or the local UI stops. */
+export async function closeKeptBrowsers(): Promise<void> {
+  const open = [...kept.values()];
+  kept.clear();
+  await Promise.all(open.map(browser => browser.close()));
+}
+
+function browserFor(browser: string | KeptBrowser): KeptBrowser {
+  return typeof browser === 'string' ? keptBrowser(browser) : browser;
 }
 
 /**
@@ -287,7 +514,12 @@ async function withPage<T>(
  * any entrance animation, then a moment for what animates outside the Web Animations API
  * (Motion's transforms run on requestAnimationFrame).
  */
-async function settle(page: PageSession, url: string, maxWaitMs = 20000): Promise<void> {
+async function settle(
+  page: PageSession,
+  url: string,
+  maxWaitMs = 20000,
+  settleMs = 700
+): Promise<void> {
   const loaded = page.event('Page.loadEventFired');
   await page.send('Page.navigate', { url });
   await loaded;
@@ -296,28 +528,33 @@ async function settle(page: PageSession, url: string, maxWaitMs = 20000): Promis
     awaitPromise: true
   });
   await page.send('Runtime.evaluate', { expression: settledScript(maxWaitMs), awaitPromise: true });
-  await new Promise(resolve => setTimeout(resolve, 700));
+  if (settleMs > 0) await new Promise(resolve => setTimeout(resolve, settleMs));
 }
 
-/** Takes one screenshot at exactly `size`. Resolves true when the file was written; never throws. */
+/** Takes one screenshot at exactly `size`, in `variant`. Resolves true when the file was written; never throws. */
 export async function takeScreenshot({
   browser,
   url,
   file,
   size,
   overlays = [],
+  variant = null,
   timeoutMs = 60_000
 }: {
-  browser: string;
+  /** The browser's executable, or the kept browser itself. */
+  browser: string | KeptBrowser;
   url: string;
   file: string;
   size: ScreenshotSize;
   /** Selectors of the app's development overlays, hidden before the shot. */
   overlays?: string[];
+  /** The variant the page is photographed in: its scheme and locale emulated here. */
+  variant?: ResolvedVariant | null;
   timeoutMs?: number;
 }): Promise<boolean> {
-  const taken = await withPage({ browser, size, overlays, timeoutMs }, async page => {
-    await settle(page, url);
+  const kept = browserFor(browser);
+  const taken = await kept.withPage({ size, overlays, variant, timeoutMs }, async page => {
+    await settle(page, url, 20000, kept.settleMs);
     const { data } = await page.send<{ data: string }>('Page.captureScreenshot', {
       format: 'png'
     });
@@ -340,7 +577,7 @@ export async function probePreview({
   timeoutMs = 60_000,
   expect
 }: {
-  browser: string;
+  browser: string | KeptBrowser;
   url: string;
   overlays: string[];
   timeoutMs?: number;
@@ -365,8 +602,9 @@ export async function probePreview({
     text: text.slice(0, 200000)
   });
 })()`;
-  const found = await withPage(
-    { browser, size: { width: 1440, height: 900, mobile: false }, overlays, timeoutMs },
+  const kept = browserFor(browser);
+  const found = await kept.withPage(
+    { size: { width: 1440, height: 900, mobile: false }, overlays, timeoutMs },
     async page => {
       // Whatever the page throws says why it may never have hydrated.
       const exceptions: string[] = [];
@@ -380,7 +618,7 @@ export async function probePreview({
       await page.send('Runtime.enable');
       // A dev server compiling the page's client code on first request may take a while to
       // hydrate; the probe waits as long as the environment allows, less a margin for the rest.
-      await settle(page, url, Math.max(20_000, timeoutMs - 10_000));
+      await settle(page, url, Math.max(20_000, timeoutMs - 10_000), kept.settleMs);
       const { result } = await page.send<{ result: { value?: string } }>('Runtime.evaluate', {
         expression,
         returnByValue: true

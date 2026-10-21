@@ -1,0 +1,80 @@
+// The speed budgets (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Speed"), as `doctor --speed` and the
+// conformance suite measure them on a repo: a finished run to its preview visible, the cold start
+// from the start command to the first preview, and the screenshots of a finished run, taken once
+// and again only for files that changed. The numbers were set from the baseline F4 measured on
+// the conformance fixture and the fresh PHP app; the canvas's own budget (100 cards without
+// dropped frames) is the UI package's speed test, and the limit on live frames is the frame's.
+
+export const BUDGETS = {
+  /** A finished run to its preview visible, live mode, app already running. */
+  previewVisibleMs: 3000,
+  /** `roughbook start` to the first preview, the app started by the studio. */
+  coldStartMs: 60_000,
+  /** Every viewport in every variant of one iteration, through the kept browser. */
+  screenshotsMs: 15_000
+};
+
+export type SpeedMeasures = {
+  previewVisibleMs: number | null;
+  /** Null when the app was already running, so there was no cold start to measure. */
+  coldStartMs: number | null;
+  screenshotsMs: number | null;
+  /** How many screenshots the first pass took, and how many the second took with nothing changed. */
+  shots: number;
+  again: number;
+  viewports: number;
+  variants: number;
+};
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+const budget = (ms: number) => `budget ${Math.round(ms / 1000)} s`;
+
+/** The measures against the budgets: a sentence for each, and what is over. */
+export function judgeSpeed(
+  measures: SpeedMeasures,
+  budgets: typeof BUDGETS = BUDGETS
+): { pass: boolean; detail: string; fix: string | null } {
+  const over: string[] = [];
+  const parts: string[] = [];
+  if (measures.previewVisibleMs === null) {
+    parts.push('the preview did not become visible in time');
+    over.push('the preview never became visible');
+  } else {
+    parts.push(
+      `preview visible in ${seconds(measures.previewVisibleMs)} (${budget(budgets.previewVisibleMs)})`
+    );
+    if (measures.previewVisibleMs > budgets.previewVisibleMs) {
+      over.push(`preview visible: ${seconds(measures.previewVisibleMs)}`);
+    }
+  }
+  if (measures.coldStartMs === null) {
+    parts.push('cold start not measured: the app was already running');
+  } else {
+    parts.push(`cold start in ${seconds(measures.coldStartMs)} (${budget(budgets.coldStartMs)})`);
+    if (measures.coldStartMs > budgets.coldStartMs) {
+      over.push(`cold start: ${seconds(measures.coldStartMs)}`);
+    }
+  }
+  if (measures.screenshotsMs === null) {
+    parts.push('screenshots not measured: no browser was found');
+  } else {
+    parts.push(
+      `screenshots at ${measures.viewports} viewport${measures.viewports === 1 ? '' : 's'} × ${measures.variants} variant${measures.variants === 1 ? '' : 's'} in ${seconds(measures.screenshotsMs)} (${budget(budgets.screenshotsMs)}), taken again: ${measures.again === 0 ? 'none' : measures.again}`
+    );
+    if (measures.screenshotsMs > budgets.screenshotsMs) {
+      over.push(`screenshots: ${seconds(measures.screenshotsMs)}`);
+    }
+    if (measures.again !== 0) {
+      over.push(
+        `${measures.again} screenshot${measures.again === 1 ? '' : 's'} taken again with nothing changed`
+      );
+    }
+  }
+  const detail = `${parts.map((part, index) => (index ? part : part.charAt(0).toUpperCase() + part.slice(1))).join('; ')}.`;
+  if (!over.length) return { pass: true, detail, fix: null };
+  return {
+    pass: false,
+    detail,
+    fix: `Over budget: ${over.join('; ')}. A preview that compiles slowly on first request is warmed by the studio when a run finishes; a slow cold start is the app's own start-up, which the frame shows as progress; screenshots taken again means the iteration's files or the environment's viewports changed between the two passes.`
+  };
+}

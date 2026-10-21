@@ -1,9 +1,9 @@
 import {
-  AppPreview,
   GENERATION_STATE_LABELS,
   HelpTip,
   IterationInspector,
   IterationNotesForm,
+  PreviewFrame,
   REFINEMENT_PRESETS,
   RatingForm,
   RejectDrawer,
@@ -16,36 +16,40 @@ import {
   generationStateOf,
   iterationStatusLabel,
   latestHumanReview,
-  reviewSummary
+  previewAddress,
+  reviewSummary,
+  termLabel,
+  useUiHost
 } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
-import { iterationPath, post, screenshotUrl } from '../api';
+import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
+import type { AppView } from '../types';
 
 const action =
   'inline-flex h-9 items-center gap-2 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost';
 
 /**
- * The desktop screenshot, fetched with the token, for when the dev server is not answering;
+ * The first screenshot, fetched with the token, for when the dev server is not answering;
  * fetched again when `version` changes, after the screenshots were taken again.
  */
 function useScreenshot(
   page: string,
   component: string,
   iteration: string,
-  taken: boolean,
-  version: number
+  size: string | null,
+  version: string
 ) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!taken) return;
+    if (!size) return;
     let made: string | null = null;
     let live = true;
-    void screenshotUrl(page, component, iteration, 'desktop').then(next => {
+    void screenshotUrl(page, component, iteration, size).then(next => {
       made = next;
       if (live) setUrl(next);
     });
@@ -53,8 +57,39 @@ function useScreenshot(
       live = false;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [page, component, iteration, taken, version]);
+  }, [page, component, iteration, size, version]);
   return url;
+}
+
+/**
+ * The app's state, asked again often while it starts or is down, so the frame's progress moves,
+ * and rarely once it answers.
+ */
+function useApp(initial: AppView | null): AppView {
+  const { state, refreshState } = useStudio();
+  const [app, setApp] = useState<AppView | null>(initial);
+  const current = app ?? state?.app ?? null;
+  const status = current?.status ?? 'unknown';
+  useEffect(() => {
+    let live = true;
+    const timer = window.setInterval(
+      () => {
+        void get<AppView>('/api/app')
+          .then(next => {
+            if (!live) return;
+            setApp(next);
+            if (next.status !== status) void refreshState();
+          })
+          .catch(() => undefined);
+      },
+      status === 'up' ? 15_000 : 2000
+    );
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [status, refreshState]);
+  return current ?? { status: 'unknown', terminal: null, since: null, lastLine: null };
 }
 
 function presetLabel(preset: string): string {
@@ -72,17 +107,20 @@ export function IterationScreen({
   iteration: string;
   refine: boolean;
 }) {
-  const { state, project, runs, refresh, say } = useStudio();
+  const { state, project, runs, changes, refresh, refreshState, say } = useStudio();
+  const { previewSrc } = useUiHost();
   const [selectOpen, setSelectOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [refineOpen, setRefineOpen] = useState(refine);
   const [shooting, setShooting] = useState(false);
   const [shotVersion, setShotVersion] = useState(0);
   const key = `${page}/${component}/${id}`;
-  const taken = Boolean(project?.local.screenshots[key]?.length);
-  const shot = useScreenshot(page, component, id, taken, shotVersion);
+  const taken = project?.local.screenshots[key] ?? [];
+  const takenAt = project?.local.screenshotsAt?.[key] ?? '';
+  const shot = useScreenshot(page, component, id, taken[0] ?? null, `${takenAt}:${shotVersion}`);
   const reviews = useReviews(page, component, id);
   const rating = useRatings(page, component)[id] ?? null;
+  const app = useApp(state?.app ?? null);
   useEffect(() => setRefineOpen(refine), [refine]);
 
   const found = findComponent(project, page, component);
@@ -103,17 +141,23 @@ export function IterationScreen({
     ? project.local.iterations.includes(`${page}/${component}/${iteration.parent}`)
     : false;
   const latestReview = reviewSummary(latestHumanReview(reviews));
+  const environment = state.environment;
+  const src = previewSrc({ project: project.tree.slug, page, component, iteration: id });
+  const terms = environment.terms;
+  const kicker = `${termLabel('page', terms)} ${found.page.name} · ${termLabel('component', terms)} ${record.name} · ${id}`;
 
   async function takeScreenshots() {
     setShooting(true);
     try {
       const shots = await post<{ files: Record<string, string>; warning: string | null }>(
-        `${iterationPath(page, component, id)}/screenshots`
+        `${iterationPath(page, component, id)}/screenshots`,
+        { force: true }
       );
+      const count = Object.keys(shots.files).length;
       say(
         shots.warning
           ? { tone: 'error', text: shots.warning }
-          : { tone: 'info', text: 'Took the desktop and phone screenshots.' }
+          : { tone: 'info', text: `Took ${count} screenshot${count === 1 ? '' : 's'}.` }
       );
       setShotVersion(version => version + 1);
     } catch (error) {
@@ -122,6 +166,21 @@ export function IterationScreen({
       setShooting(false);
       await refresh();
     }
+  }
+
+  async function startApp() {
+    try {
+      const result = await post<{ started: boolean; reason: string | null }>('/api/app/start');
+      say({
+        tone: 'info',
+        text: result.started
+          ? `Starting the app with ${environment.start.command}; its session is in the terminals.`
+          : (result.reason ?? 'The app was not started.')
+      });
+    } catch (error) {
+      say({ tone: 'error', text: describe(error) });
+    }
+    await refreshState();
   }
 
   return (
@@ -142,6 +201,7 @@ export function IterationScreen({
         parentHref={iteration.parent && parentHere ? `${base}/${iteration.parent}` : null}
         parentLabel={iteration.parent ? `From ${iteration.parent}` : null}
         selected={selected}
+        viewports={null}
         extraActions={
           <>
             <RatingForm
@@ -216,13 +276,14 @@ export function IterationScreen({
                   >
                     {shooting
                       ? 'Taking screenshots'
-                      : taken
+                      : taken.length
                         ? 'Take them again'
                         : 'Take screenshots'}
                   </button>
                   <HelpTip label="About screenshots">
-                    The desktop and phone screenshots stay in this repo. The stage shows the desktop
-                    one when the dev server is not running.
+                    One at each viewport and variant the environment names, kept in this repo. They
+                    are taken when a run finishes and again when the files change; the frame shows
+                    the first when the app is not answering.
                   </HelpTip>
                 </span>
               )
@@ -230,13 +291,34 @@ export function IterationScreen({
           />
         }
       >
-        <AppPreview
-          src={`${state.devUrl}/rough-preview/${key}`}
-          previewKey={key}
+        <PreviewFrame
+          mode={environment.mode}
+          items={[
+            {
+              key,
+              label: iteration.name,
+              src,
+              fallbackSrc: shot,
+              making: run?.status === 'started',
+              exists: true
+            }
+          ]}
+          viewports={environment.viewports}
+          variants={environment.variants}
+          kicker={kicker}
+          app={app.status}
           devUrl={state.devUrl}
-          screenshotUrl={shot}
-          commit={null}
-          syncedAt={null}
+          progress={app.lastLine}
+          reload={environment.reload}
+          changedKeys={changes.keys}
+          changeSeq={changes.seq}
+          openHref={(_key, variant) => previewAddress(src, variant)}
+          onStartApp={
+            environment.start.command && environment.start.approved && state.terminal.builtin
+              ? () => void startApp()
+              : undefined
+          }
+          timeoutMs={environment.timeouts.preview * 1000}
         />
       </Stage>
 

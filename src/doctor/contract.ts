@@ -22,13 +22,20 @@ through. Written for the agent that sets a repo up or changes its preview setup.
    names. When the iteration holds the environment's fixture file (\`preview.json\`), the preview
    passes its contents to the iteration as its inputs. A layout or wrapper of the app's that decides
    what to show by path lets the preview's address through in development, so the route is shown
-   and not the app's own view.
+   and not the app's own view. The environment's variants reach the preview as query parameters
+   on its address, the same in every stack: \`roughbook-scheme=dark\`, \`roughbook-dir=rtl\`,
+   \`roughbook-lang=<tag>\`, \`roughbook-text=large\`, and \`roughbook-variant=<word>\` for a word
+   of the setup's own. The preview applies them to the iteration's root the way the app switches
+   its colour scheme, text direction and language; a preview that ignores them renders the
+   default, and the studio's screenshots emulate the scheme and the locale besides.
 3. **States.** A rendered iteration posts ${READY_MESSAGE} to the page's parent (the page itself
    when nothing frames it). An iteration that is missing or failed posts ${ERROR_MESSAGE}, with
    the reason in \`message\`; where the stack can, the response is also 404 for a missing key and
    500 for a failed render.
 4. **Freshness.** A change to an iteration's files shows at its preview URL without restarting
-   anything: the stack's own reload, or a plain reload of the page.
+   anything: the stack's own reload (\`reload: app\` in the environment), or a plain reload of
+   the page, which the studio's frame does on a change when the environment says
+   \`reload: studio\`.
 5. **Loopback.** The preview answers requests addressed to this machine (localhost, 127.0.0.1,
    [::1]) and refuses or hides from any other address, so a dev server reachable on the network
    shows nothing from rough/.

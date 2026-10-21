@@ -29,8 +29,8 @@ export function realTools(env: NodeJS.ProcessEnv, repoRoot = ''): DoctorTools {
       browser
         ? probePreview({ browser, url, overlays, timeoutMs, expect })
         : { shows: false, ready: false, error: null, visibleOverlays: 0, exceptions: [], text: '' },
-    screenshot: async ({ url, file, size, overlays }) =>
-      browser ? takeScreenshot({ browser, url, file, size, overlays }) : false,
+    screenshot: async ({ url, file, size, overlays, variant }) =>
+      browser ? takeScreenshot({ browser, url, file, size, overlays, variant }) : false,
     exec: (command, cwd, timeoutMs, shell) =>
       queued(repoRoot || cwd, () => runToEnd(command, cwd, timeoutMs, shell)),
     serve: (command, cwd, url, timeoutMs, shell) =>

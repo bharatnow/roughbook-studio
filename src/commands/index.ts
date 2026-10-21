@@ -9,7 +9,8 @@ import { copyText } from '../launch/clipboard.js';
 import { launchDetached, openUrl } from '../launch/open.js';
 import { hostPlatform } from '../launch/platform.js';
 import { launchTerminal } from '../launch/terminal.js';
-import { screenshotIteration } from '../screenshot/iteration.js';
+import { closeKeptBrowsers } from '../screenshot/browser.js';
+import { askPreview, screenshotIteration } from '../screenshot/iteration.js';
 import { findRepoRoot } from '../repo/root.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -101,6 +102,8 @@ export type MainOptions = {
     | 'runCommand'
     | 'runHeadless'
     | 'screenshot'
+    | 'askPreview'
+    | 'pty'
     | 'waitForStop'
     | 'stdio'
     | 'doctorTools'
@@ -152,6 +155,8 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     runCommand: options.runCommand ?? runCommand,
     runHeadless: options.runHeadless ?? runHeadless,
     screenshot: options.screenshot ?? screenshotIteration,
+    askPreview: options.askPreview ?? askPreview,
+    pty: options.pty,
     doctorTools: options.doctorTools,
     waitForStop: options.waitForStop ?? untilSignalled,
     stdio: options.stdio ?? {
@@ -170,5 +175,8 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     io.err(describeError(error));
     await reportFailure(context, error);
     return 1;
+  } finally {
+    // The browser kept for screenshots would otherwise keep the process alive.
+    await closeKeptBrowsers();
   }
 }

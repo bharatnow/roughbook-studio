@@ -287,6 +287,13 @@ export function environmentFromHeader(
   const wrapper = text(fields, 'wrapper');
   const variants = list(fields, 'variants');
   if (variants && !variants.length) refuse('variants', 'names at least one variant.');
+  const reload = text(fields, 'reload');
+  if (reload !== undefined && reload !== 'app' && reload !== 'studio') {
+    refuse(
+      'reload',
+      'is app (the app reloads a changed iteration itself) or studio (the studio reloads the frame).'
+    );
+  }
   if (variants?.some(item => !/^[a-z][a-z0-9-]*$/.test(item))) {
     refuse('variants', 'are words such as light, dark, en or ar, one per line.');
   }
@@ -344,6 +351,7 @@ export function environmentFromHeader(
     preview: preview ?? base.preview,
     viewports: viewports ?? base.viewports,
     variants: variants ?? base.variants,
+    reload: (reload as 'app' | 'studio' | undefined) ?? base.reload,
     ignore: list(fields, 'ignore') ?? base.ignore,
     overlays: list(fields, 'overlays') ?? base.overlays,
     fixture: fixture === undefined ? base.fixture : fixture === 'none' ? null : fixture,

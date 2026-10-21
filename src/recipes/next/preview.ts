@@ -71,7 +71,13 @@ import { notFound } from "next/navigation";
 import type { ComponentType } from "react";
 import { Ready } from "./ready";
 ${blocking}
-export default async function RoughPreview({ params }: { params: Promise<{ slug: string[] }> }) {
+export default async function RoughPreview({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string[] }>;
+  searchParams: Promise<Search>;
+}) {
   // Answers requests addressed to this machine only, so a dev server reachable on the network shows nothing from ${ROUGH_DIR}/ (the preview contract, point 5).
   const host = (await headers()).get("host") ?? "";
   if (!/^(localhost|127\\.0\\.0\\.1|\\[::1\\])(:\\d+)?$/.test(host)) notFound();
@@ -85,14 +91,37 @@ export default async function RoughPreview({ params }: { params: Promise<{ slug:
   // An iteration's ${FIXTURE}, when it has one, holds its inputs (the preview contract, point 2).
   const fixture = registry.fixtures[key] ? (await registry.fixtures[key]()).default : {};
   const { Preview } = registry;
+  // The variant asked for: the dark class for apps that switch by class, color-scheme for the rest, and the text direction and language on the root.
+  const variant = variantOf(await searchParams);
   return (
-    <>
+    <div
+      data-roughbook-variant
+      dir={variant.dir}
+      lang={variant.lang}
+      className={variant.scheme === "dark" ? "dark" : undefined}
+      style={{ colorScheme: variant.scheme, fontSize: variant.text === "large" ? "125%" : undefined }}
+    >
       <Preview>
         <Iteration {...fixture} />
       </Preview>
       <Ready id={key} />
-    </>
+    </div>
   );
+}
+
+type Search = Record<string, string | string[] | undefined>;
+
+/** The variant the studio asks for in the address (the preview contract, point 2), as attributes on the iteration's root. */
+function variantOf(search: Search) {
+  const one = (name: string) => {
+    const value = search[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+  const scheme = one("roughbook-scheme") === "dark" ? "dark" : "light";
+  const dir = one("roughbook-dir") === "rtl" ? "rtl" : undefined;
+  const lang = one("roughbook-lang")?.replace(/[^A-Za-z0-9-]/g, "") || undefined;
+  const text = one("roughbook-text") === "large" ? "large" : undefined;
+  return { scheme, dir, lang, text };
 }
 `
     },

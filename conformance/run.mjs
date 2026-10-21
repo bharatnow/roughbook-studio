@@ -1,8 +1,10 @@
 // The conformance suite: roughbook doctor over a recipe's fixture, the way a designer's repo would
-// see it. `node conformance/run.mjs next [--skip-build] [--keep]` copies the fixture to a temp
-// folder, installs it, prepares it as `roughbook init` would (without a server: the link is a
-// stand-in), starts its dev server, runs doctor against it, and takes everything down. Exit code:
-// 0 pass, 1 fail, 2 unverified. Needs `npm run build` first, since it runs the studio from dist/.
+// see it. `node conformance/run.mjs next [--skip-build] [--speed] [--keep]` copies the fixture to
+// a temp folder, installs it, prepares it as `roughbook init` would (without a server: the link is
+// a stand-in), starts its dev server, runs doctor against it, and takes everything down. With
+// `--speed`, doctor starts the dev server itself with the environment's start command, as
+// `roughbook start` does, so the cold start is measured with the other budgets. Exit code: 0 pass,
+// 1 fail, 2 unverified. Needs `npm run build` first, since it runs the studio from dist/.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -14,9 +16,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const name = args.find(arg => !arg.startsWith('--'));
 const skipBuild = args.includes('--skip-build');
+const speed = args.includes('--speed');
 const keep = args.includes('--keep');
 if (!name) {
-  console.error('Usage: node conformance/run.mjs <fixture> [--skip-build] [--keep]');
+  console.error('Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--keep]');
   process.exit(2);
 }
 const fixture = path.join(root, 'conformance', 'fixtures', name);
@@ -82,12 +85,28 @@ try {
 
   const port = await freePort();
   const devUrl = `http://localhost:${port}`;
-  console.log(`\nStarting the dev server at ${devUrl}`);
-  served = await serveUntil(devCommand(port), work, `${devUrl}/`, 180_000);
-  if (!served) throw new Error('The dev server did not answer within 180 s.');
+  if (speed) {
+    // The environment names the start command on this port, so doctor can start the app itself
+    // and time the cold start; the rest of the environment stays the recipe's.
+    fs.writeFileSync(
+      path.join(work, 'rough', 'environment.md'),
+      `---\ncontract: 1\nrecipe: ${name}\nstart: ${devCommand(port)} @ ${devUrl}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
+    );
+    console.log(`\nDoctor starts the dev server itself at ${devUrl} (--speed)`);
+  } else {
+    console.log(`\nStarting the dev server at ${devUrl}`);
+    served = await serveUntil(devCommand(port), work, `${devUrl}/`, 180_000);
+    if (!served) throw new Error('The dev server did not answer within 180 s.');
+  }
 
   // The suite's own checkout: its commands are the recipe's, approved here as a CI owner would.
-  const report = await runDoctor(work, { devUrl, skipBuild, approve: true });
+  const report = await runDoctor(work, {
+    devUrl,
+    skipBuild,
+    approve: true,
+    speed,
+    startApp: speed
+  });
   console.log('');
   for (const line of renderReport(report)) console.log(line);
   code = exitCodeFor(report.outcome);

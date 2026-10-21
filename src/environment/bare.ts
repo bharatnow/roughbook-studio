@@ -26,6 +26,8 @@ export function bareEnvironment(link: RepoLink | null): RepoEnvironment {
       { name: 'mobile', width: 390, height: 844, mobile: true }
     ],
     variants: ['light'],
+    // With no recipe to say the stack reloads its own pages, the studio reloads the frame.
+    reload: 'studio',
     ignore: ['.git', 'node_modules'],
     overlays: [],
     fixture: 'preview.json',

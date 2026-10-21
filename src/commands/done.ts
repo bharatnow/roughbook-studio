@@ -2,9 +2,10 @@ import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
 import { outboxFor } from '../api/outbox.js';
-import { defaultEnvironment, readEnvironment } from '../environment/read.js';
+import { defaultEnvironment, previewUrl, readEnvironment } from '../environment/read.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { assessRun, finishRun, type FinishOptions } from '../runs/lifecycle.js';
+import { queued } from '../runs/queue.js';
 import type { Shots } from '../screenshot/iteration.js';
 import { listRuns, namesRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
@@ -29,7 +30,11 @@ export function devUrl(
 
 export type CompleteOptions = FinishOptions & { devUrl: string; screenshots: boolean };
 
-/** Finishes one run and, when it made something to look at, takes its screenshots. */
+/**
+ * Finishes one run; warms its preview, so a dev server that compiles on first request has it
+ * ready before the designer looks (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Speed"); and, when it made
+ * something to look at, takes its screenshots, one run at a time through the repo's queue.
+ */
 export async function finishWithScreenshots(
   context: CommandContext,
   api: StudioApi,
@@ -40,13 +45,28 @@ export async function finishWithScreenshots(
 ): Promise<{ run: RunRecord; shots: Shots | null }> {
   const repoRoot = context.repoRoot!;
   const run = await finishRun(repoRoot, api, outbox, link, runId, options);
-  if (!options.screenshots || run.failure || run.outcome === 'cancelled')
+  if (run.failure || run.outcome === 'cancelled' || run.outcome === 'failed') {
     return { run, shots: null };
-  const shots = await context.screenshot(
-    repoRoot,
-    options.devUrl,
-    { page: run.page, component: run.component, iteration: run.iteration },
-    context.env
+  }
+  const environment = await readEnvironment(repoRoot, link);
+  const target = { page: run.page, component: run.component, iteration: run.iteration };
+  const answer = await context.askPreview(
+    previewUrl(options.devUrl, target.page, target.component, target.iteration, environment),
+    environment.timeouts.preview * 1000
+  );
+  if (!options.screenshots) return { run, shots: null };
+  const shots = await queued(repoRoot, () =>
+    context.screenshot(
+      repoRoot,
+      options.devUrl,
+      target,
+      context.env,
+      undefined,
+      undefined,
+      undefined,
+      environment,
+      { answer }
+    )
   );
   return { run, shots };
 }

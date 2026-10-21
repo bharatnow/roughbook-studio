@@ -29,7 +29,8 @@ import {
   LONGEST_WAIT_MS,
   ProjectCache
 } from '../server/projectCache.js';
-import { defaultEnvironment } from '../environment/read.js';
+import { readEnvironmentSync } from '../environment/read.js';
+import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { LocalStudio } from '../server/studio.js';
 import { Terminals } from '../server/terminals.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -175,6 +176,9 @@ describe('the local server', () => {
   let next = 1;
   /** Screenshots asked for, as "<dev url> <page>/<component>/<iteration>". */
   const shots: string[] = [];
+  /** Whether the app answers at the dev URL, and what was asked of it. */
+  let appUp = false;
+  const askedApp: string[] = [];
   /** What editors were started with, and what went on the clipboard. */
   const editorLaunches: { command: string; args: string[]; env?: Record<string, string> }[] = [];
   const copied: string[] = [];
@@ -418,6 +422,10 @@ describe('the local server', () => {
         shots.push(`${devUrl} ${target.page}/${target.component}/${target.iteration}`);
         return { files: {}, warning: null };
       },
+      askPreview: async url => {
+        askedApp.push(url);
+        return appUp ? { status: 200, url } : null;
+      },
       runCommand: async () => ({ ok: false, stdout: '', stderr: 'not run', code: null }),
       waitForStop: async () => {},
       stdio: { input: new PassThrough(), output: new PassThrough(), interactive: false }
@@ -433,7 +441,6 @@ describe('the local server', () => {
       link,
       devUrl: DEV_URL,
       port,
-      environment: defaultEnvironment(),
       pty: { ok: true, pty: pty.module }
     });
     const created = createLocalServer({
@@ -934,6 +941,121 @@ describe('the local server', () => {
     ]);
     assert.deepEqual(launch[0]!.env, { ELECTRON_RUN_AS_NODE: '1' });
     assert.deepEqual(copied.slice(before.copied), [launched.instructions[0]]);
+  });
+
+  it('tells the page the repo’s environment as it is now, and the app’s state', async () => {
+    const state = (await api('GET', '/api/state')).json.data;
+    assert.equal(state.environment.mode, 'live');
+    assert.equal(state.environment.preview, '/rough-preview/{key}');
+    assert.equal(state.environment.reload, 'app');
+    assert.deepEqual(
+      state.environment.viewports.map((viewport: { name: string }) => viewport.name),
+      ['desktop', 'mobile']
+    );
+    assert.deepEqual(
+      state.environment.variants.map((variant: { id: string; scheme: string }) => [
+        variant.id,
+        variant.scheme
+      ]),
+      [['light', 'light']]
+    );
+    assert.deepEqual(state.environment.terms, { page: 'page', component: 'component' });
+    assert.equal(state.environment.start.command, 'npm run dev');
+    assert.equal(state.environment.start.approved, false);
+    assert.equal(state.environmentProblem, null);
+    assert.ok(['unknown', 'down'].includes(state.app.status), state.app.status);
+
+    // The environment file is read again when it changes, not once at start.
+    const file = path.join(repo, 'rough', 'environment.md');
+    fs.writeFileSync(
+      file,
+      '---\ncontract: 1\nrecipe: next\nreload: studio\nvariants:\n  - light\n  - dark\n  - ar\nterms:\n  - page: view\n---\n'
+    );
+    const changed = (await api('GET', '/api/state')).json.data;
+    assert.equal(changed.environment.reload, 'studio');
+    assert.deepEqual(changed.environment.terms, { page: 'view', component: 'component' });
+    assert.deepEqual(
+      changed.environment.variants.map((variant: { id: string; dir: string | null }) => [
+        variant.id,
+        variant.dir
+      ]),
+      [
+        ['light', null],
+        ['dark', null],
+        ['ar', 'rtl']
+      ]
+    );
+    // A file that cannot be read keeps the last good environment and says what is wrong.
+    fs.writeFileSync(file, '---\ncontract: 1\nrecipe: next\nreload: never\n---\n');
+    const broken = (await api('GET', '/api/state')).json.data;
+    assert.match(broken.environmentProblem, /reload/);
+    assert.equal(broken.environment.reload, 'studio');
+    fs.rmSync(file);
+    const back = (await api('GET', '/api/state')).json.data;
+    assert.equal(back.environment.reload, 'app');
+    assert.equal(back.environmentProblem, null);
+  });
+
+  it('tells the page which iterations changed since it last asked, as the watcher sees them', async () => {
+    const stop = studio.watch();
+    try {
+      const first = (await api('GET', '/api/changes?since=0')).json.data;
+      assert.equal(typeof first.seq, 'number');
+      const dir = path.join(repo, 'rough', 'home', 'hero', 'iteration-01');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'index.tsx'),
+        'export default function Hero() { return null; }\n'
+      );
+      const next = (await api('GET', `/api/changes?since=${first.seq}&wait=4000`)).json.data;
+      assert.ok(next.seq > first.seq, 'a change was numbered');
+      assert.ok(next.keys.includes('home/hero/iteration-01'), next.keys.join(', '));
+      // The watcher may report the folder and the file as two changes; once they are in, nothing
+      // newer is an empty answer, at once with no wait.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const latest = (await api('GET', '/api/changes?since=0')).json.data.seq;
+      const same = (await api('GET', `/api/changes?since=${latest}`)).json.data;
+      assert.deepEqual(same, { seq: latest, keys: [] });
+    } finally {
+      stop();
+    }
+  });
+
+  it('starts the app with the approved start command when the page asks, and says why it cannot', async () => {
+    const before = pty.spawned.length;
+    const refused = await api('POST', '/api/app/start');
+    assert.equal(refused.status, 400);
+    assert.match(refused.json.message, /not approved/);
+    await approveCommands(repo, environmentCommands(readEnvironmentSync(repo, null)));
+    appUp = true;
+    const already = await api('POST', '/api/app/start');
+    assert.equal(already.status, 200);
+    assert.equal(already.json.data.started, false);
+    assert.match(already.json.data.reason, /answers/);
+    appUp = false;
+    const started = await api('POST', '/api/app/start');
+    assert.equal(started.status, 200, JSON.stringify(started.json));
+    assert.equal(started.json.data.started, true);
+    assert.equal(pty.spawned.length, before + 1);
+    assert.deepEqual(pty.spawned.at(-1)!.args.slice(-2), ['run', 'dev']);
+    assert.equal(pty.spawned.at(-1)!.cwd, repo);
+    const state = (await api('GET', '/api/state')).json.data;
+    assert.equal(state.app.status, 'starting');
+    assert.equal(state.app.terminal, started.json.data.terminal.id);
+    assert.equal(state.environment.start.approved, true);
+    // The app's session is in the dock with the runs'.
+    const terminals = (await api('GET', '/api/terminals')).json.data;
+    assert.ok(
+      terminals.some(
+        (item: { id: string; runId: string | null }) =>
+          item.id === state.app.terminal && item.runId === null
+      )
+    );
+    // Asked again while it starts, nothing more is started.
+    const twice = await api('POST', '/api/app/start');
+    assert.equal(twice.json.data.started, false);
+    assert.equal(pty.spawned.length, before + 1);
+    studio.terminals!.stop(state.app.terminal);
   });
 
   it('asks the backend for the project and its ratings only when they may have changed', async () => {

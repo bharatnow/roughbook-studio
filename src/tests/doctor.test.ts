@@ -58,7 +58,7 @@ function doctorPage(repo: string): string | null {
 }
 
 /** The sample iterations as doctor writes them, read back from the repo while a check runs. */
-function sample(repo: string, which: 'iteration-01' | 'iteration-02'): string {
+function sample(repo: string, which: 'iteration-01' | 'iteration-02' | 'iteration-03'): string {
   const page = doctorPage(repo);
   const dir = page ? path.join(repo, 'rough', page, 'sample', which) : '';
   return page && fs.existsSync(dir)
@@ -90,19 +90,26 @@ function fakeTools(
     noFixture: boolean;
     missingTool: string;
     production: 'ok' | 'leaks' | 'down';
+    /** Every look at the clock is ten seconds later, so every budget is over. */
+    slow: boolean;
+    /** Nothing answers until the start command was served, as before roughbook start. */
+    downUntilServed: boolean;
   }> = {}
-): DoctorTools & { built: string[]; served: string[]; shots: string[] } {
+): DoctorTools & { built: string[]; served: string[]; stopped: string[]; shots: string[] } {
   const built: string[] = [];
   const served: string[] = [];
+  const stopped: string[] = [];
   const shots: string[] = [];
   let clock = 0;
+  let appServed = false;
   const pageFor = (url: URL): { status: number; body: string } => {
     // Doctor's page is named anew each run: /rough-preview/doctor-check-<id>/sample/<iteration>.
     const key = url.pathname.replace(/^\/rough-preview\/doctor-check(-[a-z0-9]+)?\//, '');
     const isLan = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname);
     if (isLan && !faults.exposed) return { status: 404, body: 'not for the network' };
-    if (key === 'sample/iteration-01') {
-      const files = sample(repo, 'iteration-01');
+    // Doctor's third sample, for the speed check, renders like the first.
+    if (key === 'sample/iteration-01' || key === 'sample/iteration-03') {
+      const files = sample(repo, key === 'sample/iteration-01' ? 'iteration-01' : 'iteration-03');
       // A stale server keeps showing the first marker, never the change to it.
       const marker = faults.stale
         ? (/roughbook-doctor-[a-z0-9]+/.exec(files)?.[0] ?? '')
@@ -122,6 +129,7 @@ function fakeTools(
   return {
     built,
     served,
+    stopped,
     shots,
     browser: '/fake/chrome',
     which: program => (faults.missingTool === program ? null : `/fake/bin/${program}`),
@@ -130,6 +138,9 @@ function fakeTools(
         typeof input === 'string' ? input : input instanceof URL ? input : input.url
       );
       if (faults.down && url.port === '3000') throw new Error('ECONNREFUSED');
+      if (faults.downUntilServed && !appServed && url.port === '3000') {
+        throw new Error('ECONNREFUSED');
+      }
       if (url.port === '3999') {
         // The app in production mode, for the runtime gate.
         if (faults.production === 'down') throw new Error('ECONNREFUSED');
@@ -144,7 +155,7 @@ function fakeTools(
     }) as typeof fetch,
     async probe({ url, overlays }) {
       const page = pageFor(new URL(url));
-      const good = url.endsWith('/sample/iteration-01');
+      const good = url.endsWith('/sample/iteration-01') || url.endsWith('/sample/iteration-03');
       const probe: Probe = {
         // A hiding layout shows its own view: the iteration is in the page's data, not on screen.
         shows: good ? !faults.hidden && page.status === 200 : true,
@@ -175,12 +186,19 @@ function fakeTools(
     },
     async serve(command, _cwd, url) {
       served.push(`${command} @ ${url}`);
-      return faults.production === 'down' ? null : { stop: async () => {} };
+      if (url.includes(':3000')) appServed = true;
+      return faults.production === 'down'
+        ? null
+        : {
+            stop: async () => {
+              stopped.push(command);
+            }
+          };
     },
     addresses: () => ['192.168.1.20'],
     // No real waiting: each look at the clock is a second later.
     sleep: async () => {},
-    now: () => (clock += 1000)
+    now: () => (clock += faults.slow ? 10_000 : 1000)
   };
 }
 
@@ -508,5 +526,65 @@ describe("the repo's command lines", () => {
       }
     );
     assert.equal(resolveCommandLine('   '), null);
+  });
+});
+
+describe('doctor --speed', () => {
+  it('measures the budgets on the sample iteration and says each in a sentence, and skips them without --speed', async () => {
+    const repo = await tempRepo();
+    const tools = fakeTools(repo);
+    const report = await runDoctor(repo, { devUrl: DEV, tools, speed: true });
+    assert.deepEqual(failing(report), [], JSON.stringify(report.checks, null, 2));
+    const speed = report.checks.find(check => check.id === 'speed')!;
+    assert.equal(speed.status, 'pass', speed.detail);
+    assert.match(speed.detail, /preview visible in \d+(\.\d+)? s \(budget \d+ s\)/i);
+    assert.match(speed.detail, /screenshots .* in \d+(\.\d+)? s/);
+    assert.match(speed.detail, /taken again: none/);
+    assert.match(speed.detail, /cold start not measured/);
+    // The speed samples are taken away with the rest, screenshots included.
+    assert.equal(doctorPage(repo), null);
+    const shotsDir = path.join(repo, 'rough', '.screenshots');
+    assert.ok(
+      !fs.existsSync(shotsDir) ||
+        fs.readdirSync(shotsDir).every(name => !name.startsWith('doctor-check')),
+      'no doctor screenshots stay in the repo'
+    );
+    const without = await runDoctor(repo, { devUrl: DEV, tools: fakeTools(repo) });
+    const skipped = without.checks.find(check => check.id === 'speed')!;
+    assert.equal(skipped.status, 'skip');
+    assert.match(skipped.detail, /--speed/);
+  });
+
+  it('fails when a budget is over, naming the budget and the number', async () => {
+    const repo = await tempRepo();
+    const tools = fakeTools(repo, { slow: true });
+    const report = await runDoctor(repo, { devUrl: DEV, tools, speed: true });
+    const speed = report.checks.find(check => check.id === 'speed')!;
+    assert.equal(speed.status, 'fail');
+    assert.match(speed.detail, /preview visible in \d+(\.\d+)? s \(budget \d+ s\)/i);
+    assert.match(speed.fix ?? '', /over budget/i);
+    assert.equal(report.outcome, 'fail');
+  });
+
+  it('starts the app itself when asked, measures the cold start, and stops it after', async () => {
+    const repo = await tempRepo();
+    const tools = fakeTools(repo, { downUntilServed: true });
+    const report = await runDoctor(repo, { devUrl: DEV, tools, speed: true, startApp: true });
+    assert.deepEqual(failing(report), [], JSON.stringify(report.checks, null, 2));
+    assert.ok(
+      tools.served.some(item => item.startsWith('npm run dev @ http://localhost:3000')),
+      tools.served.join(', ')
+    );
+    assert.deepEqual(tools.stopped, ['npm run dev']);
+    const app = report.checks.find(check => check.id === 'app')!;
+    assert.match(app.detail, /started/i);
+    const speed = report.checks.find(check => check.id === 'speed')!;
+    assert.match(speed.detail, /cold start in \d+(\.\d+)? s \(budget \d+ s\)/);
+    // Without the start, nothing answered and doctor says to start the app.
+    const notStarted = await runDoctor(repo, {
+      devUrl: DEV,
+      tools: fakeTools(repo, { downUntilServed: true })
+    });
+    assert.deepEqual(failing(notStarted), ['app']);
   });
 });

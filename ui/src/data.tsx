@@ -8,7 +8,15 @@ import {
   type ReactNode
 } from 'react';
 import { Failure, get } from './api';
-import type { Component, Page, ProjectView, RunView, StudioState, TerminalInfo } from './types';
+import type {
+  Changes,
+  Component,
+  Page,
+  ProjectView,
+  RunView,
+  StudioState,
+  TerminalInfo
+} from './types';
 
 type Notice = { tone: 'error' | 'info'; text: string } | null;
 
@@ -19,6 +27,8 @@ type StudioData = {
   terminals: TerminalInfo[];
   /** The runs and terminals have been read once, so a session seen after is a new one. */
   runsReady: boolean;
+  /** The iterations whose files changed last, as the server's watcher saw them, with their number. */
+  changes: Changes;
   /** Why the project could not be read, such as the server being out of reach. */
   problem: string | null;
   notice: Notice;
@@ -59,6 +69,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<RunView[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [runsReady, setRunsReady] = useState(false);
+  const [changes, setChanges] = useState<Changes>({ seq: 0, keys: [] });
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -119,6 +130,32 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [visible, anyOpen, refreshProject]);
 
+  // What changes in rough/ while the page is open: the server holds each ask until something
+  // does, so a frame reloads the moment an iteration's files change where the stack has no hot
+  // reload of its own. The first ask only learns where the numbering stands.
+  useEffect(() => {
+    if (!visible) return;
+    let live = true;
+    let since = -1;
+    void (async () => {
+      while (live) {
+        try {
+          const next = await get<Changes>(
+            since < 0 ? '/api/changes?since=0' : `/api/changes?since=${since}&wait=20000`
+          );
+          if (!live) return;
+          if (since >= 0 && next.keys.length) setChanges(next);
+          since = next.seq;
+        } catch {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [visible]);
+
   // Coming back from the terminal, the editor or the web: what changed meanwhile.
   useEffect(() => {
     const back = () => {
@@ -140,6 +177,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       runs,
       terminals,
       runsReady,
+      changes,
       problem,
       notice,
       say: setNotice,
@@ -153,6 +191,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       runs,
       terminals,
       runsReady,
+      changes,
       problem,
       notice,
       refresh,
