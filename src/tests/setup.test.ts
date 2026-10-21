@@ -527,7 +527,7 @@ describe('roughbook setup', () => {
     assert.equal(await run(['setup', '--fix']), 1);
     assert.match(io.errors.at(-1)!, /no doctor report/);
     const report: DoctorReport = {
-      studio: '0.3.18',
+      studio: '0.3.15',
       environment: {
         contract: 1,
         recipe: null,
