@@ -6,15 +6,16 @@ import { confirm } from '../io.js';
 import { recipeFor } from '../recipes/index.js';
 import { requireRepoLink } from '../repo/link.js';
 import { ROUGH_DIR } from '../repo/root.js';
-import { removeSetup } from '../repo/setup.js';
+import { removeSetup, withoutSnippet } from '../repo/setup.js';
 import type { Command } from './context.js';
 
 /**
  * `roughbook uninstall`: takes the preview setup out of the app and nothing else (decision 28):
  * every file setupFiles lists (a whole file deleted, a snippet taken out of its file), and a
- * recipe's own route files and generated files. rough/ stays, since it is the record of the
- * iterations; so do the lines init added to .gitignore, tsconfig and ESLint, which are named for
- * the designer to remove by hand.
+ * recipe's own route files, generated files and the lines it added to the app's own files (a
+ * route file's require, a build file's test dependencies). rough/ stays, since it is the record
+ * of the iterations; so do the lines init added to .gitignore, tsconfig and ESLint, which are
+ * named for the designer to remove by hand.
  */
 export const uninstall: Command = {
   name: 'uninstall',
@@ -36,9 +37,19 @@ export const uninstall: Command = {
           fs.existsSync(path.join(repoRoot, ...file.split('/')))
         )
       : [];
-    const listed = environment.setupFiles.map(file =>
-      file.kind === 'snippet' ? `the snippet in ${file.path}` : file.path
-    );
+    // A recipe's lines in the app's own files, where they are still there to take out.
+    const recipeSnippets = (recipe?.snippets?.(repoRoot, link) ?? []).filter(snippet => {
+      const file = path.join(repoRoot, ...snippet.file.split('/'));
+      if (!fs.existsSync(file)) return false;
+      const text = fs.readFileSync(file, 'utf8');
+      return withoutSnippet(text, snippet.text) !== text.replace(/\r\n/g, '\n');
+    });
+    const listed = [
+      ...environment.setupFiles.map(file =>
+        file.kind === 'snippet' ? `the snippet in ${file.path}` : file.path
+      ),
+      ...recipeSnippets.map(snippet => `the recipe's lines in ${snippet.file}`)
+    ];
     if (!listed.length && !recipeFiles.length) {
       io.out(
         `Nothing to remove: ${ROUGH_DIR}/${ENVIRONMENT_FILE} lists no setup files, and no recipe files are here.`
@@ -55,6 +66,11 @@ export const uninstall: Command = {
       return 0;
     }
     const removal = removeSetup(repoRoot, environment);
+    for (const snippet of recipeSnippets) {
+      const file = path.join(repoRoot, ...snippet.file.split('/'));
+      fs.writeFileSync(file, withoutSnippet(fs.readFileSync(file, 'utf8'), snippet.text));
+      removal.removed.push(`the recipe's lines in ${snippet.file}`);
+    }
     for (const file of recipeFiles) {
       fs.rmSync(path.join(repoRoot, ...file.split('/')), { force: true });
       removal.removed.push(file);

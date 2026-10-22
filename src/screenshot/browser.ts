@@ -512,7 +512,9 @@ function browserFor(browser: string | KeptBrowser): KeptBrowser {
 /**
  * Opens `url` and waits for it to settle: fonts, then hydration (the ready or error message) and
  * any entrance animation, then a moment for what animates outside the Web Animations API
- * (Motion's transforms run on requestAnimationFrame).
+ * (Motion's transforms run on requestAnimationFrame). A page that reloads itself while it settles
+ * is waited for again, within the same time: a dev server's loading screen that reloads into the
+ * page once it has compiled it, or a bundler's full reload after it optimized new dependencies.
  */
 async function settle(
   page: PageSession,
@@ -520,15 +522,35 @@ async function settle(
   maxWaitMs = 20000,
   settleMs = 700
 ): Promise<void> {
+  const started = Date.now();
+  const left = () => Math.max(0, maxWaitMs - (Date.now() - started));
+  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
   const loaded = page.event('Page.loadEventFired');
   await page.send('Page.navigate', { url });
   await loaded;
-  await page.send('Runtime.evaluate', {
-    expression: 'document.fonts.ready.then(() => true)',
-    awaitPromise: true
+  let loads = 0;
+  page.on('Page.loadEventFired', () => {
+    loads += 1;
   });
-  await page.send('Runtime.evaluate', { expression: settledScript(maxWaitMs), awaitPromise: true });
-  if (settleMs > 0) await new Promise(resolve => setTimeout(resolve, settleMs));
+  for (;;) {
+    const seen = loads;
+    try {
+      await page.send('Runtime.evaluate', {
+        expression: 'document.fonts.ready.then(() => true)',
+        awaitPromise: true
+      });
+      await page.send('Runtime.evaluate', {
+        expression: settledScript(left()),
+        awaitPromise: true
+      });
+      if (loads === seen) break;
+    } catch {
+      // The document went away under the script: the page is loading another.
+    }
+    if (!left()) break;
+    while (loads === seen && left()) await pause(100);
+  }
+  if (settleMs > 0) await pause(settleMs);
 }
 
 /** Takes one screenshot at exactly `size`, in `variant`. Resolves true when the file was written; never throws. */

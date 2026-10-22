@@ -101,13 +101,17 @@ export type DoctorTools = {
     timeoutMs: number,
     shell: Shell
   ): Promise<{ code: number | null }>;
-  /** Starts a command in `cwd` and waits until `url` answers; null when it did not in time. */
+  /**
+   * Starts a command in `cwd` and waits until `url` answers; null when it did not in time. With
+   * `untilExit`, a container's bring-up: the address counts once the command has finished.
+   */
   serve(
     command: string,
     cwd: string,
     url: string,
     timeoutMs: number,
-    shell: Shell
+    shell: Shell,
+    options?: { untilExit?: boolean }
   ): Promise<Served | null>;
   /**
    * Runs the snapshot command with the contract's variables, to its end, through the repo's queue:

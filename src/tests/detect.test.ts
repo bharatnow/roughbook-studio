@@ -182,7 +182,8 @@ describe('detection', () => {
     assert.equal(laravel.guess, 'Laravel 13');
     assert.deepEqual(laravel.stack, ['laravel-13', 'vite-7', 'blade', 'tailwind-4', 'php-8']);
     assert.equal(laravel.family, 'markup-css');
-    assert.equal(laravel.recipe, null);
+    // Laravel has a recipe since F8, which the more specific match brings.
+    assert.equal(laravel.recipe, 'laravel');
 
     const next = detectStack(
       await repoWith({

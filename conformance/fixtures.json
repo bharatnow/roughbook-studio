@@ -1,5 +1,5 @@
 {
-  "$comment": "The apps the conformance suite runs doctor against, one per recipe, written by scripts/fixtures.mjs from these pinned scaffolds. Regenerating a fixture is a deliberate commit; the weekly run uses the latest versions instead.",
+  "$comment": "The apps the conformance suite runs doctor against, one per recipe, written by scripts/fixtures.mjs from these pinned scaffolds. Regenerating a fixture is a deliberate commit; the weekly run uses the latest versions instead. runner is how the scaffold runs: npx (the default), composer (create-project), studio (the recipe's own scaffold, from dist/, its versions pinned in its files) or flutter (flutter create, with the SDK on the PATH). install runs in a copy of the fixture before doctor, dev serves it ({port} is a free port; the address is url, or http://localhost:{port}), down takes down what dev started outside its own process, store names the variable that must hold a store the designer signed in to, and header holds lines the copy's rough/environment.md gains over the recipe's.",
   "fixtures": {
     "next": {
       "scaffold": "create-next-app",
@@ -17,13 +17,92 @@
         "--disable-git",
         "--no-agent-feedback",
         "--yes"
+      ],
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npm run dev -- --port {port}"
+    },
+    "vite": {
+      "scaffold": "create-vite",
+      "version": "9.3.1",
+      "args": ["--template", "react-ts", "--no-interactive"],
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npm run dev -- --port {port} --strictPort"
+    },
+    "wordpress": {
+      "runner": "studio",
+      "version": "1",
+      "app": "harbor-theme",
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npx wp-env start",
+      "url": "http://localhost:8888",
+      "down": [
+        "npx wp-env destroy --force",
+        "npx wp-env destroy --force --config .wp-env.rough-production.json"
       ]
+    },
+    "shopify": {
+      "scaffold": "@shopify/cli",
+      "version": "4.9.4",
+      "args": ["theme", "init", "{app}"],
+      "install": [],
+      "dev": "npx --yes @shopify/cli@4.9.4 theme dev --store {store} --port {port}",
+      "header": [
+        "start: npx --yes @shopify/cli@4.9.4 theme dev --store {store} --port {port} @ http://127.0.0.1:{port}",
+        "production: https://{store}.myshopify.com"
+      ],
+      "url": "http://127.0.0.1:{port}",
+      "store": "SHOPIFY_FLAG_STORE"
+    },
+    "laravel": {
+      "runner": "composer",
+      "scaffold": "laravel/laravel",
+      "version": "13.11.0",
+      "args": ["--prefer-dist", "--no-interaction", "--no-scripts", "--no-install"],
+      "install": [
+        "composer install --no-interaction --no-progress",
+        "php -r \"copy('.env.example', '.env');\"",
+        "php artisan key:generate --no-interaction"
+      ],
+      "dev": "php artisan serve --port {port}",
+      "url": "http://127.0.0.1:{port}"
     },
     "expo": {
       "scaffold": "create-expo-app",
       "version": "5.0.0",
       "app": "expo-app",
-      "args": ["--template", "default@sdk-58", "--no-install", "--yes"]
+      "args": ["--template", "default@sdk-58", "--no-install", "--yes"],
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npx expo start --localhost --port {port}"
+    },
+    "flutter": {
+      "runner": "flutter",
+      "version": "3",
+      "args": ["--project-name", "flutter_app", "--platforms", "web,android,ios"],
+      "install": ["flutter pub get"],
+      "dev": "flutter run -d web-server --web-hostname 127.0.0.1 --web-port {port} -t lib/rough_preview.dart",
+      "url": "http://127.0.0.1:{port}"
+    },
+    "nuxt": {
+      "scaffold": "create-nuxt",
+      "version": "4.0.1",
+      "args": ["--template", "minimal", "--packageManager", "npm", "--no-gitInit", "--no-install"],
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npm run dev -- --port {port} --host 127.0.0.1",
+      "url": "http://127.0.0.1:{port}"
+    },
+    "swiftui": {
+      "runner": "studio",
+      "version": "1",
+      "app": "harbor",
+      "install": [],
+      "dev": null
+    },
+    "compose": {
+      "runner": "studio",
+      "version": "1",
+      "app": "harbor",
+      "install": [],
+      "dev": null
     }
   }
 }

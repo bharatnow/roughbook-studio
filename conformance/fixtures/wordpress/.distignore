@@ -1,0 +1,8 @@
+.git
+.gitignore
+.distignore
+node_modules
+package.json
+package-lock.json
+rough
+.wp-env*.json

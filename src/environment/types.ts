@@ -135,10 +135,11 @@ export type RepoEnvironment = {
   build: { command: string | null; output: string[] };
   gate: Gate;
   /**
-   * How to run the app in production mode for the runtime gate: the command, and the address it
-   * answers on. Null when the gate is the build alone.
+   * How to run the app in production mode for the runtime gate: the command (null when it already
+   * runs there, as a store's live theme does), and the address it answers on. Null when the gate
+   * is the build alone.
    */
-  production: { command: string; url: string } | null;
+  production: { command: string | null; url: string } | null;
   /** The commands an agent runs on its iteration: a type check, a linter, tests. */
   checks: string[];
   /** How long each may take, in seconds (decision 36). */

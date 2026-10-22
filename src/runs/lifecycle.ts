@@ -182,7 +182,13 @@ export async function startRuns(
     // is not one of the repo's iterations to copy.
     createSlot(repoRoot, request.kind === 'pull' ? { ...record, parent: null } : record, {
       file: environment.entry,
-      content: recipe ? recipe.placeholder(environment.entry) : genericPlaceholder()
+      content: recipe
+        ? recipe.placeholder(
+            environment.entry,
+            `${request.page}/${request.component}/${run.iteration}`
+          )
+        : genericPlaceholder(),
+      ...(recipe?.retarget ? { retarget: recipe.retarget.bind(recipe) } : {})
     });
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
     const prompt = fillEnvironment(

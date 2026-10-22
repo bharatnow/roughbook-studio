@@ -492,7 +492,8 @@ describe('roughbook setup', () => {
     );
     assert.match(prompt, /Package manager: composer\./);
     assert.match(prompt, /rule files: AGENTS\.md\. Read them and respect them/);
-    assert.match(prompt, /No recipe fits this stack/);
+    // Laravel has a recipe since F8: its notes are what the setup run starts from.
+    assert.match(prompt, /This repo is on Laravel with Blade, which has a recipe/);
     assert.match(prompt, /<finishing>[\s\S]*Do not run roughbook doctor yourself/);
     // The agent gets the one line, in a terminal the designer watches.
     assert.equal(plans.length, 1);
@@ -502,7 +503,9 @@ describe('roughbook setup', () => {
       JSON.stringify(plan).includes(`Follow the instructions in ${promptFile}`),
       JSON.stringify(plan)
     );
-    assert.ok(io.lines.some(line => /Detected Laravel 13; no recipe fits/.test(line)));
+    assert.ok(
+      io.lines.some(line => /Detected Laravel 13; the Laravel with Blade recipe fits/.test(line))
+    );
     // The run is recorded, open until doctor ends it, with a snapshot of the repo before it.
     const [record] = await listSetups(repo);
     assert.equal(record!.kind, 'setup');
@@ -619,6 +622,10 @@ describe('roughbook init on a repo with no recipe', () => {
   it('detects the stack, writes the workspace without a preview route, links with the tokens, and offers the setup run', async () => {
     const repo = await setupRepo();
     fs.rmSync(path.join(repo, 'rough'), { recursive: true });
+    // A stack with no recipe (Laravel has one since F8): a Rails app.
+    fs.rmSync(path.join(repo, 'composer.json'));
+    fs.rmSync(path.join(repo, 'artisan'));
+    write(repo, 'Gemfile', 'source "https://rubygems.org"\ngem "rails", "~> 8.0"\n');
     const { io, plans, requests, run } = await studio(
       repo,
       {
@@ -630,26 +637,20 @@ describe('roughbook init on a repo with no recipe', () => {
       { answers: ['1', '', '', 'y'] }
     );
     assert.equal(await run(['init']), 0, io.errors.join('\n'));
-    assert.ok(
-      io.lines.some(line => line.startsWith('Stack: Laravel 13 (laravel-13, blade, php-8)'))
-    );
-    assert.ok(io.lines.some(line => /No recipe fits Laravel 13/.test(line)));
+    assert.ok(io.lines.some(line => line.startsWith('Stack: Rails 8 (rails-8, ruby)')));
+    assert.ok(io.lines.some(line => /No recipe fits Rails 8/.test(line)));
     const link = requests.find(request => request.url.endsWith('/links'))!;
     assert.deepEqual(link.body, {
       project: 'site',
-      framework: 'laravel-13',
+      framework: 'rails-8',
       roughCommitted: true,
-      stack: ['laravel-13', 'blade', 'php-8'],
+      stack: ['rails-8', 'ruby'],
       family: 'markup-css'
     });
     assert.ok(exists(repo, 'rough/AGENTS.md') && exists(repo, 'rough/CONTRACT.md'));
-    assert.ok(!exists(repo, 'app/rough-preview'), 'no Next.js route in a PHP app');
+    assert.ok(!exists(repo, 'app/rough-preview'), 'no Next.js route in a Rails app');
     assert.ok(!exists(repo, 'rough/preview-registry.ts'));
-    assert.deepEqual(JSON.parse(read(repo, 'rough/roughbook.json')).stack, [
-      'laravel-13',
-      'blade',
-      'php-8'
-    ]);
+    assert.deepEqual(JSON.parse(read(repo, 'rough/roughbook.json')).stack, ['rails-8', 'ruby']);
     assert.equal(JSON.parse(read(repo, 'rough/roughbook.json')).appDir, null);
     assert.match(read(repo, 'rough/AGENTS.md'), /entry file \(named by `environment\.md`/);
     // The setup run started: its prompt is written and the agent opened.

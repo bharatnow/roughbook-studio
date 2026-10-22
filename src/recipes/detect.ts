@@ -99,7 +99,7 @@ const JS_FRAMEWORKS: {
   recipe?: string;
 }[] = [
   { dependency: 'next', token: 'next', name: 'Next.js', family: 'react-like', recipe: 'next' },
-  { dependency: 'nuxt', token: 'nuxt', name: 'Nuxt', family: 'markup-css' },
+  { dependency: 'nuxt', token: 'nuxt', name: 'Nuxt', family: 'markup-css', recipe: 'nuxt' },
   { dependency: '@sveltejs/kit', token: 'sveltekit', name: 'SvelteKit', family: 'markup-css' },
   { dependency: 'astro', token: 'astro', name: 'Astro', family: 'markup-css' },
   {
@@ -146,7 +146,8 @@ export function detectStack(repo: string): Detected {
       name: `Laravel${token.includes('-') ? ` ${token.split('-')[1]}` : ''}`,
       token,
       family: 'markup-css',
-      mode: 'live'
+      mode: 'live',
+      recipe: 'laravel'
     });
     extras.push('blade');
   }
@@ -162,7 +163,9 @@ export function detectStack(repo: string): Detected {
       name: theme ? 'WordPress theme' : 'WordPress',
       token: theme ? 'wordpress-theme' : 'wordpress',
       family: 'markup-css',
-      mode: 'live'
+      mode: 'live',
+      // The recipe runs a theme in wp-env; a whole site's repo is the setup run's to fit.
+      ...(theme ? { recipe: 'wordpress' } : {})
     });
   }
   if (
@@ -175,7 +178,8 @@ export function detectStack(repo: string): Detected {
       name: 'Shopify theme',
       token: 'shopify-theme',
       family: 'markup-css',
-      mode: 'live'
+      mode: 'live',
+      recipe: 'shopify'
     });
     extras.push('liquid');
   }
@@ -235,7 +239,9 @@ export function detectStack(repo: string): Detected {
       name: 'iOS or macOS (Swift)',
       token: 'ios',
       family: 'swiftui',
-      mode: 'snapshot'
+      mode: 'snapshot',
+      // The recipe is for a Swift package; an Xcode project is the setup run's to fit.
+      ...(exists(repo, 'Package.swift') ? { recipe: 'swiftui' } : {})
     });
     extras.push('swift');
   }
@@ -248,7 +254,8 @@ export function detectStack(repo: string): Detected {
       name: 'Android (Jetpack Compose)',
       token: 'android',
       family: 'compose',
-      mode: 'snapshot'
+      mode: 'snapshot',
+      recipe: 'compose'
     });
     extras.push('kotlin');
   }
@@ -276,7 +283,8 @@ export function detectStack(repo: string): Detected {
       name: `Vite${react ? ' with React' : vue ? ' with Vue' : svelte ? ' with Svelte' : ''}`,
       token: withMajor('vite', deps.vite),
       family: react ? 'react-like' : 'markup-css',
-      mode: 'live'
+      mode: 'live',
+      ...(react ? { recipe: 'vite' } : {})
     });
   } else if (typeof deps.react === 'string') {
     matches.push({

@@ -35,8 +35,8 @@ export function realTools(env: NodeJS.ProcessEnv, repoRoot = ''): DoctorTools {
       queued(repoRoot || cwd, () => runToEnd(command, cwd, timeoutMs, shell)),
     snapshot: (command, cwd, timeoutMs, shell, variables) =>
       queued(repoRoot || cwd, () => runCapture(command, cwd, timeoutMs, shell, variables)),
-    serve: (command, cwd, url, timeoutMs, shell) =>
-      queued(repoRoot || cwd, () => serveUntil(command, cwd, url, timeoutMs, shell)),
+    serve: (command, cwd, url, timeoutMs, shell, options) =>
+      queued(repoRoot || cwd, () => serveUntil(command, cwd, url, timeoutMs, shell, options)),
     which: program => findProgramOnPath(program, lookup),
     addresses: networkAddresses,
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),

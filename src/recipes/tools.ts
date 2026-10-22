@@ -14,8 +14,10 @@ const HINTS: Record<string, string> = {
   flutter: 'Install Flutter from docs.flutter.dev and add its bin folder to the PATH.',
   dart: 'Dart comes with Flutter: install Flutter from docs.flutter.dev.',
   xcodebuild: 'Install Xcode from the App Store (macOS only), then xcode-select --install.',
-  swift: 'Install Xcode from the App Store (macOS only).',
-  gradle: 'Install Gradle, or use the gradlew script the project ships.',
+  swift: 'Install Xcode from the App Store (macOS only): SwiftUI previews render on a Mac.',
+  gradle:
+    'Install Gradle from gradle.org/install (or with SDKMAN or Homebrew), or use the gradlew script the project ships.',
+  git: 'Install Git from git-scm.com, and open a new terminal.',
   java: 'Install a Java runtime, such as Temurin from adoptium.net.',
   adb: "adb comes with the Android SDK's platform tools (Android Studio installs them); add platform-tools to the PATH or set ANDROID_HOME.",
   xcrun: 'Install Xcode from the App Store (macOS only), then xcode-select --install.',

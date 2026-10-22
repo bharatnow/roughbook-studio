@@ -22,6 +22,7 @@ import { init } from './init.js';
 import { login } from './login.js';
 import { logout } from './logout.js';
 import { mcp } from './mcp.js';
+import { create } from './new.js';
 import { promote } from './promote.js';
 import { pull } from './pull.js';
 import { revert } from './revert.js';
@@ -37,6 +38,7 @@ import { uninstall } from './uninstall.js';
 /** Every command, in the order `roughbook help` lists them. */
 export const COMMANDS: Command[] = [
   login,
+  create,
   init,
   setup,
   start,
@@ -108,6 +110,7 @@ export type MainOptions = {
     | 'stdio'
     | 'doctorTools'
     | 'addPackages'
+    | 'scaffoldTools'
   >
 >;
 
@@ -160,6 +163,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     pty: options.pty,
     doctorTools: options.doctorTools,
     addPackages: options.addPackages,
+    scaffoldTools: options.scaffoldTools,
     waitForStop: options.waitForStop ?? untilSignalled,
     stdio: options.stdio ?? {
       input: process.stdin,

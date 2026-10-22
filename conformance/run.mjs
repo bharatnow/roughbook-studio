@@ -1,12 +1,14 @@
 // The conformance suite: roughbook doctor over a recipe's fixture, the way a designer's repo would
 // see it. `node conformance/run.mjs next [--skip-build] [--speed] [--snapshots] [--keep]` copies the fixture to
 // a temp folder, installs it, prepares it as `roughbook init` would (without a server: the link is
-// a stand-in), starts its dev server, runs doctor against it, and takes everything down. With
-// `--speed`, doctor starts the dev server itself with the environment's start command, as
-// `roughbook start` does, so the cold start is measured with the other budgets. Exit code: 0 pass,
-// 1 fail, 2 unverified. With `--snapshots`, doctor checks the recipe's snapshot command (final review
-// beside a live preview) instead of the page. Needs `npm run build` first, since it runs the studio
-// from dist/.
+// a stand-in), starts its dev server, runs doctor against it, and takes everything down. How each
+// fixture is installed, served and taken down is in conformance/fixtures.json; a recipe whose
+// previews are snapshots has no dev server, and doctor runs its snapshot command. With `--speed`,
+// doctor starts the dev server itself with the environment's start command, as `roughbook start`
+// does, so the cold start is measured with the other budgets. Exit code: 0 pass, 1 fail, 2
+// unverified. With `--snapshots`, doctor checks the recipe's snapshot command (final review beside
+// a live preview) instead of the page. Needs `npm run build` first, since it runs the studio from
+// dist/.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -27,6 +29,14 @@ if (!name) {
   );
   process.exit(2);
 }
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(root, 'conformance', 'fixtures.json'), 'utf8')
+);
+const pinned = manifest.fixtures[name];
+if (!pinned) {
+  console.error(`No fixture named ${name} in conformance/fixtures.json.`);
+  process.exit(2);
+}
 const fixture = path.join(root, 'conformance', 'fixtures', name);
 if (!fs.existsSync(fixture)) {
   console.error(`No fixture ${name}: run npm run fixtures -- ${name} first.`);
@@ -36,24 +46,22 @@ if (!fs.existsSync(path.join(root, 'dist', 'doctor', 'run.js'))) {
   console.error('The studio is not built: run npm run build first.');
   process.exit(2);
 }
+// A store the designer signed in to, for a recipe whose previews need one (Shopify's theme dev).
+const store = pinned.store ? process.env[pinned.store] : undefined;
+if (pinned.store && !store) {
+  console.error(
+    `${name} previews need a store: sign in to its CLI with your development store, and set ${pinned.store} to the store's name.`
+  );
+  process.exit(2);
+}
 
 const dist = file => import(pathToFileURL(path.join(root, 'dist', file)).href);
 const { planPrep, applyPrep } = await dist('repo/prep.js');
 const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
 const { serveUntil } = await dist('launch/processes.js');
 const { recipeFor } = await dist('recipes/index.js');
-
-/** How the fixture's dev server is started, per recipe, with the port it should take. */
-const DEV_COMMANDS = {
-  next: port => `npm run dev -- --port ${port}`,
-  // Metro on this machine only, as the recipe starts it.
-  expo: port => `npx expo start --localhost --port ${port}`
-};
-const devCommand = DEV_COMMANDS[name];
-if (!devCommand) {
-  console.error(`No dev command known for ${name}; add it to conformance/run.mjs.`);
-  process.exit(2);
-}
+const recipe = recipeFor(name);
+const environment = recipe.environment(null);
 
 function freePort() {
   return new Promise(resolve => {
@@ -65,10 +73,42 @@ function freePort() {
   });
 }
 
-function run(command, cwd) {
+function run(command, cwd, mustPass = true) {
   console.log(`\n$ ${command}`);
   const result = spawnSync(command, { cwd, stdio: 'inherit', shell: true, windowsHide: true });
-  if (result.status !== 0) throw new Error(`${command} failed (exit ${result.status ?? 'signal'})`);
+  if (mustPass && result.status !== 0) {
+    throw new Error(`${command} failed (exit ${result.status ?? 'signal'})`);
+  }
+}
+
+/** Whether this machine's PHP has a module, such as pdo_sqlite. */
+function phpHas(module, cwd) {
+  const result = spawnSync('php -m', { cwd, encoding: 'utf8', shell: true, windowsHide: true });
+  return result.status === 0 && result.stdout.split(/\r?\n/).some(line => line.trim() === module);
+}
+
+/**
+ * What a fresh copy of a fixture needs on this machine beyond its install commands, named here
+ * since it is the machine's, not the recipe's: Laravel's default sessions and cache are in SQLite,
+ * which a PHP without pdo_sqlite cannot open, so they go to files there, as F3 found.
+ */
+function prepareMachine(work) {
+  if (name !== 'laravel') return;
+  if (phpHas('pdo_sqlite', work)) {
+    fs.writeFileSync(path.join(work, 'database', 'database.sqlite'), '');
+    run('php artisan migrate --force --no-interaction', work);
+    return;
+  }
+  console.log('\nThis PHP has no pdo_sqlite: the copy keeps its sessions and cache in files.');
+  const env = path.join(work, '.env');
+  fs.writeFileSync(
+    env,
+    fs
+      .readFileSync(env, 'utf8')
+      .replace(/^SESSION_DRIVER=.*$/m, 'SESSION_DRIVER=file')
+      .replace(/^CACHE_STORE=.*$/m, 'CACHE_STORE=file')
+      .replace(/^QUEUE_CONNECTION=.*$/m, 'QUEUE_CONNECTION=sync')
+  );
 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), `roughbook-conformance-${name}-`));
@@ -80,32 +120,59 @@ try {
     recursive: true,
     filter: source => !source.split(path.sep).includes('node_modules')
   });
-  run('npm ci --no-audit --no-fund', work);
+  // A wrapper script loses its mode on a checkout made on Windows.
+  if (process.platform !== 'win32' && fs.existsSync(path.join(work, 'gradlew'))) {
+    fs.chmodSync(path.join(work, 'gradlew'), 0o755);
+  }
+  for (const command of pinned.install ?? []) run(command, work);
+  prepareMachine(work);
 
   // As roughbook init would, with a stand-in link: the suite has no server to link to.
   const plan = planPrep(work, {
     link: { version: 1, orgId: 'conformance', project: 'fixture', roughCommitted: true },
-    recipe: recipeFor(name)
+    recipe
   });
   if (plan.problems.length) throw new Error(plan.problems.join(' '));
   applyPrep(plan);
   console.log(`Prepared: ${plan.changes.map(change => change.file).join(', ')}`);
   for (const step of plan.manual) console.log(`By hand: ${step}`);
 
+  const live = environment.mode !== 'snapshot' && !snapshots && pinned.dev;
   const port = await freePort();
-  const devUrl = `http://localhost:${port}`;
-  if (speed) {
+  const fill = text => text.replaceAll('{port}', String(port)).replaceAll('{store}', store ?? '');
+  const devCommand = pinned.dev ? fill(pinned.dev) : null;
+  const devUrl = fill(pinned.url ?? 'http://localhost:{port}');
+  if (pinned.header?.length) {
+    // What this copy names over the recipe: a store's address, a start command through npx.
+    fs.writeFileSync(
+      path.join(work, 'rough', 'environment.md'),
+      `---\ncontract: 1\nrecipe: ${name}\n${pinned.header.map(fill).join('\n')}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
+    );
+  }
+  if (live && speed) {
     // The environment names the start command on this port, so doctor can start the app itself
     // and time the cold start; the rest of the environment stays the recipe's.
     fs.writeFileSync(
       path.join(work, 'rough', 'environment.md'),
-      `---\ncontract: 1\nrecipe: ${name}\nstart: ${devCommand(port)} @ ${devUrl}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
+      `---\ncontract: 1\nrecipe: ${name}\nstart: ${devCommand} @ ${devUrl}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
     );
     console.log(`\nDoctor starts the dev server itself at ${devUrl} (--speed)`);
-  } else {
+  } else if (live) {
     console.log(`\nStarting the dev server at ${devUrl}`);
-    served = await serveUntil(devCommand(port), work, `${devUrl}/`, 180_000);
-    if (!served) throw new Error('The dev server did not answer within 180 s.');
+    served = await serveUntil(
+      devCommand,
+      work,
+      `${devUrl}/`,
+      environment.timeouts.start * 1000,
+      environment.shell,
+      // A container is brought up by a command that exits once the app in it is set up.
+      { untilExit: environment.runtime.kind === 'container' }
+    );
+    if (!served) {
+      throw new Error(`The dev server did not answer within ${environment.timeouts.start} s.`);
+    }
+  } else {
+    console.log('\nNo dev server: doctor runs the snapshot command.');
   }
 
   // The suite's own checkout: its commands are the recipe's, approved here as a CI owner would.
@@ -125,6 +192,14 @@ try {
   code = 1;
 } finally {
   if (served) await served.stop();
+  // What the dev command started outside its own process (wp-env's containers).
+  for (const command of pinned.down ?? []) {
+    try {
+      run(command, work, false);
+    } catch {
+      // Taking down is best effort; the report already stands.
+    }
+  }
   if (keep) console.log(`\nKept ${work}`);
   else {
     try {

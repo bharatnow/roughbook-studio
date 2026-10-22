@@ -29,6 +29,7 @@ its own copy and asks before fetching each new one.
 | Command                                                  | Does                                                                                                                                                                                                                                                                                                                                                                |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                                                                                                                                                                                                 |
+| `roughbook new [<recipe>] [<folder>]`                    | Starts an app of a recipe's stack in an empty folder with the stack's own scaffold (create-vite, `composer create-project`, …), starts git, then runs `init` in it; takes `init`'s `--project`, `--new`, `--org` and `--yes`                                                                                                                                        |
 | `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                                                                                                                                                                                                 |
 | `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote; starts the app with the environment's approved start command unless something answers at its address (`--no-app` leaves it to you)                                                                         |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal (`--agent claude-code`, `codex`, `antigravity-cli` or `cursor-cli`), `--headless` runs it unattended, and `--agent cursor` (or `vscode`, `antigravity`, `windsurf`, `other`) opens the prompt in that editor |
@@ -51,8 +52,10 @@ the repo's own agent rule files. Those tokens and the family go to the server wi
 nothing else about the repo. It asks which project the repo works on, by its number, name or slug,
 or `n` for a new one, whose name it shows back before creating it (or `--project <slug>`,
 `--new <name>`, with `--org <id>` when two organizations share a slug) and whether to commit
-`rough/` (`--commit`, the default, or `--no-commit`); `--yes` applies without asking. `--scratch
-<dir>` first makes a minimal Next.js 16 app with Tailwind v4 and a git repository there. It then:
+`rough/` (`--commit`, the default, or `--no-commit`); `--yes` applies without asking; `--recipe
+<id>` names the recipe over what detection guessed. `--scratch <dir>` first makes a minimal Next.js
+16 app with Tailwind v4 and a git repository there, without the network (`roughbook new next` runs
+create-next-app instead). For a Next.js app it then:
 
 - writes `rough/` with `README.md`, `AGENTS.md` (the iteration rules every agent reads),
   `CLAUDE.md` (pointing at them) and `roughbook.json` (the organization and project, no paths);
@@ -68,7 +71,8 @@ or `n` for a new one, whose name it shows back before creating it (or `--project
 A file the studio did not write is never replaced; it is listed for you to change by hand. Running
 `init` again changes nothing, and it adopts a repo prepared by Roughbook v2.
 
-The preview route above is the Next.js recipe's. When no recipe fits the stack, `init` writes the
+The preview route above is the Next.js recipe's; every other recipe writes its own (below). When no
+recipe fits the stack, `init` writes the
 workspace alone and offers the **setup run** (`roughbook setup`): an interactive session of your
 agent that reads the repo, writes `rough/environment.md` and the templates in `rough/setup/`, builds
 the preview setup in the repo's own stack and a sample iteration for `doctor`, and may run the
@@ -82,7 +86,7 @@ commands it is about to approve, applies and approves them, and runs `doctor` wh
 `rough/environment.md` is the repo's environment: a header between `---` lines the studio reads,
 then prose for agents, written by the setup run (or implied by a recipe), reviewed by you and
 committed. The header is `key: value` lines and `key:` with `- item` lines. Its fields: `contract`
-(1), `recipe` (`next`, `expo`, `flutter`, or `none` when your agent built the setup), `stack` and `family`, `mode`
+(1), `recipe` (one of the recipes below, or `none` when your agent built the setup), `stack` and `family`, `mode`
 (`live`, `snapshot` or `standalone`), `entry` (the file every iteration has), `sources` and
 `code` (extensions the checks and the import check read), `placement`, `wrapper`, `runtime`
 (`local`, or `container @ <url>`), `shell`, `start` (`<command> @ <url>`, or the address alone),
@@ -95,7 +99,8 @@ preview as `roughbook-scheme`, `roughbook-dir`, `roughbook-lang`, `roughbook-tex
 itself, `studio` when the frame reloads it on a change), `stylesheets` and `public` (standalone
 mode, below), `ignore`, `overlays`,
 `fixture`, `build` and `buildOutput`, `gate` (`build`, `runtime` or `both`), `production`
-(`<command> @ <url>`), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
+(`<command> @ <url>`, or the address alone for an app that already runs in production there, such
+as a store's live theme), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
 `promoteExtensions`, `assets` and `assetsCopy`, `copy` (`inline`, or `localized <file>`), `terms`
 (`page: view`, `component: partial`), `workshop`, `setupFiles` and `devDependencies`. A command
 differs on Windows through its `…Windows` twin (`shellWindows`, `startWindows`, `snapshotWindows`,
@@ -388,6 +393,28 @@ iterations into `lib/rough/` with a registry of them, previews live through the 
 (`flutter run -d web-server -t lib/rough_preview.dart`), and renders snapshots with a widget test
 (`flutter test test/rough_snapshot_test.dart`).
 
+## Recipes
+
+A recipe is the studio's tested setup for one stack: `init` writes its preview setup without an
+agent, `setup --upgrade` rewrites it, and `roughbook new` starts an app of the stack from an empty
+folder with the stack's own scaffold. In the launch order:
+
+| Recipe              | Preview                                                                                                                                        | Gate                                                | `roughbook new` runs                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------- |
+| `next`              | The App Router route above                                                                                                                     | the build                                           | create-next-app                           |
+| `vite` (with React) | `rough-preview.html` at the root, which Vite serves in development and never builds, at `?key=<key>`                                           | the build (`dist/`)                                 | create-vite, React and TypeScript         |
+| `wordpress`         | A must-use plugin wp-env maps into WordPress in Docker (`.wp-env.override.json`), at `/?rough_preview=<key>`, in the local environment only    | the runtime: the same WordPress in production mode  | a block theme with wp-env                 |
+| `shopify`           | Snippets the studio writes per iteration and `templates/search.rough-preview.liquid`, through `shopify theme dev` on a development theme       | the runtime: the store's live theme (`production`)  | the Shopify CLI's `theme init`            |
+| `laravel`           | `routes/rough-preview.php`, loaded from `routes/web.php` in the local environment only; the app runs with `composer run dev`                   | the runtime: `APP_ENV=production php artisan serve` | `composer create-project laravel/laravel` |
+| `expo`              | The Expo Router route above, on the web target; snapshots on a device                                                                          | the build (`expo export`)                           | create-expo-app                           |
+| `flutter`           | The web target and widget-test snapshots above                                                                                                 | the build (`flutter build web`)                     | `flutter create`                          |
+| `nuxt`              | A local module in `modules/` that shows `rough/preview-page.vue` at `/rough-preview/<key>` under `nuxt dev` only                               | the build (`.output/`)                              | create-nuxt, its minimal template         |
+| `swiftui`           | Snapshots by SwiftUI's ImageRenderer on a Mac, from the test target `RoughSnapshotTests`, declared in `Package.swift` only where its folder is | the release build                                   | a Swift package with a SwiftUI library    |
+| `compose`           | Snapshots by Roborazzi and Robolectric on the JVM, from a debug unit test, with the iterations mirrored into the debug source set              | the release build (`assembleRelease`)               | a Compose app, with `gradle wrapper`      |
+
+Each has a fixture in the conformance suite (below). Shopify's previews need a store you signed in
+to; SwiftUI's need a Mac.
+
 ## Doctor
 
 `roughbook doctor` proves the contract on this repo, with the app's dev server running (with
@@ -441,7 +468,11 @@ within 60 s when doctor started the app; and the screenshots at every viewport a
 The conformance suite is doctor over each recipe's fixture: `npm run build`, then
 `npm run conformance -- next` copies `conformance/fixtures/next` to a temp folder, installs it,
 prepares it as `init` would, starts its dev server, runs doctor and takes everything down;
-`--speed` lets doctor start the dev server itself, so the cold start is measured too.
+`--speed` lets doctor start the dev server itself, so the cold start is measured too. How each
+fixture is made, installed, served and taken down is in `conformance/fixtures.json`, and
+`npm run fixtures -- <recipe>` writes it again from its pinned scaffold (`--latest` for the newest).
+A snapshot recipe has no dev server, and doctor runs its snapshot command; Shopify's needs
+`SHOPIFY_FLAG_STORE` naming a store you signed in to.
 
 ## Speed
 
@@ -470,8 +501,8 @@ src/
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion
   repo/         the repo root, repo prep, the link file, command approvals, the setup templates
-  recipes/      everything that names a stack: the detection table, the Next.js, Expo and Flutter
-                recipes, tool hints, and the standalone server's renderers (HTML as it is, React
+  recipes/      everything that names a stack: the detection table, the ten recipes and their
+                scaffolds, tool hints, and the standalone server's renderers (HTML as it is, React
                 through esbuild)
   snapshot/     snapshot mode: the command's contract, rendering the changed keys, the device command
   environment/  rough/environment.md: its header's fields, read for this operating system

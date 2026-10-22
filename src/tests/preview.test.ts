@@ -312,9 +312,12 @@ describe('the warming request', () => {
 
 /**
  * A browser that is a DevTools protocol endpoint and nothing else: it answers every call over the
- * pipe, fires the load event after a navigation, and records what was asked of it.
+ * pipe, fires the load event after a navigation, and records what was asked of it. With
+ * reloadOnce, the first page it settles reloads itself under the settle script, as a dev server's
+ * loading screen does once it has compiled the page.
  */
-function fakeBrowser() {
+function fakeBrowser(options: { reloadOnce?: boolean } = {}) {
+  let reloaded = false;
   const calls: string[] = [];
   let spawned = 0;
   let killed = 0;
@@ -338,10 +341,11 @@ function fakeBrowser() {
       buffer += chunk.toString('utf8');
       let end: number;
       while ((end = buffer.indexOf('\0')) !== -1) {
-        const { id, method, sessionId } = JSON.parse(buffer.slice(0, end)) as {
+        const { id, method, sessionId, params } = JSON.parse(buffer.slice(0, end)) as {
           id: number;
           method: string;
           sessionId?: string;
+          params?: { expression?: string };
         };
         buffer = buffer.slice(end + 1);
         calls.push(method);
@@ -357,6 +361,16 @@ function fakeBrowser() {
             reply({ method: 'Page.loadEventFired', sessionId, params: {} });
             break;
           case 'Runtime.evaluate':
+            if (
+              options.reloadOnce &&
+              !reloaded &&
+              params?.expression?.includes('__roughbookReady')
+            ) {
+              reloaded = true;
+              reply({ id, error: { code: -32000, message: 'Execution context was destroyed.' } });
+              reply({ method: 'Page.loadEventFired', sessionId, params: {} });
+              break;
+            }
             reply({ id, result: { result: { value: true } } });
             break;
           case 'Page.captureScreenshot':
@@ -408,6 +422,25 @@ describe('the kept browser', () => {
     // Asked again after closing, it starts anew.
     assert.ok(await shot('four.png', null));
     assert.equal(fake.spawned(), 2);
+    await browser.close();
+  });
+
+  it('waits again for a page that reloads itself while it settles, as a loading screen does', async () => {
+    const fake = fakeBrowser({ reloadOnce: true });
+    const browser = new KeptBrowser('/fake/chrome', { spawn: fake.spawn, settleMs: 0 });
+    const dir = await tempDir('roughbook-browser-');
+    assert.ok(
+      await takeScreenshot({
+        browser,
+        url: 'http://localhost:3000/rough-preview/home/hero/iteration-01',
+        file: path.join(dir, 'after-reload.png'),
+        size: { width: 1440, height: 900, mobile: false },
+        overlays: []
+      })
+    );
+    // The fonts and the settle script once on the loading screen, and again on the page itself.
+    assert.equal(fake.calls.filter(call => call === 'Runtime.evaluate').length, 4);
+    assert.ok(fs.existsSync(path.join(dir, 'after-reload.png')));
     await browser.close();
   });
 

@@ -5,7 +5,7 @@ import type { OrgProjects } from '../api/types.js';
 import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import { confirm, type Io } from '../io.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { RECIPES, fallbackRecipe, recipeFor } from '../recipes/index.js';
 import { changedLines } from '../repo/diff.js';
 import { gitInit } from '../repo/git.js';
 import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../repo/link.js';
@@ -164,7 +164,7 @@ export const init: Command = {
   name: 'init',
   summary: 'Link this repo to a Roughbook project and prepare it, showing every change first',
   usage:
-    'init [--project <slug> | --new <name>] [--org <id>] [--commit | --no-commit] [--yes] [--setup | --no-setup] [--scratch <dir>]',
+    'init [--project <slug> | --new <name>] [--org <id>] [--commit | --no-commit] [--yes] [--setup | --no-setup] [--recipe <id>] [--scratch <dir>]',
   needsRepo: false,
   async run(args, context) {
     const { io } = context;
@@ -180,12 +180,19 @@ export const init: Command = {
         setup: { type: 'boolean' },
         'no-setup': { type: 'boolean' },
         agent: { type: 'string' },
+        recipe: { type: 'string' },
         scratch: { type: 'string' }
       }
     });
     if (values.commit && values['no-commit']) throw new Error('Choose --commit or --no-commit.');
     if (values.setup && values['no-setup']) throw new Error('Choose --setup or --no-setup.');
     if (values.project && values.new) throw new Error('Choose --project or --new.');
+    const named = values.recipe === undefined ? undefined : recipeFor(values.recipe);
+    if (named === null) {
+      throw new Error(
+        `No recipe ${values.recipe}. The recipes are ${RECIPES.map(item => item.id).join(', ')}.`
+      );
+    }
 
     const { api, credentials } = await openApi(context);
     if (!credentials) throw new Error('Not signed in. Run roughbook login first.');
@@ -193,11 +200,12 @@ export const init: Command = {
     let repo: string;
     if (values.scratch) {
       repo = path.resolve(context.cwd, values.scratch);
-      // The fallback recipe's scratch app, until roughbook new picks a recipe (F8).
-      const scaffold = fallbackRecipe.scaffold;
-      if (!scaffold) throw new Error(`${fallbackRecipe.name} has no scratch app to write.`);
-      scaffold.write(repo);
-      io.out(scaffold.written(repo));
+      // The fallback recipe's minimal app, written without the network; roughbook new runs a
+      // recipe's own scaffold instead.
+      const scratch = fallbackRecipe.scratch;
+      if (!scratch) throw new Error(`${fallbackRecipe.name} has no scratch app to write.`);
+      scratch.write(repo);
+      io.out(scratch.written(repo));
       if (await gitInit(repo)) io.out('Started a git repository there.');
       else io.out('git was not found, so no repository was started. rough/ needs git to be kept.');
     } else {
@@ -218,9 +226,10 @@ export const init: Command = {
     const existingEnvironment = hasEnvironmentFile(repo)
       ? await readEnvironment(repo, existing).catch(() => null)
       : null;
+    // --recipe names it over detection's guess (roughbook new passes the one it scaffolded).
     const recipe = existingEnvironment
       ? recipeFor(existingEnvironment.recipe)
-      : recipeFor(detected.recipe);
+      : (named ?? recipeFor(detected.recipe));
     if (existingEnvironment) {
       io.out(
         `${ROUGH_DIR}/${ENVIRONMENT_FILE} is here: ${recipe ? `the ${recipe.name} recipe` : "your team's own setup"}, ${existingEnvironment.mode} previews.`

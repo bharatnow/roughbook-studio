@@ -1,0 +1,12 @@
+{
+  "name": "harbor-theme",
+  "private": true,
+  "description": "Harbor Theme, a WordPress block theme.",
+  "scripts": {
+    "start": "wp-env start",
+    "stop": "wp-env stop"
+  },
+  "devDependencies": {
+    "@wordpress/env": "11.17.0"
+  }
+}

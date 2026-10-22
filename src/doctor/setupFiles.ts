@@ -69,8 +69,12 @@ export async function setupFilesCheck(
   let recipeFiles: string[] = [];
   if (recipe && link) {
     recipeFiles = recipe.setupFiles(repoRoot, link);
+    // The recipe's lines in the app's own files count as its files: missing, they are stale.
+    const snippetFiles = (recipe.snippets?.(repoRoot, link) ?? []).map(snippet => snippet.file);
     const plan = planPrep(repoRoot, { link, recipe });
-    const stale = plan.changes.filter(change => recipeFiles.includes(change.file));
+    const stale = plan.changes.filter(
+      change => recipeFiles.includes(change.file) || snippetFiles.includes(change.file)
+    );
     if (stale.length) {
       problems.push(
         `The ${recipe.name} recipe would write ${stale.map(change => change.file).join(', ')} differently now.`

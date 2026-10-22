@@ -17,8 +17,16 @@ export function genericPlaceholder(): string {
   return `${PLACEHOLDER_LINE}\n`;
 }
 
-/** What a new slot shows until its agent has written it: the entry file, from the recipe. */
-export type Placeholder = { file: string; content: string };
+/**
+ * What a new slot shows until its agent has written it: the entry file, from the recipe; and, for
+ * a stack whose files name their own package or type by the key, how a fork's copied files are
+ * made to name the new key, so the two never clash in one build.
+ */
+export type Placeholder = {
+  file: string;
+  content: string;
+  retarget?: (file: string, text: string, from: string, to: string) => string;
+};
 
 /** The placeholder of a repo with no environment file: its fallback recipe's. */
 export function defaultPlaceholder(): Placeholder {
@@ -116,9 +124,17 @@ export function createSlot(
         `${iterationDir(slot.page, slot.component, slot.parent)} is not in this repo, so it cannot be forked here.`
       );
     }
+    const fromKey = `${slot.page}/${slot.component}/${slot.parent}`;
+    const toKey = `${slot.page}/${slot.component}/${slot.iteration}`;
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-      fs.copyFileSync(path.join(from, file), path.join(dir, file));
+      const bytes = fs.readFileSync(path.join(from, file));
+      const text = placeholder.retarget && !bytes.includes(0) ? bytes.toString('utf8') : null;
+      if (text !== null) {
+        fs.writeFileSync(path.join(dir, file), placeholder.retarget!(file, text, fromKey, toKey));
+      } else {
+        fs.writeFileSync(path.join(dir, file), bytes);
+      }
     }
   } else {
     fs.mkdirSync(dir, { recursive: true });

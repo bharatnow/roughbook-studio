@@ -97,9 +97,9 @@ export const flutter: Recipe = {
   version: 1,
   setupNotes: SETUP_NOTES,
   appDir: () => 'lib',
-  environment(link): RepoEnvironment {
+  environment(link, os): RepoEnvironment {
     // flutter is a batch file on Windows, which only a shell starts.
-    const windows = currentOs(hostPlatform()) === 'windows';
+    const windows = (os ?? currentOs(hostPlatform())) === 'windows';
     return {
       contract: 1,
       recipe: 'flutter',
@@ -195,5 +195,20 @@ Widget buildIteration(Map<String, dynamic> fixture) =>
 `
     }
   }),
-  scaffold: null
+  scaffold: {
+    tool: 'flutter create',
+    needs: ['flutter'],
+    steps: name => [
+      {
+        kind: 'run',
+        summary: 'Make a Flutter app for the web, Android and iOS with flutter create',
+        // A folder name may hold hyphens; a Dart package's name may not.
+        line: `flutter create --project-name ${name.replace(/-/g, '_')} --platforms web,android,ios ${name}`,
+        shell: 'none',
+        // flutter is a batch file on Windows, which only a shell starts.
+        shellWindows: 'cmd',
+        in: 'parent'
+      }
+    ]
+  }
 };

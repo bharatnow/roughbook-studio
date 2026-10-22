@@ -176,7 +176,7 @@ function commandAt(
   refuse(
     field,
     urlAlone
-      ? 'is the command that starts the app and the address it answers on, as "<command> @ <url>", or the address alone.'
+      ? `is the command that ${field === 'start' ? 'starts the app' : 'runs the app in production mode'} and the address it answers on, as "<command> @ <url>", or the address alone.`
       : 'is the command and the address it answers on, as "<command> @ <url>", or none.'
   );
 }
@@ -216,7 +216,7 @@ export function environmentFromHeader(
   if (recipeId !== undefined && recipeId !== 'none' && !recipe) {
     refuse('recipe', `names ${recipeId}, which this studio does not have.`);
   }
-  const base = recipe ? recipe.environment(link) : bareEnvironment(link);
+  const base = recipe ? recipe.environment(link, os) : bareEnvironment(link);
   // With no recipe, the file must say what a recipe would have, in the table's order. Standalone
   // previews need nothing of the app running, so no start command or preview path; snapshot
   // previews need the command that renders keys to images instead.
@@ -284,8 +284,9 @@ export function environmentFromHeader(
   const productionText = forOs(fields, 'production', os);
   let served: RepoEnvironment['production'] | undefined;
   if (productionText !== undefined) {
-    const parsed = commandAt('production', productionText, false);
-    served = parsed === null ? null : { command: parsed.command!, url: parsed.url };
+    // The address alone: the app already runs in production there (a store's live theme), so
+    // doctor asks it and starts nothing.
+    served = commandAt('production', productionText, true);
   }
   const timeout = (field: string): number | undefined => {
     const value = text(fields, field);

@@ -153,14 +153,30 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       environmentCommands(environment).flatMap(item => programOf(item.command, item.shell))
     )
   ];
-  const missingTools = programs.filter(program => !tools.which(program));
-  if (missingTools.length) {
+  // A program named by its path (a Gradle wrapper, ./gradlew) is the repo's own, not the PATH's.
+  const byPath = (program: string) => /[\\/]/.test(program);
+  const missingFiles = programs.filter(
+    program => byPath(program) && !fs.existsSync(path.resolve(repoRoot, program))
+  );
+  const missingTools = programs.filter(program => !byPath(program) && !tools.which(program));
+  if (missingTools.length || missingFiles.length) {
     checks.push(
       result(
         'prerequisites',
         'fail',
-        `Not on the PATH: ${missingTools.join(', ')}.`,
-        missingTools.map(tool => `${tool}: ${installHint(tool)}`).join(' ')
+        [
+          missingTools.length ? `Not on the PATH: ${missingTools.join(', ')}.` : '',
+          ...missingFiles.map(file => `${file} is not in the repo.`)
+        ]
+          .filter(Boolean)
+          .join(' '),
+        [
+          ...missingTools.map(tool => `${tool}: ${installHint(tool)}`),
+          ...missingFiles.map(
+            file =>
+              `${file}: name a program the repo has, from its folder, in rough/environment.md.`
+          )
+        ].join(' ')
       )
     );
   } else {
@@ -170,7 +186,14 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
         'pass',
         `${
           programs.length
-            ? `${programs.join(', ')} ${programs.length === 1 ? 'is' : 'are'} on the PATH`
+            ? [programs.filter(program => !byPath(program)), programs.filter(byPath)]
+                .map((found, index) =>
+                  found.length
+                    ? `${found.join(', ')} ${found.length === 1 ? 'is' : 'are'} ${index ? 'in the repo' : 'on the PATH'}`
+                    : ''
+                )
+                .filter(Boolean)
+                .join(', and ')
             : 'The environment names no command to run'
         }${tools.browser ? '' : '; no browser was found for screenshots (set ROUGHBOOK_BROWSER)'}.`
       )
@@ -214,6 +237,9 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   }
 
   const seconds = (count: number) => count * 1000;
+  // A container's commands bring it up and exit; its web server answers before the app in it is
+  // set up, so the address counts once the command has finished (decision 30).
+  const bringUp = { untilExit: environment.runtime.kind === 'container' };
   /** Where previews are asked: the app's dev server, or the standalone server doctor starts. */
   let base = options.devUrl.replace(/\/+$/, '');
   /** The environment as previews are asked through it: in standalone mode, with the token. */
@@ -322,7 +348,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           repoRoot,
           `${base}/`,
           seconds(environment.timeouts.start),
-          environment.shell
+          environment.shell,
+          bringUp
         );
         if (startedApp) home = await ask(tools, `${base}/`, seconds(environment.timeouts.start));
       }
@@ -622,6 +649,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       /** What held, in words, where the gate is not the plain build or route (below). */
       const held: string[] = [];
       let published = false;
+      /** What the runtime gate found, when production answered with a page of its own, not 404. */
+      let runtimeHeld: string | null = null;
       // A standalone preview is the studio's, so what the served site must not hand out is rough/.
       const servesSite = environment.mode === 'standalone';
       if (environment.gate === 'build' || environment.gate === 'both') {
@@ -638,13 +667,20 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
             'Name the production command and address in rough/environment.md (production).'
           );
         } else {
-          const served = await tools.serve(
-            environment.production.command,
-            repoRoot,
-            environment.production.url,
-            seconds(environment.timeouts.start),
-            environment.shell
-          );
+          const production = environment.production;
+          // An address alone: the app already runs in production there (a store's live theme),
+          // so nothing is started and nothing is stopped.
+          const served =
+            production.command === null
+              ? { stop: async () => {} }
+              : await tools.serve(
+                  production.command,
+                  repoRoot,
+                  production.url,
+                  seconds(environment.timeouts.start),
+                  environment.shell,
+                  bringUp
+                );
           if (!served) {
             problems.push(
               `The app did not answer at ${environment.production.url} in production mode within ${environment.timeouts.start} s.`
@@ -657,14 +693,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
               // The sample iteration's own file, which a site serving its folder as it is would
               // hand out; for a live preview, its route.
               const asked = servesSite
-                ? `${environment.production.url}/${iterationDir(page, DOCTOR_COMPONENT, GOOD)}/${environment.entry}`
-                : previewUrl(
-                    environment.production.url,
-                    DOCTOR_PAGE,
-                    DOCTOR_COMPONENT,
-                    GOOD,
-                    environment
-                  );
+                ? `${production.url}/${iterationDir(page, DOCTOR_COMPONENT, GOOD)}/${environment.entry}`
+                : previewUrl(production.url, page, DOCTOR_COMPONENT, GOOD, environment);
               const answer = await ask(tools, asked, previewMs);
               if (servesSite) {
                 // What counts is whether the sample's own text came back, as the build gate looks
@@ -689,13 +719,32 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
                     'Serve the site from a folder that does not hold rough/ (a document root such as public/), or refuse /rough/ there (contract point 1).'
                   );
                 }
-              } else if (!answer || answer.status !== 404) {
+              } else if (!answer) {
                 problems.push(
-                  `In production mode the preview answered ${answer ? `HTTP ${answer.status}` : 'nothing'}, not 404.`
+                  `In production mode nothing answered at ${new URL(asked).pathname}, so the preview cannot be shown to be off.`
                 );
                 fixes.push(
-                  'The preview must answer 404 when the app runs in production mode (contract point 1).'
+                  'Check the production address in rough/environment.md (production): it must answer, and its preview must answer 404 (contract point 1).'
                 );
+              } else {
+                // 404, or a page of the app's own without the sample: a store or a CMS answers an
+                // address it has no route for with a page of its own, which is not the iteration.
+                const shown =
+                  answer.status >= 200 &&
+                  answer.status < 300 &&
+                  (answer.text.includes(changed) ||
+                    (Boolean(tools.browser) &&
+                      (await probeAt(asked, changed)).text.includes(changed)));
+                if (shown) {
+                  problems.push(
+                    `In production mode the preview showed the sample iteration (HTTP ${answer.status}).`
+                  );
+                  fixes.push(
+                    'The preview must answer 404 when the app runs in production mode (contract point 1).'
+                  );
+                } else if (answer.status !== 404) {
+                  runtimeHeld = `In production mode the preview answers HTTP ${answer.status} with a page of the app’s own, never the iteration.`;
+                }
               }
             } finally {
               await served.stop();
@@ -715,8 +764,12 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
                 : environment.gate === 'build'
                   ? 'The production build passed and holds nothing from rough/.'
                   : environment.gate === 'runtime'
-                    ? 'In production mode the preview answers 404.'
-                    : 'The production build holds nothing from rough/, and in production mode the preview answers 404.'
+                    ? (runtimeHeld ?? 'In production mode the preview answers 404.')
+                    : `The production build holds nothing from rough/, and ${
+                        runtimeHeld
+                          ? runtimeHeld.charAt(0).toLowerCase() + runtimeHeld.slice(1)
+                          : 'in production mode the preview answers 404.'
+                      }`
             )
       );
     }

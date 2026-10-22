@@ -13,6 +13,7 @@ import type { Launch } from '../launch/open.js';
 import type { PtySupport } from '../launch/pty.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import type { askPreview, screenshotIteration } from '../screenshot/iteration.js';
+import type { ScaffoldTools } from './new.js';
 import { STUDIO_VERSION } from '../version.js';
 
 /** What every command is given. `repoRoot` is found once, by cli.ts, and passed down. */
@@ -56,6 +57,8 @@ export type CommandContext = {
    * repo; the app's own package manager by default, replaced in tests.
    */
   addPackages?: (repoRoot: string, command: string) => Promise<{ ok: boolean; output: string }>;
+  /** What roughbook new runs and looks for on the PATH, replaced in tests. */
+  scaffoldTools?: ScaffoldTools;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */
   waitForStop: () => Promise<void>;
   /** The raw streams `mcp` speaks the protocol on, and whether a person is typing into it. */

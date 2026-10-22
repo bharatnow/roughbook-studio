@@ -301,5 +301,18 @@ export default function RoughbookDoctorSample({ note }: { note?: string }) {
 `
     }
   }),
-  scaffold: null
+  scaffold: {
+    tool: 'create-expo-app',
+    needs: ['npx'],
+    steps: name => [
+      {
+        kind: 'run',
+        summary: 'Make an Expo app with Expo Router, from the SDK 58 template',
+        // It installs the dependencies itself.
+        line: `npx --yes create-expo-app@5 ${name} --template default@sdk-58 --yes`,
+        shell: 'none',
+        in: 'parent'
+      }
+    ]
+  }
 };

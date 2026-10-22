@@ -210,25 +210,71 @@ export function runCapture(
   });
 }
 
+/**
+ * Runs a command line in `cwd` with the terminal's own input and output, so a scaffold's progress
+ * and questions reach the person who started it: the exit code, or 1 when it could not start.
+ */
+export function runVisible(
+  line: string,
+  cwd: string,
+  shell: Shell = 'none',
+  env: Record<string, string> = {}
+): Promise<number> {
+  const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
+  if (!resolved) return Promise.resolve(1);
+  return new Promise(resolve => {
+    const child = spawn(resolved.command, resolved.args, {
+      cwd,
+      env: { ...process.env, ...env },
+      windowsHide: true,
+      stdio: 'inherit'
+    });
+    child.once('exit', code => resolve(code ?? 1));
+    child.once('error', () => resolve(1));
+  });
+}
+
 export type Served = { stop(): Promise<void> };
 
-/** Starts a command line in `cwd` and waits until `url` answers anything; null when it did not in time. */
+/**
+ * Starts a command line in `cwd` and waits until `url` answers anything; null when it did not in
+ * time. A command that starts its app in the background and exits with 0 (a container started by
+ * its tool) is waited on until the address answers, as one still running is; one that fails is not.
+ * With `untilExit`, the command is a container's bring-up, whose web server may answer long before
+ * the app in it is set up: the address counts only once the command has finished, with 0.
+ */
 export async function serveUntil(
   line: string,
   cwd: string,
   url: string,
   timeoutMs: number,
-  shell: Shell = 'none'
+  shell: Shell = 'none',
+  options: { untilExit?: boolean } = {}
 ): Promise<Served | null> {
   const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
   if (!resolved) return null;
   const child = start(resolved.command, resolved.args, cwd);
-  child.on('error', () => {});
+  let failed = false;
+  child.on('error', () => {
+    failed = true;
+  });
   const served: Served = { stop: () => stopProcess(child) };
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && child.exitCode === null) {
+  if (options.untilExit) {
+    while (Date.now() < deadline && !failed && child.exitCode === null) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    if (child.exitCode === null) await served.stop();
+    if (failed || child.exitCode !== 0) return null;
+  }
+  while (Date.now() < deadline && !failed && (child.exitCode ?? 0) === 0) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2000), redirect: 'manual' });
+      // A server that is not up yet refuses at once; one that is up may hold its first request
+      // while it renders the page (Metro renders on the server first), which is waited for.
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(Math.max(2000, Math.min(60_000, deadline - Date.now()))),
+        redirect: 'manual'
+      });
       await response.body?.cancel();
       return served;
     } catch {

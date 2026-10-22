@@ -89,7 +89,12 @@ function fakeTools(
     overlay: boolean;
     noFixture: boolean;
     missingTool: string;
-    production: 'ok' | 'leaks' | 'down';
+    /**
+     * The app in production mode: 404 for the preview (ok), the sample shown (leaks), a page of
+     * its own without the sample (elsewhere, as a store or a CMS answers an address it does not
+     * know), or nothing at all (down).
+     */
+    production: 'ok' | 'leaks' | 'elsewhere' | 'down';
     /** Every look at the clock is ten seconds later, so every budget is over. */
     slow: boolean;
     /** Nothing answers until the start command was served, as before roughbook start. */
@@ -145,7 +150,12 @@ function fakeTools(
         // The app in production mode, for the runtime gate.
         if (faults.production === 'down') throw new Error('ECONNREFUSED');
         if (url.pathname.startsWith('/rough-preview/')) {
-          return new Response('x', { status: faults.production === 'leaks' ? 200 : 404 });
+          if (faults.production === 'leaks') {
+            const page = pageFor(new URL(url.pathname, 'http://localhost:3000'));
+            return new Response(page.body, { status: page.status });
+          }
+          if (faults.production === 'elsewhere') return new Response('home', { status: 200 });
+          return new Response('x', { status: 404 });
         }
         return new Response('home', { status: 200 });
       }
@@ -154,7 +164,11 @@ function fakeTools(
       return new Response(page.body, { status: page.status });
     }) as typeof fetch,
     async probe({ url, overlays }) {
-      const page = pageFor(new URL(url));
+      // The app in production mode shows its own page, unless the preview leaks there.
+      const page =
+        new URL(url).port === '3999' && faults.production !== 'leaks'
+          ? { status: 200, body: 'home' }
+          : pageFor(new URL(url));
       const good = url.endsWith('/sample/iteration-01') || url.endsWith('/sample/iteration-03');
       const probe: Probe = {
         // A hiding layout shows its own view: the iteration is in the page's data, not on screen.
@@ -353,6 +367,7 @@ production: node server.js @ http://127.0.0.1:3999
     for (const [production, expected] of [
       ['ok', 'pass'],
       ['leaks', 'fail'],
+      ['elsewhere', 'pass'],
       ['down', 'fail']
     ] as const) {
       const repo = await tempRepo({ 'rough/environment.md': header });
@@ -373,6 +388,27 @@ production: node server.js @ http://127.0.0.1:3999
     assert.equal(report.outcome, 'unverified');
     assert.equal(exitCodeFor(report.outcome), 2);
     assert.deepEqual(tools.built, []);
+  });
+
+  it('asks a production address that is already running, such as a store’s live theme, starting nothing', async () => {
+    const header = `---
+gate: runtime
+production: http://127.0.0.1:3999
+---
+`;
+    for (const [production, expected] of [
+      ['elsewhere', 'pass'],
+      ['leaks', 'fail']
+    ] as const) {
+      const repo = await tempRepo({ 'rough/environment.md': header });
+      const tools = fakeTools(repo, { production });
+      const report = await runDoctor(repo, { devUrl: DEV, tools });
+      assert.equal(statuses(report).gate, expected, production);
+      assert.deepEqual(tools.served, [], production);
+      if (expected === 'fail') {
+        assert.match(report.checks.find(check => check.id === 'gate')!.detail, /showed the sample/);
+      }
+    }
   });
 
   it('fails the environment check, and nothing after it, when the header cannot be read', async () => {
@@ -416,6 +452,21 @@ production: node server.js @ http://127.0.0.1:3999
     assert.match(check.fix ?? '', /nodejs\.org/);
     // The rest still runs: a missing tool is one finding, not a stop.
     assert.equal(statuses(report).renders, 'pass');
+  });
+
+  it('looks for a program named by its path in the repo, not on the PATH, as a Gradle wrapper is', async () => {
+    const header = '---\nbuild: ./bin/build\nbuildOutput:\n  - .next/server\n---\n';
+    // Not on the PATH, whatever the PATH holds: a path is the repo's.
+    const tools = (repo: string) => fakeTools(repo, { missingTool: './bin/build' });
+    const present = await tempRepo({ 'rough/environment.md': header, 'bin/build': '#!/bin/sh\n' });
+    assert.equal(
+      statuses(await runDoctor(present, { devUrl: DEV, tools: tools(present) })).prerequisites,
+      'pass'
+    );
+    const absent = await tempRepo({ 'rough/environment.md': header });
+    const report = await runDoctor(absent, { devUrl: DEV, tools: tools(absent) });
+    assert.equal(statuses(report).prerequisites, 'fail');
+    assert.match(report.checks[0]!.detail, /\.\/bin\/build is not in the repo/);
   });
 
   it('checks the setup files: a recipe file the recipe would write differently fails it', async () => {

@@ -263,8 +263,22 @@ export const next: Recipe = {
 `
     }
   }),
-  scaffold: {
+  scratch: {
     write: writeScratch,
     written: dir => `Created a Next.js app in ${dir}. Run npm install there before roughbook start.`
+  },
+  scaffold: {
+    tool: 'create-next-app',
+    needs: ['npx'],
+    steps: name => [
+      {
+        kind: 'run',
+        summary: 'Make a Next.js app with create-next-app, TypeScript, Tailwind and the App Router',
+        // It installs the dependencies itself; git is started by roughbook new.
+        line: `npx --yes create-next-app@16 ${name} --ts --tailwind --eslint --app --import-alias @/* --use-npm --disable-git --yes`,
+        shell: 'none',
+        in: 'parent'
+      }
+    ]
   }
 };
