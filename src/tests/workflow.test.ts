@@ -1580,7 +1580,7 @@ describe('roughbook pull', () => {
               ...started('iteration-09', RUN_A),
               parent: 'iteration-03',
               prompt:
-                '<target>\n{{roughbook:term-page}}: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\n</implementation>\n',
+                "<target>\n{{roughbook:term-page}}: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<rules>\n{{roughbook:craft}}\n\nReuse the app's own components and primitives{{roughbook:primitives}}, and\ninstall nothing.\n</rules>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\n</implementation>\n",
               placeholders: {
                 assetOrigin: '{{roughbook:asset-origin}}',
                 entry: '{{roughbook:entry}}',
@@ -1588,7 +1588,9 @@ describe('roughbook pull', () => {
                 termPage: '{{roughbook:term-page}}',
                 termComponent: '{{roughbook:term-component}}',
                 environment: '{{roughbook:environment}}',
-                preview: '{{roughbook:preview}}'
+                preview: '{{roughbook:preview}}',
+                craft: '{{roughbook:craft}}',
+                primitives: '{{roughbook:primitives}}'
               }
             }
           ],
@@ -1635,7 +1637,7 @@ describe('roughbook pull', () => {
     const prompt = read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`);
     assert.ok(
       prompt.startsWith(
-        "<target>\nPage: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<implementation>\nThis iteration renders inside the client's app, through a development-only\npreview route, with the app's own root layout and global styles. Read the app\nfirst.\nEntry file is index.tsx with a default export.\n</implementation>\n"
+        "<target>\nPage: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<rules>\nUse native elements (button, a, input, label) and label every control. Keep headings in\norder. Give every control hover, focus-visible, active and disabled styles, make every target at\nleast 24 px, and keep inputs at 16 px or more on phones. Set color-scheme with the colors.\nGive every animation a reduced-motion path, animate only transform and opacity, and never use\ntransition: all.\nReserve the space of every image and video, never lazy-load the first image, and load only the\nfont weights you use.\n\nReuse the app's own components and primitives, such as shadcn/ui, Radix or Base UI, and\ninstall nothing.\n</rules>\n<implementation>\nThis iteration renders inside the client's app, through a development-only\npreview route, with the app's own root layout and global styles. Read the app\nfirst.\nEntry file is index.tsx with a default export.\n</implementation>\n"
       ),
       prompt
     );
@@ -1723,7 +1725,7 @@ describe('roughbook pull', () => {
               ...started('iteration-09', RUN_A),
               parent: 'iteration-03',
               prompt:
-                '<target>\n{{roughbook:term-page}}: Home\n{{roughbook:term-component}}: Hero\n</target>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\nThe hero is /api/files/project/site/hero.png.\n</implementation>\n',
+                "<target>\n{{roughbook:term-page}}: Home\n{{roughbook:term-component}}: Hero\n</target>\n<rules>\n{{roughbook:craft}}\n\nReuse the app's own components and primitives{{roughbook:primitives}}, and\ninstall nothing.\n</rules>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\nThe hero is /api/files/project/site/hero.png.\n</implementation>\n",
               placeholders: {
                 assetOrigin: '{{roughbook:asset-origin}}',
                 entry: '{{roughbook:entry}}',
@@ -1731,7 +1733,9 @@ describe('roughbook pull', () => {
                 termPage: '{{roughbook:term-page}}',
                 termComponent: '{{roughbook:term-component}}',
                 environment: '{{roughbook:environment}}',
-                preview: '{{roughbook:preview}}'
+                preview: '{{roughbook:preview}}',
+                craft: '{{roughbook:craft}}',
+                primitives: '{{roughbook:primitives}}'
               },
               checks: [{ kind: 'entry-file', file: 'iteration.dart' }]
             }
@@ -1785,6 +1789,14 @@ describe('roughbook pull', () => {
     assert.ok(prompt.startsWith('<target>\nScreen: Home\nWidget: Hero\n</target>\n'), prompt);
     assert.ok(prompt.includes('Entry file is iteration.dart.\n'));
     assert.ok(prompt.includes(`<implementation>\n${ENVIRONMENT_LINE}\nThis iteration renders`));
+    // Its rules ask for Flutter's craft, never the web's elements, properties or libraries.
+    assert.match(prompt, /<rules>\nUse Flutter's own widgets/);
+    assert.match(prompt, /Semantics\(header: true\)/);
+    assert.ok(prompt.includes('primitives, and\ninstall nothing.\n</rules>\n'));
+    assert.doesNotMatch(
+      prompt,
+      /native elements|focus-visible|color-scheme|transition: all|16 px|shadcn|Radix/
+    );
     assert.doesNotMatch(prompt, /\{\{roughbook:/);
   });
 

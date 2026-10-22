@@ -77,7 +77,8 @@ export type StartedRun = {
   /**
    * With stand-ins where the studio's own address belongs (placeholders.assetOrigin) and where
    * the prompt names the entry file (placeholders.entry) and what its family asks of it
-   * (placeholders.entryNote), which the repo's environment decides.
+   * (placeholders.entryNote), or what its rules ask of the stack's craft (placeholders.craft and
+   * placeholders.primitives), which the repo's environment decides.
    */
   prompt: string;
   placeholders?: {
@@ -88,6 +89,8 @@ export type StartedRun = {
     termComponent?: string;
     environment?: string;
     preview?: string;
+    craft?: string;
+    primitives?: string;
   };
   checks: Check[];
 };

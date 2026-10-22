@@ -9,6 +9,7 @@ import type { RepoLink } from '../../repo/link.js';
 import { read, type PrepChange } from '../../repo/plan.js';
 import { ROUGH_DIR } from '../../repo/root.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
+import { familyCraft } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import {
   ENTRY,
@@ -175,6 +176,7 @@ Widget buildIteration(Map<String, dynamic> fixture) =>
     ],
     usage: 'its import line and constructor arguments'
   },
+  craft: familyCraft('flutter'),
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       [ENTRY]: `import 'package:flutter/material.dart';

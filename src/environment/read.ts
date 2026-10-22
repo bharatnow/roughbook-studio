@@ -5,7 +5,8 @@
 // beside a command's key is the variant Windows runs, and the shell likewise.
 import fs from 'node:fs';
 import { currentOs, hostPlatform } from '../launch/platform.js';
-import { fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { stackCraft, type CraftWords } from '../recipes/craft.js';
+import { fallbackRecipe, recipeFor, recipeOf } from '../recipes/index.js';
 import { STANDALONE_ENTRIES, standaloneRenderer } from '../recipes/standalone/index.js';
 import { readRepoLink, type RepoLink } from '../repo/link.js';
 import { ROUGH_DIR, roughPath } from '../repo/root.js';
@@ -44,6 +45,12 @@ export const TERM_COMPONENT_PLACEHOLDER = '{{roughbook:term-component}}';
 export const ENVIRONMENT_PLACEHOLDER = '{{roughbook:environment}}';
 /** The sentence that says how the iteration is shown, which the preview mode decides (F7). */
 export const PREVIEW_PLACEHOLDER = '{{roughbook:preview}}';
+/**
+ * What the rules ask of the stack's craft (the floor's paragraph), and the primitives they name
+ * after the app's own, which the recipe decides, or the family for a repo set up by none.
+ */
+export const CRAFT_PLACEHOLDER = '{{roughbook:craft}}';
+export const PRIMITIVES_PLACEHOLDER = '{{roughbook:primitives}}';
 
 /**
  * The preview path in standalone mode: the studio's own server's, whatever the stack. It ends with
@@ -673,6 +680,15 @@ export function previewSentence(environment: RepoEnvironment): string {
   }
 }
 
+/**
+ * What a prompt's rules ask of the stack's craft: the recipe's words, or the family's for a repo
+ * set up by none. A web page's floor (its elements, color-scheme, transitions) goes only to a web
+ * page; a toolkit that draws its own controls is told its own.
+ */
+export function craftWords(environment: RepoEnvironment): CraftWords {
+  return stackCraft(environment, recipeOf(environment));
+}
+
 export type Placeholders = {
   entry?: string;
   entryNote?: string;
@@ -680,13 +696,16 @@ export type Placeholders = {
   termComponent?: string;
   environment?: string;
   preview?: string;
+  craft?: string;
+  primitives?: string;
 };
 
 /**
  * A prompt with the environment's values where the backend left its stand-ins: the entry file and
  * its family's note on it, the stack's words for page and component as labels, the sentence that
- * says how its preview mode shows the iteration, and the line about rough/environment.md, which is
- * taken out, with its line break, when the repo has no environment file.
+ * says how its preview mode shows the iteration, what the rules ask of the stack's craft, and the
+ * line about rough/environment.md, which is taken out, with its line break, when the repo has no
+ * environment file.
  */
 export function fillEnvironment(
   prompt: string,
@@ -697,6 +716,7 @@ export function fillEnvironment(
   const line = options.hasEnvironmentFile ? ENVIRONMENT_LINE : '';
   const environmentStandIn = placeholders.environment ?? ENVIRONMENT_PLACEHOLDER;
   const escaped = environmentStandIn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const craft = craftWords(environment);
   return prompt
     .replaceAll(placeholders.entry ?? ENTRY_PLACEHOLDER, () => environment.entry)
     .replaceAll(placeholders.entryNote ?? ENTRY_NOTE_PLACEHOLDER, () => entryNote(environment))
@@ -707,6 +727,8 @@ export function fillEnvironment(
       capitalized(environment.terms.component)
     )
     .replaceAll(placeholders.preview ?? PREVIEW_PLACEHOLDER, () => previewSentence(environment))
+    .replaceAll(placeholders.craft ?? CRAFT_PLACEHOLDER, () => craft.floor)
+    .replaceAll(placeholders.primitives ?? PRIMITIVES_PLACEHOLDER, () => craft.primitives)
     .replace(new RegExp(`^${escaped}\\r?\\n`, 'm'), () => (line ? `${line}\n` : ''))
     .replaceAll(environmentStandIn, () => line);
 }

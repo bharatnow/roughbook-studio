@@ -6,6 +6,7 @@
 import type { RepoEnvironment } from '../environment/types.js';
 import type { RepoLink } from '../repo/link.js';
 import type { PrepChange } from '../repo/plan.js';
+import type { CraftWords } from './craft.js';
 
 /** What a recipe's preview setup adds to `init`'s plan. */
 export type PreviewPlan = {
@@ -61,6 +62,11 @@ export type Recipe = {
    * is used once it is written.
    */
   promoteWords: { read: string; rules: string[]; usage: string };
+  /**
+   * What a local prompt's rules ask of this stack's craft: the floor's paragraph in its own terms
+   * (controls, states, targets, colors, motion, media), and the primitives it names, if any.
+   */
+  craft: CraftWords;
   /**
    * The iterations `roughbook doctor` writes to check the preview: one that renders `marker` (and
    * `fixtureNote`, from its fixture file, when the stack's preview takes one) and one that fails

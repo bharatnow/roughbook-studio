@@ -36,6 +36,20 @@ const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsconfig.js
 }
 `;
 
+/**
+ * What a local prompt's rules ask of React Native's craft: its family is React-like, but it has no
+ * DOM, so the web's elements and CSS properties mean nothing on a device.
+ */
+const CRAFT = `Use React Native's own components (Pressable, Text, TextInput, Switch) and the app's own,
+never DOM elements, and give every control an accessibilityRole and a name a screen reader reads:
+its text, or an accessibilityLabel. Mark headings with accessibilityRole="header", in order. Give
+every control pressed, focused and disabled styles, and make every target at least 44 by 44,
+with hitSlop where it looks smaller. Take colors from the app's theme, so the dark variant
+follows, and let text scale with the system's font size.
+Give every animation a reduced-motion path (AccessibilityInfo.isReduceMotionEnabled), and
+animate only transform and opacity.
+Give every image its size before it loads, and load only the font weights you use.`;
+
 /** What a new slot shows until its agent has written it: a screen saying so, on web and native. */
 const PLACEHOLDER = `import { StyleSheet, Text, View } from "react-native";
 
@@ -264,6 +278,7 @@ export const expo: Recipe = {
     rules: [],
     usage: 'its import line and props'
   },
+  craft: { floor: CRAFT, primitives: '' },
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       [ENTRY]: `import { Text, View } from "react-native";

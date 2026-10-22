@@ -9,8 +9,10 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import type { Promotion, SketchFile } from '../api/types.js';
 import {
+  CRAFT_PLACEHOLDER,
   ENVIRONMENT_LINE,
   PREVIEW_PLACEHOLDER,
+  PRIMITIVES_PLACEHOLDER,
   defaultEnvironment,
   environmentFromHeader,
   fillEnvironment,
@@ -227,6 +229,88 @@ describe('the preview sentence of a local prompt', () => {
       prompt,
       'a stand-in the backend names otherwise is left alone'
     );
+  });
+});
+
+/** The floor's paragraph every recorded local prompt has (the backend's golden fixtures). */
+const RECORDED_FLOOR = `Use native elements (button, a, input, label) and label every control. Keep headings in
+order. Give every control hover, focus-visible, active and disabled styles, make every target at
+least 24 px, and keep inputs at 16 px or more on phones. Set color-scheme with the colors.
+Give every animation a reduced-motion path, animate only transform and opacity, and never use
+transition: all.
+Reserve the space of every image and video, never lazy-load the first image, and load only the
+font weights you use.`;
+
+/** Rules only a web page has, which no other stack's prompt may carry. */
+const WEB_ONLY =
+  /native elements|button, a, input, label|focus-visible|color-scheme|transition: all|16 px|24 px|lazy-load|shadcn|Radix|Base UI/;
+
+describe("the craft a local prompt's rules ask for", () => {
+  // As the backend writes them since local prompts go to any stack: the floor's paragraph and the
+  // libraries after the app's own primitives, for the studio to fill by recipe or family.
+  const rules = `<rules>\n${CRAFT_PLACEHOLDER}\n\nReuse the app's own components and primitives${PRIMITIVES_PLACEHOLDER}, and\ninstall nothing.\n</rules>\n`;
+  const without = (family: RepoEnvironment['family'], mode: RepoEnvironment['mode'] = 'live') => ({
+    ...defaultEnvironment(),
+    recipe: null,
+    family,
+    mode
+  });
+
+  it('fills the recorded words for a React app on the web, byte for byte', () => {
+    const recorded = `<rules>\n${RECORDED_FLOOR}\n\nReuse the app's own components and primitives, such as shadcn/ui, Radix or Base UI, and\ninstall nothing.\n</rules>\n`;
+    // The fallback recipe's for a repo with no environment file, and an agent-built Vite app's.
+    for (const environment of [defaultEnvironment(), next.environment(null), header(VITE)]) {
+      assert.equal(fillEnvironment(rules, environment), recorded, environment.recipe ?? 'none');
+    }
+  });
+
+  it("gives any other web page the web's floor, with no React library", () => {
+    // A site on the studio's own page is a web page, whatever its stack.
+    for (const environment of [header(LARAVEL), without('unknown', 'standalone')]) {
+      assert.equal(
+        fillEnvironment(rules, environment),
+        `<rules>\n${RECORDED_FLOOR}\n\nReuse the app's own components and primitives, and\ninstall nothing.\n</rules>\n`,
+        environment.family
+      );
+    }
+  });
+
+  it('tells a toolkit that draws its own controls nothing of the web, in its own terms', () => {
+    const cases: [RepoEnvironment, RegExp[]][] = [
+      [flutter.environment(null), [/Semantics\(header: true\)/, /48 by 48 logical pixels/]],
+      [without('flutter'), [/Semantics\(header: true\)/, /tooltip/]],
+      [without('compose'), [/semantics \{ heading\(\) \}/, /contentDescription/, /48 by 48 dp/]],
+      [without('swiftui', 'snapshot'), [/\.isHeader/, /accessibilityLabel/, /44 by 44 points/]],
+      // React Native on Expo is React-like, but has no DOM: its recipe says so.
+      [expo.environment(null), [/Pressable/, /accessibilityRole="header"/, /never DOM/]],
+      // A stack the studio does not know is told nothing of any one.
+      [without('unknown'), [/the platform's own controls/]]
+    ];
+    for (const [environment, words] of cases) {
+      const label = `${environment.recipe ?? 'none'} ${environment.family}`;
+      const filled = fillEnvironment(rules, environment);
+      assert.doesNotMatch(filled, WEB_ONLY, label);
+      assert.doesNotMatch(filled, /\{\{roughbook:/, label);
+      for (const word of words) assert.match(filled, word, label);
+      assert.ok(
+        filled.endsWith(
+          "\n\nReuse the app's own components and primitives, and\ninstall nothing.\n</rules>\n"
+        ),
+        label
+      );
+      assert.match(filled, /reduced-motion path/, label);
+    }
+  });
+
+  it('fills the stand-ins the backend names', () => {
+    assert.equal(CRAFT_PLACEHOLDER, '{{roughbook:craft}}');
+    assert.equal(PRIMITIVES_PLACEHOLDER, '{{roughbook:primitives}}');
+    const filled = fillEnvironment('<c>\n\nprimitives<p>, and', without('compose'), {
+      craft: '<c>',
+      primitives: '<p>'
+    });
+    assert.doesNotMatch(filled, /<c>|<p>/);
+    assert.match(filled, /primitives, and$/);
   });
 });
 

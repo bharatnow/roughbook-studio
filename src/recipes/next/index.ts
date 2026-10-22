@@ -6,6 +6,7 @@ import type { RepoLink } from '../../repo/link.js';
 import { pascalCase } from '../../repo/names.js';
 import { OURS, planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
 import { ROUGH_DIR, STATE_DIR } from '../../repo/root.js';
+import { REACT_WEB_CRAFT } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import { PLACEHOLDER_INDEX } from './placeholder.js';
 import {
@@ -240,6 +241,8 @@ export const next: Recipe = {
     rules: ['- Add "use client" only if the component needs it.'],
     usage: 'its import line and props'
   },
+  // As every local prompt's rules read before local prompts went to other stacks, word for word.
+  craft: REACT_WEB_CRAFT,
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       'index.tsx': `export default function RoughbookDoctorSample({ note }: { note?: string }) {
