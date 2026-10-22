@@ -21,6 +21,8 @@ export function bareEnvironment(link: RepoLink | null): RepoEnvironment {
     shell: 'none',
     start: { command: null, url: 'http://localhost:3000' },
     preview: '/rough-preview/{key}',
+    snapshot: null,
+    device: null,
     viewports: [
       { name: 'desktop', width: 1440, height: 900, mobile: false },
       { name: 'mobile', width: 390, height: 844, mobile: true }

@@ -1,9 +1,11 @@
 // Every recipe the studio has, and the one a repo gets when nothing says which: Next.js, the
 // only stack the studio knew before environments existed (decision 20 of the frameworks plan).
+import { expo } from './expo/index.js';
+import { flutter } from './flutter/index.js';
 import { next } from './next/index.js';
 import type { Recipe } from './types.js';
 
-export const RECIPES: readonly Recipe[] = [next];
+export const RECIPES: readonly Recipe[] = [next, expo, flutter];
 
 export const fallbackRecipe: Recipe = next;
 

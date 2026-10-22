@@ -66,10 +66,14 @@ export async function finishWithScreenshots(
   }
   const target = { page: run.page, component: run.component, iteration: run.iteration };
   const shoot = async (url: string, environment: RepoEnvironment) => {
-    const answer = await context.askPreview(
-      previewUrl(url, target.page, target.component, target.iteration, environment),
-      environment.timeouts.preview * 1000
-    );
+    // Snapshot mode serves nothing to warm: its images are rendered as its screenshots are.
+    const answer =
+      environment.mode === 'snapshot'
+        ? undefined
+        : await context.askPreview(
+            previewUrl(url, target.page, target.component, target.iteration, environment),
+            environment.timeouts.preview * 1000
+          );
     if (!options.screenshots) return null;
     return queued(repoRoot, () =>
       context.screenshot(

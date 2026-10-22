@@ -109,6 +109,17 @@ export type DoctorTools = {
     timeoutMs: number,
     shell: Shell
   ): Promise<Served | null>;
+  /**
+   * Runs the snapshot command with the contract's variables, to its end, through the repo's queue:
+   * what it printed, and its exit code (null when it timed out).
+   */
+  snapshot(
+    command: string,
+    cwd: string,
+    timeoutMs: number,
+    shell: Shell,
+    env: Record<string, string>
+  ): Promise<{ code: number | null; output: string }>;
   /** Where a program is on the PATH as the shell sees it, or null: doctor's step 0. */
   which(program: string): string | null;
   /** This machine's addresses on the network, IPv4, not loopback. */
@@ -137,5 +148,10 @@ export type DoctorOptions = {
    * (approved here), measure the cold start, and stop it after; as `roughbook start` does.
    */
   startApp?: boolean;
+  /**
+   * Check the repo's snapshot command as snapshot mode does, in a repo whose live preview has one
+   * for final review (a mobile stack's web target).
+   */
+  snapshots?: boolean;
   tools?: Partial<DoctorTools>;
 };

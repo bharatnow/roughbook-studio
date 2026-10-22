@@ -8,6 +8,8 @@
 export const BUDGETS = {
   /** A finished run to its preview visible, live mode, app already running. */
   previewVisibleMs: 3000,
+  /** The same in snapshot mode: a changed iteration to its images, the tool already warm. */
+  snapshotMs: 15_000,
   /** `roughbook start` to the first preview, the app started by the studio. */
   coldStartMs: 60_000,
   /** Every viewport in every variant of one iteration, through the kept browser. */
@@ -15,12 +17,16 @@ export const BUDGETS = {
 };
 
 export type SpeedMeasures = {
+  /** Snapshot mode: the preview is the images, so its budget is snapshot mode's. */
+  snapshot?: boolean;
   previewVisibleMs: number | null;
   /** Null when the app was already running, so there was no cold start to measure. */
   coldStartMs: number | null;
   /** Why there is no cold start, when it is not that the app was already running. */
   noColdStart?: string;
   screenshotsMs: number | null;
+  /** Why the screenshots were not timed apart, when it is not that no browser was found. */
+  noScreenshots?: string;
   /** How many screenshots the first pass took, and how many the second took with nothing changed. */
   shots: number;
   again: number;
@@ -38,15 +44,19 @@ export function judgeSpeed(
 ): { pass: boolean; detail: string; fix: string | null } {
   const over: string[] = [];
   const parts: string[] = [];
+  const visibleBudget = measures.snapshot ? budgets.snapshotMs : budgets.previewVisibleMs;
+  const visible = measures.snapshot ? 'images rendered' : 'preview visible';
   if (measures.previewVisibleMs === null) {
-    parts.push('the preview did not become visible in time');
-    over.push('the preview never became visible');
-  } else {
     parts.push(
-      `preview visible in ${seconds(measures.previewVisibleMs)} (${budget(budgets.previewVisibleMs)})`
+      measures.snapshot
+        ? 'the images did not come out in time'
+        : 'the preview did not become visible in time'
     );
-    if (measures.previewVisibleMs > budgets.previewVisibleMs) {
-      over.push(`preview visible: ${seconds(measures.previewVisibleMs)}`);
+    over.push(measures.snapshot ? 'the images never came out' : 'the preview never became visible');
+  } else {
+    parts.push(`${visible} in ${seconds(measures.previewVisibleMs)} (${budget(visibleBudget)})`);
+    if (measures.previewVisibleMs > visibleBudget) {
+      over.push(`${visible}: ${seconds(measures.previewVisibleMs)}`);
     }
   }
   if (measures.coldStartMs === null) {
@@ -58,7 +68,12 @@ export function judgeSpeed(
     }
   }
   if (measures.screenshotsMs === null) {
-    parts.push('screenshots not measured: no browser was found');
+    parts.push(`screenshots not measured: ${measures.noScreenshots ?? 'no browser was found'}`);
+    if (measures.snapshot && measures.again !== 0) {
+      over.push(
+        `${measures.again} image${measures.again === 1 ? '' : 's'} rendered again with nothing changed`
+      );
+    }
   } else {
     parts.push(
       `screenshots at ${measures.viewports} viewport${measures.viewports === 1 ? '' : 's'} × ${measures.variants} variant${measures.variants === 1 ? '' : 's'} in ${seconds(measures.screenshotsMs)} (${budget(budgets.screenshotsMs)}), taken again: ${measures.again === 0 ? 'none' : measures.again}`
@@ -77,6 +92,8 @@ export function judgeSpeed(
   return {
     pass: false,
     detail,
-    fix: `Over budget: ${over.join('; ')}. A preview that compiles slowly on first request is warmed by the studio when a run finishes; a slow cold start is the app's own start-up, which the frame shows as progress; screenshots taken again means the iteration's files or the environment's viewports changed between the two passes.`
+    fix: measures.snapshot
+      ? `Over budget: ${over.join('; ')}. A snapshot render is mostly its tool starting: keep its daemon or watch mode warm, give the test runner what it needs once per run rather than per key, and render only the keys asked; images rendered again means the iteration's files or the environment's viewports changed between the two renders.`
+      : `Over budget: ${over.join('; ')}. A preview that compiles slowly on first request is warmed by the studio when a run finishes; a slow cold start is the app's own start-up, which the frame shows as progress; screenshots taken again means the iteration's files or the environment's viewports changed between the two passes.`
   };
 }

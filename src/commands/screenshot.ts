@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { readEnvironment } from '../environment/read.js';
-import { recipeOf } from '../recipes/index.js';
+import { syncIterations } from '../repo/mirror.js';
 import { iterationExists } from '../runs/slots.js';
 import { listRuns } from '../runs/store.js';
 import { withPreviews } from '../standalone/server.js';
@@ -45,7 +45,7 @@ export const screenshot: Command = {
     }
     // The preview setup renders only the iterations it knows of.
     const environment = await readEnvironment(repoRoot);
-    recipeOf(environment)?.syncPreview(repoRoot);
+    syncIterations(repoRoot, environment);
     // Through the app's dev server, or a standalone server of its own for the time it takes.
     const shots = await withPreviews(
       repoRoot,

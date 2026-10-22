@@ -92,6 +92,17 @@ export type RepoEnvironment = {
   start: { command: string | null; url: string };
   /** The path of one iteration's preview, with `{key}` where `<page>/<component>/<iteration>` goes. */
   preview: string;
+  /**
+   * The command that renders keys to images (rough/CONTRACT.md, the snapshot contract): the preview
+   * itself in snapshot mode, and the images for final review where a live preview goes through a
+   * stack's web target. Null when the repo has none.
+   */
+  snapshot: string | null;
+  /**
+   * The command that opens one iteration on a simulator, an emulator or a device, with `{key}`
+   * where the key goes, for interaction the images cannot give. Null when the repo has none.
+   */
+  device: string | null;
   viewports: Viewport[];
   /** Colour schemes, locales and text sizes the frame and screenshots cover (decision 33); words only here. */
   variants: string[];

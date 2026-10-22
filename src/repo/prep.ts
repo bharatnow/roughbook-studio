@@ -64,7 +64,7 @@ ${OURS}; it rewrites this file.
  */
 export function roughAgents(environment: RepoEnvironment, recipe: Recipe | null): string {
   const entry = environment.entry
-    ? `\`${environment.entry}\` default-exports the design`
+    ? `\`${environment.entry}\` ${environment.family === 'react-like' ? 'default-exports' : 'holds'} the design`
     : `entry file (named by \`${ENVIRONMENT_FILE}\`, once the setup run has written it) holds the design`;
   const own = recipe
     ? recipe.agentRules(environment)
@@ -88,6 +88,22 @@ Rules for any agent working here:
 ${own}- Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
+`;
+}
+
+/** rough/environment.md for a repo a recipe set up: the recipe named, the rest the recipe's own. */
+export function recipeEnvironment(recipe: Recipe): string {
+  return `---
+contract: 1
+recipe: ${recipe.id}
+recipeVersion: ${recipe.version}
+---
+
+# This repo
+
+Set up by roughbook init from the ${recipe.name} recipe. Every field the header leaves out is the
+recipe's own: its commands, viewports, variants, gate and the rest. Set a field here to change it
+for this repo (rough/CONTRACT.md says what each must do), and run roughbook doctor after.
 `;
 }
 
@@ -381,6 +397,16 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
       text => text.includes(OURS)
     )
   );
+  // A recipe other than the fallback is named in the environment, since a repo with no environment
+  // file reads as the fallback's (decision 20); every other field stays the recipe's until set.
+  if (recipe && recipe !== fallbackRecipe && !hasEnvironmentFile(root)) {
+    changes.push({
+      file: `${ROUGH_DIR}/${ENVIRONMENT_FILE}`,
+      action: 'create',
+      summary: `Name the ${recipe.name} recipe as this repo's environment.`,
+      after: recipeEnvironment(recipe)
+    });
+  }
   const linkFile = `${ROUGH_DIR}/${LINK_FILE}`;
   const linkText = renderRepoLink(link);
   const currentLink = read(root, linkFile);
@@ -403,7 +429,9 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
     ...(committed
       ? [`/${ROUGH_DIR}/${STATE_DIR}/`, `/${ROUGH_DIR}/.screenshots/`]
       : [`/${ROUGH_DIR}/`]),
-    ...preview.gitWanted
+    ...preview.gitWanted,
+    // An in-tree mirror is the studio's copy of rough/, never committed (decision 25).
+    ...(effective.placement.kind === 'in-tree' ? [`/${effective.placement.path}/`] : [])
   ];
   add(planGitignore(read(root, '.gitignore'), gitWanted, committed ? [ROUGH_DIR] : []));
   add(planTsconfig(read(root, 'tsconfig.json'), ignoredFromBuild));

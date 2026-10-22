@@ -7,6 +7,7 @@ import { screenshotSet, withVariant } from '../environment/variants.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { describeResult, renderSnapshots, type SnapshotExec } from '../snapshot/render.js';
 import { findBrowser, takeScreenshot } from './browser.js';
 
 export type Shots = {
@@ -138,6 +139,8 @@ export type ShotOptions = {
   force?: boolean;
   /** What a warming request already found at the preview, so it is not asked again. */
   answer?: PreviewAnswer;
+  /** Snapshot mode: how the snapshot command is run, replaced in tests. */
+  snapshotExec?: SnapshotExec;
 };
 
 /**
@@ -156,6 +159,21 @@ export async function screenshotIteration(
   environment?: RepoEnvironment,
   options: ShotOptions = {}
 ): Promise<Shots> {
+  const repo = environment ?? (await readEnvironment(repoRoot));
+  // Snapshot mode: the repo's own tool renders the images, no browser involved.
+  if (repo.mode === 'snapshot') {
+    const key = `${target.page}/${target.component}/${target.iteration}`;
+    const run = await renderSnapshots(repoRoot, repo, [key], {
+      force: options.force,
+      exec: options.snapshotExec
+    });
+    const result = run.results[key]!;
+    return {
+      files: result.files,
+      warning: describeResult(key, result),
+      ...(run.unchanged.includes(key) ? { skipped: true as const } : {})
+    };
+  }
   if (!browser) {
     return {
       files: {},
@@ -163,7 +181,6 @@ export async function screenshotIteration(
         'No Chrome, Chromium or Edge was found for screenshots. Set ROUGHBOOK_BROWSER to one.'
     };
   }
-  const repo = environment ?? (await readEnvironment(repoRoot));
   const hash = iterationHash(repoRoot, target, repo);
   const manifest = hash ? await readJson<Manifest>(manifestFile(repoRoot, target)) : null;
   if (!options.force && manifest && manifest.hash === hash) {

@@ -28,6 +28,8 @@ export async function runDoctorHere(
     json?: boolean;
     /** Measure the speed budgets too, starting the app when nothing answers at its address. */
     speed?: boolean;
+    /** Check the snapshot command a live repo has for final review, as snapshot mode does. */
+    snapshots?: boolean;
   }
 ): Promise<DoctorReport> {
   const { io } = context;
@@ -43,6 +45,7 @@ export async function runDoctorHere(
     approve: options.yes,
     speed: options.speed,
     startApp: options.speed,
+    snapshots: options.snapshots,
     tools: context.doctorTools
   });
   if (options.json) io.out(JSON.stringify(report, null, 2));
@@ -89,7 +92,8 @@ async function tellServer(context: CommandContext, link: RepoLink, report: Docto
 export const doctor: Command = {
   name: 'doctor',
   summary: "Check this repo's preview setup against the contract, and say what to fix",
-  usage: 'doctor [--json] [--report] [--skip-build] [--speed] [--yes] [--dev-url <url>]',
+  usage:
+    'doctor [--json] [--report] [--skip-build] [--speed] [--snapshots] [--yes] [--dev-url <url>]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
@@ -100,6 +104,7 @@ export const doctor: Command = {
         report: { type: 'boolean', default: false },
         'skip-build': { type: 'boolean', default: false },
         speed: { type: 'boolean', default: false },
+        snapshots: { type: 'boolean', default: false },
         yes: { type: 'boolean', short: 'y', default: false },
         'dev-url': { type: 'string' }
       }
@@ -110,6 +115,7 @@ export const doctor: Command = {
       devUrl: values['dev-url'],
       skipBuild: values['skip-build'],
       speed: values.speed,
+      snapshots: values.snapshots,
       yes: values.yes,
       json: values.json
     });

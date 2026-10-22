@@ -51,5 +51,27 @@ pages do. An HTML iteration reads its fixture from \`window.roughbookFixture\`; 
 its props. The setup writes nothing outside rough/ then; point 1 is about the site itself, which
 must not publish or serve rough/.
 
+In snapshot mode (\`mode: snapshot\`), and for the final review a live preview through a mobile
+stack's web target may add, the environment's \`snapshot\` command renders iterations to images
+instead of a page. The studio runs it in the repo's root and declared shell with the keys of the
+iterations whose files changed: as \`{keys}\` in the command line (comma-joined), in
+\`ROUGHBOOK_KEYS\`, and in the request file \`ROUGHBOOK_REQUEST\` names (JSON: the keys, the shots,
+where the images go). \`ROUGHBOOK_SHOTS\` lists every image a key gets, as
+\`<name>:<width>x<height>:<variant>\` (the viewport in points: render at any density, keeping its
+proportions); \`ROUGHBOOK_ITERATIONS\` is where the stack sees the iterations, and
+\`ROUGHBOOK_FIXTURE\` the fixture's file name. For each key the command writes
+\`<ROUGHBOOK_OUT>/<key>/<name>.png\` and says what came of it on a line of its own,
+\`roughbook: ready <key>\`, \`roughbook: missing <key>\` or \`roughbook: error <key>: <why>\`, or the
+same word in \`<ROUGHBOOK_OUT>/<key>/result.txt\` where its runner swallows what tests print; it
+exits 0 when every key rendered. It renders an iteration's files as they are each time it is asked,
+and applies a dark variant, right-to-left text and large text the way the app does. An optional
+\`device\` command opens one iteration, \`{key}\` in it, on a simulator, an emulator or a device.
+With \`placement: in-tree <path>\`, for a stack that compiles nothing outside its own source tree,
+the studio mirrors each iteration folder of rough/ into \`<path>/<page>/<component>/<iteration>/\`
+before every render; that path is a debug-only source set, target or folder, gitignored, which the
+production build leaves out (\`gate: build\`, which doctor proves by building with an iteration in
+place). On a snapshot stack the studio copies the asset files a run's prompt names into the
+iteration's \`assets/\` folder, since its previews load nothing over the network.
+
 ${OURS}; it rewrites this file.
 `;

@@ -181,6 +181,28 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       async (request, params) =>
         studio.screenshots(target(params), { force: (await readBody(request)).force !== false })
     ),
+    // Snapshot images: their state for the frame, rendering them again (final review's beside a
+    // live preview too), and opening the iteration on a device.
+    route(
+      'GET',
+      '/api/iterations/:page/:component/:iteration/snapshots',
+      async (_request, params) => studio.snapshotState(target(params))
+    ),
+    route(
+      'POST',
+      '/api/iterations/:page/:component/:iteration/snapshots',
+      async (request, params) => {
+        const goal = target(params);
+        const key = `${goal.page}/${goal.component}/${goal.iteration}`;
+        const run = await studio.render([key], {
+          force: (await readBody(request)).force !== false
+        });
+        return { ...studio.snapshotState(goal), asked: run.asked };
+      }
+    ),
+    route('POST', '/api/iterations/:page/:component/:iteration/device', (_request, params) =>
+      studio.openDevice(target(params))
+    ),
     // What changed in rough/ since the page last asked; `wait` holds the answer until something does.
     route('GET', '/api/changes', request => {
       const query = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams;

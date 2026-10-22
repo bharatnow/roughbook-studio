@@ -82,11 +82,13 @@ commands it is about to approve, applies and approves them, and runs `doctor` wh
 `rough/environment.md` is the repo's environment: a header between `---` lines the studio reads,
 then prose for agents, written by the setup run (or implied by a recipe), reviewed by you and
 committed. The header is `key: value` lines and `key:` with `- item` lines. Its fields: `contract`
-(1), `recipe` (`next`, or `none` when your agent built the setup), `stack` and `family`, `mode`
+(1), `recipe` (`next`, `expo`, `flutter`, or `none` when your agent built the setup), `stack` and `family`, `mode`
 (`live`, `snapshot` or `standalone`), `entry` (the file every iteration has), `sources` and
 `code` (extensions the checks and the import check read), `placement`, `wrapper`, `runtime`
 (`local`, or `container @ <url>`), `shell`, `start` (`<command> @ <url>`, or the address alone),
-`preview` (`/path/{key}`), `viewports` (`name WxH [mobile]`), `variants` (`light`, `dark`, a
+`preview` (`/path/{key}`), `snapshot` (the command that renders keys to images, below) and
+`device` (the one that opens a key on a simulator or device, `{key}` in it), `viewports`
+(`name WxH [mobile]`), `variants` (`light`, `dark`, a
 language tag such as `en` or `ar`, `large-text`, or a word of the setup's own, which reach the
 preview as `roughbook-scheme`, `roughbook-dir`, `roughbook-lang`, `roughbook-text` and
 `roughbook-variant` query parameters), `reload` (`app` when the stack reloads a changed iteration
@@ -96,9 +98,10 @@ mode, below), `ignore`, `overlays`,
 (`<command> @ <url>`), `checks`, `timeoutStart`, `timeoutPreview` and `timeoutBuild`, `promote` and
 `promoteExtensions`, `assets` and `assetsCopy`, `copy` (`inline`, or `localized <file>`), `terms`
 (`page: view`, `component: partial`), `workshop`, `setupFiles` and `devDependencies`. A command
-differs on Windows through its `…Windows` twin (`shellWindows`, `startWindows`, `buildWindows`,
-`productionWindows`, `checksWindows`). With `recipe: none`, `entry`, `sources`, `start` (not in
-standalone mode), `preview` (live) and `gate` are required. A header the studio cannot read is
+differs on Windows through its `…Windows` twin (`shellWindows`, `startWindows`, `snapshotWindows`,
+`deviceWindows`, `buildWindows`, `productionWindows`, `checksWindows`). With `recipe: none`,
+`entry`, `sources` and `gate` are required, with `start` and `preview` for a live preview and
+`snapshot` in snapshot mode. A header the studio cannot read is
 refused with the field named, and nothing in the prose is ever interpreted.
 
 Every command the environment names runs in the shell it declares (`none` starts the program by
@@ -329,6 +332,41 @@ screenshots get from the studio) unless the browser marks it as the preview page
 `build: none` with the folders it publishes as they are in `buildOutput` (none may hold `rough/`), or
 `gate: runtime` with `production` serving the site, which must not hand out `rough/`.
 
+## Snapshot mode
+
+For a stack whose previews are rendered images (Jetpack Compose with Roborazzi or Paparazzi,
+SwiftUI snapshot tests, Flutter's widget tests), `mode: snapshot` has the repo's own `snapshot`
+command render them, and a live preview through a mobile stack's web target (Expo, Flutter) may
+name one too, for final review beside the page. The studio runs it with the keys of the iterations
+whose files changed since their images were made (`{keys}` in the line, `ROUGHBOOK_KEYS`, and the
+request file `ROUGHBOOK_REQUEST` names), every shot a key gets in `ROUGHBOOK_SHOTS`
+(`<name>:<width>x<height>:<variant>`), where the stack sees the iterations in
+`ROUGHBOOK_ITERATIONS`, and where the images go in `ROUGHBOOK_OUT`. The command writes
+`<out>/<key>/<shot>.png`, the screenshots' own paths, so the frame, the canvas's cards and doctor
+read them as screenshots, and says per key `roughbook: ready <key>`, `roughbook: missing <key>` or
+`roughbook: error <key>: <why>` on a line of its own, or the same word in `result.txt` beside the
+images where its test runner swallows what tests print; it exits 0 when every key rendered. A key it
+says nothing of has rendered only if every image is new. One command runs at a time per repo; the
+local UI renders the keys that changed together, five seconds after the last write; the frame shows
+the images, Render again, and On the device where the environment names a `device` command.
+
+`placement: in-tree <path>` is for a stack that compiles nothing outside its own source tree: the
+studio mirrors each iteration folder of `rough/` into `<path>/<page>/<component>/<iteration>/`
+before every render (and writes a mark there, so it never empties a folder it did not make). The
+path is a debug-only source set or target, gitignored (`init` adds it) and in the environment's
+ignore list (the studio adds it), and the production build leaves it out, which doctor proves. On a
+snapshot stack (`assetsCopy: yes`, the default in snapshot mode) the studio copies the asset files a
+run's prompt names into the iteration's `assets/` folder, since its tools load nothing over the
+network.
+
+The Expo recipe previews live through the app's web target (`npx expo start --localhost`): a route
+under Expo Router that loads the iterations only under `__DEV__`, which the root layout lets through
+in development; `rough/snapshots.mjs` renders final-review snapshots on an attached Android device
+or emulator (adb) or a booted iOS simulator, and opens a key there. The Flutter recipe mirrors
+iterations into `lib/rough/` with a registry of them, previews live through the web target
+(`flutter run -d web-server -t lib/rough_preview.dart`), and renders snapshots with a widget test
+(`flutter test test/rough_snapshot_test.dart`).
+
 ## Doctor
 
 `roughbook doctor` proves the contract on this repo, with the app's dev server running (with
@@ -356,6 +394,15 @@ which leaves the repo unverified. `--json` prints the report for a team's own CI
 the repo, which `setup --fix` reads and `--report` names for a support ticket. The outcome, the
 mode, the family, the stack tokens and the ids of the checks that failed go to the server with the
 link, so ratings and analytics can be read by stack; nothing else does.
+
+In snapshot mode, or with `--snapshots` for a live repo's final-review command, doctor runs the
+snapshot command for the two samples and a key with no iteration in one go, and expects images at
+every shot (PNGs with the viewport's proportions, a dark one unlike the light), an error for the
+broken sample and missing for the absent key; it changes the sample's fixture and expects other
+images, renders with nothing changed and expects nothing rendered, then changes the sample and
+expects it alone rendered again with other images; and builds for release with the sample mirrored
+in place, searching the output inside app packages too (`app.apk!classes.dex`). Nothing is served,
+so the loopback check is skipped.
 
 In standalone mode doctor starts the studio's own server instead of asking the app, checks that the
 site's folder and the stylesheets on it are there, and runs the same checks through it; the gate
@@ -402,11 +449,13 @@ src/
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion
   repo/         the repo root, repo prep, the link file, command approvals, the setup templates
-  recipes/      everything that names a stack: the detection table, the Next.js recipe, tool hints,
-                and the standalone server's renderers (HTML as it is, React through esbuild)
+  recipes/      everything that names a stack: the detection table, the Next.js, Expo and Flutter
+                recipes, tool hints, and the standalone server's renderers (HTML as it is, React
+                through esbuild)
+  snapshot/     snapshot mode: the command's contract, rendering the changed keys, the device command
   environment/  rough/environment.md: its header's fields, read for this operating system
   standalone/   the standalone server: the page around an iteration, its files, who may ask
-  doctor/       roughbook doctor: the contract, its checks, the sentinel search
+  doctor/       roughbook doctor: the contract, its checks (snapshot mode's apart), the sentinel search
   fs/           whole-file JSON writes and the lock the CLI and local server share
   server/       the local server: its API, the built-in terminal's sessions, who may ask
   tests/

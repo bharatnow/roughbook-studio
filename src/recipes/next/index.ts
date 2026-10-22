@@ -182,6 +182,8 @@ export const next: Recipe = {
       shell: 'none',
       start: { command: 'npm run dev', url: 'http://localhost:3000' },
       preview: `/${PREVIEW_ROUTE}/{key}`,
+      snapshot: null,
+      device: null,
       viewports: [
         { name: 'desktop', width: 1440, height: 900, mobile: false },
         { name: 'mobile', width: 390, height: 844, mobile: true }

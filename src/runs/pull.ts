@@ -9,6 +9,7 @@ import { ApiError } from '../api/errors.js';
 import type { PulledSketch, SketchFile } from '../api/types.js';
 import { readEnvironment } from '../environment/read.js';
 import { recipeOf } from '../recipes/index.js';
+import { syncIterations } from '../repo/mirror.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { assertTarget, iterationExists } from './slots.js';
@@ -217,7 +218,7 @@ export async function pullSketch(
     fs.rmSync(dir, { recursive: true, force: true });
     throw error;
   }
-  recipe?.syncPreview(repoRoot);
+  syncIterations(repoRoot, environment);
   // Runs going now did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(
     repoRoot,

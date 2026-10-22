@@ -41,7 +41,7 @@ export type Recipe = {
   placeholder(entry: string): string;
   /** Files the studio itself regenerates after iterations change, repo-relative. */
   generatedFiles: string[];
-  /** Folders allowed to import from rough/, such as a preview route, repo-relative. */
+  /** Folders or files allowed to import from rough/, such as a preview route, repo-relative. */
   importAllowed(link: RepoLink): string[];
   /** Brings the preview setup up to date with the iterations in rough/, after they change. */
   syncPreview(repo: string): void;
@@ -60,7 +60,12 @@ export type Recipe = {
    * `fixtureNote`, from its fixture file, when the stack's preview takes one) and one that fails
    * to render. Files by name, as an iteration folder holds them.
    */
-  doctorSamples(input: { marker: string; fixtureNote: string }): {
+  doctorSamples(input: {
+    marker: string;
+    fixtureNote: string;
+    /** The key the sample is written at, `<page>/<component>/<iteration>`. */
+    key: string;
+  }): {
     good: Record<string, string>;
     broken: Record<string, string>;
   };

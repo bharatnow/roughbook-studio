@@ -8,6 +8,7 @@ import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
+import { nativeFloorFindings, unescapeNative } from './nativeFloor.js';
 import { isPlaceholder } from './placeholder.js';
 import type { Check, Finding } from './types.js';
 
@@ -103,7 +104,10 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
   }
   const source = [...files.values()].join('\n');
   for (const check of checks) {
-    if (check.kind === 'approved-headline' && !headlineAppearsIn(source, check.headline)) {
+    if (
+      check.kind === 'approved-headline' &&
+      !headlineAppearsIn(check.native ? unescapeNative(source) : source, check.headline)
+    ) {
       warnings.push({
         code: 'APPROVED_HEADLINE_MISSING',
         message: `The approved headline (Version ${check.version}) does not appear in the source: "${check.headline}"`
@@ -114,6 +118,7 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
     warnings.push(...craftFloorFindings(files));
   for (const check of checks) {
     if (check.kind === 'detector') warnings.push(...detectorFindings(files, check));
+    if (check.kind === 'native-floor') warnings.push(...nativeFloorFindings(files, check.family));
   }
   return { failure: null, warnings };
 }
@@ -165,7 +170,8 @@ export function importsFromRough(
   const offenders: string[] = [];
   for (const file of files) {
     if (!hasExtension(file, code) || file.startsWith(`${ROUGH_DIR}/`)) continue;
-    if (allowed.some(folder => file.startsWith(`${folder}/`))) continue;
+    // A folder of the preview setup's, or one of its files.
+    if (allowed.some(folder => file === folder || file.startsWith(`${folder}/`))) continue;
     let text: string;
     try {
       text = fs.readFileSync(path.join(repoRoot, ...file.split('/')), 'utf8');

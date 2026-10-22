@@ -18,6 +18,12 @@
         "--no-agent-feedback",
         "--yes"
       ]
+    },
+    "expo": {
+      "scaffold": "create-expo-app",
+      "version": "5.0.0",
+      "app": "expo-app",
+      "args": ["--template", "default@sdk-58", "--no-install", "--yes"]
     }
   }
 }

@@ -26,18 +26,18 @@ import {
   unapprovedCommands
 } from '../repo/approvals.js';
 import { iterationDir } from '../repo/iterations.js';
+import { syncIterations } from '../repo/mirror.js';
 import { readRepoLink } from '../repo/link.js';
-import { PREP_FILES, planPrep } from '../repo/prep.js';
 import { ROUGH_DIR } from '../repo/root.js';
-import { checkSetupFiles } from '../repo/setup.js';
-import { openSetup } from '../runs/setup.js';
-import { allChanged, compareFiles, hashRepo, ignored, readSnapshot } from '../runs/snapshot.js';
 import type { takeScreenshot } from '../screenshot/browser.js';
 import { screenshotIteration } from '../screenshot/iteration.js';
 import { siteFile } from '../standalone/files.js';
 import { startStandaloneServer, type StandaloneServer } from '../standalone/server.js';
 import { STUDIO_VERSION } from '../version.js';
-import { findSentinel } from './sentinel.js';
+import { ORDER, result, rewrite, writeFiles } from './checks.js';
+import { buildGate } from './gate.js';
+import { setupFilesCheck } from './setupFiles.js';
+import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
 import { realTools } from './tools.js';
 import type {
@@ -49,102 +49,30 @@ import type {
   DoctorTools
 } from './types.js';
 
-/**
- * Where doctor's own iterations live while it runs: a page of its own, this name and a short id
- * new each run, and one component.
- */
-export const DOCTOR_PAGE = 'doctor-check';
-export const DOCTOR_COMPONENT = 'sample';
-const GOOD = 'iteration-01';
-const BROKEN = 'iteration-02';
-/** The third sample, written during the speed check: a finished run, as the studio sees one. */
-const SPEED = 'iteration-03';
-const MISSING = 'iteration-99';
+import {
+  BROKEN,
+  DOCTOR_COMPONENT,
+  DOCTOR_PAGE,
+  GOOD,
+  MISSING,
+  SAMPLE_FIXTURE,
+  SAMPLE_MARKER,
+  SPEED,
+  clearDoctorFolders,
+  sampleSource
+} from './samples.js';
 
-const NAMES: Record<CheckId, string> = {
-  prerequisites: 'The tools the commands need are here',
-  environment: 'The environment reads and its commands are approved',
-  app: 'The app answers',
-  renders: 'An iteration renders and says so',
-  fixture: 'The fixture reaches the iteration',
-  'reports-broken': 'A failed iteration is reported',
-  'reports-missing': 'A missing iteration is reported',
-  screenshots: 'Screenshots come out clean',
-  fresh: 'A change shows without a restart',
-  gate: 'Nothing reaches production',
-  loopback: 'The preview answers this machine only',
-  'setup-files': 'The setup files are listed',
-  speed: 'The speed budgets hold'
-};
-
-const ORDER: CheckId[] = [
-  'prerequisites',
-  'environment',
-  'app',
-  'renders',
-  'fixture',
-  'reports-broken',
-  'reports-missing',
-  'screenshots',
-  'fresh',
-  'gate',
-  'loopback',
-  'setup-files',
-  'speed'
-];
-
-function result(
-  id: CheckId,
-  status: CheckResult['status'],
-  detail: string,
-  fix: string | null = null
-) {
-  return { id, name: NAMES[id], status, detail, fix };
-}
-
-/** The stand-ins a setup run's sample iteration carries, which doctor fills before rendering it. */
-export const SAMPLE_MARKER = '{{roughbook:marker}}';
-export const SAMPLE_FIXTURE = '{{roughbook:fixture}}';
-
-/**
- * The sample iterations a setup run wrote for a stack with no recipe: rough/setup/sample/good/
- * (renders the marker and its fixture) and rough/setup/sample/broken/ (fails to render), their
- * files flat, with the stand-ins filled. Null when either is missing or empty.
- */
-export function setupSamples(
-  repoRoot: string,
-  environment: RepoEnvironment,
-  input: { marker: string; fixtureNote: string }
-): { good: Record<string, string>; broken: Record<string, string> } | null {
-  const read = (which: string): Record<string, string> | null => {
-    const dir = path.join(repoRoot, ROUGH_DIR, 'setup', 'sample', which);
-    if (!fs.existsSync(dir)) return null;
-    const files: Record<string, string> = {};
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      files[entry.name] = fs
-        .readFileSync(path.join(dir, entry.name), 'utf8')
-        .replaceAll(SAMPLE_MARKER, () => input.marker)
-        .replaceAll(SAMPLE_FIXTURE, () => input.fixtureNote);
-    }
-    return Object.keys(files).length ? files : null;
-  };
-  const good = read('good');
-  const broken = read('broken');
-  if (!good || !broken || !good[environment.entry] || !broken[environment.entry]) return null;
-  return { good, broken };
-}
-
-/** Removes every folder doctor made under rough/: this run's, or a crashed run's. */
-export function clearDoctorFolders(repoRoot: string): void {
-  const rough = path.join(repoRoot, ROUGH_DIR);
-  if (!fs.existsSync(rough)) return;
-  for (const entry of fs.readdirSync(rough)) {
-    if (entry === DOCTOR_PAGE || entry.startsWith(`${DOCTOR_PAGE}-`)) {
-      fs.rmSync(path.join(rough, entry), { recursive: true, force: true });
-    }
-  }
-}
+export {
+  DOCTOR_COMPONENT,
+  DOCTOR_PAGE,
+  SAMPLE_FIXTURE,
+  SAMPLE_KEY,
+  SAMPLE_MARKER,
+  SAMPLE_MODULE,
+  clearDoctorFolders,
+  sampleSource,
+  setupSamples
+} from './samples.js';
 
 /** The answer at a URL: its status and text, or null when nothing answered in time. */
 async function ask(
@@ -160,24 +88,6 @@ async function ask(
     return { status: response.status, text: await response.text() };
   } catch {
     return null;
-  }
-}
-
-function writeFiles(repoRoot: string, folder: string, files: Record<string, string>): void {
-  for (const [file, content] of Object.entries(files)) {
-    const target = path.join(repoRoot, ...folder.split('/'), ...file.split('/'));
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, content);
-  }
-}
-
-/** Every file of a folder with `from` replaced by `to`, so the preview has something to notice. */
-function rewrite(repoRoot: string, folder: string, from: string, to: string): void {
-  const dir = path.join(repoRoot, ...folder.split('/'));
-  for (const file of fs.readdirSync(dir)) {
-    const full = path.join(dir, file);
-    if (!fs.statSync(full).isFile()) continue;
-    fs.writeFileSync(full, fs.readFileSync(full, 'utf8').replaceAll(from, to));
   }
 }
 
@@ -210,7 +120,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   };
   const report = (environment: RepoEnvironment): DoctorReport => ({
     studio: STUDIO_VERSION,
-    environment: summarize(environment),
+    // With --snapshots, what was checked is the snapshot command: the report says so.
+    environment: { ...summarize(environment), ...(options.snapshots ? { mode: 'snapshot' } : {}) },
     outcome: outcomeOf(checks),
     checks
   });
@@ -295,11 +206,10 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       })${programs.length ? `; ${programs.length === 1 ? 'its command is' : 'its commands are'} approved` : ''}.`
     )
   );
-  if (environment.mode === 'snapshot') {
-    skipFrom(
-      'app',
-      'Not checked yet: snapshot previews are checked from F6 of the frameworks plan.'
-    );
+  // Snapshot mode, or a live repo's snapshot command for final review (--snapshots): the images
+  // the repo's own tool renders, checked the same way (src/doctor/snapshot.ts).
+  if (environment.mode === 'snapshot' || options.snapshots) {
+    await runSnapshotChecks(repoRoot, environment, recipe, link, tools, options, checks);
     return report(environment);
   }
 
@@ -310,12 +220,18 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   let shown = environment;
   const marker = `roughbook-doctor-${randomBytes(4).toString('hex')}`;
   const fixtureNote = `fixture-${randomBytes(3).toString('hex')}`;
+  // A page named anew each run: a dev server's watcher (webpack's, on Windows) loses a folder
+  // that was deleted and made again, and would then miss the change to the iteration.
+  const page = `${DOCTOR_PAGE}-${randomBytes(2).toString('hex')}`;
+  const keyOf = (iteration: string) => `${page}/${DOCTOR_COMPONENT}/${iteration}`;
   // A recipe knows how to write an iteration in its stack; the setup run writes samples for a
   // stack with no recipe, in rough/setup/sample/, with stand-ins for the marker and the fixture.
-  const samples = recipe
-    ? recipe.doctorSamples({ marker, fixtureNote })
-    : setupSamples(repoRoot, environment, { marker, fixtureNote });
-  if (!samples) {
+  const source = sampleSource(repoRoot, environment, recipe);
+  const samples = source && {
+    good: source('good', { marker, fixtureNote, key: keyOf(GOOD) }),
+    broken: source('broken', { marker, fixtureNote, key: keyOf(BROKEN) })
+  };
+  if (!samples || !source) {
     checks.push(
       result('app', 'skip', 'Not checked: there is no sample iteration to render.'),
       result(
@@ -328,9 +244,6 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     skipFrom('fixture', 'Not checked: there is no sample iteration.');
     return report(environment);
   }
-  // A page named anew each run: a dev server's watcher (webpack's, on Windows) loses a folder
-  // that was deleted and made again, and would then miss the change to the iteration.
-  const page = `${DOCTOR_PAGE}-${randomBytes(2).toString('hex')}`;
   const own = `${ROUGH_DIR}/${page}`;
   const goodFolder = iterationDir(page, DOCTOR_COMPONENT, GOOD);
   const brokenFolder = iterationDir(page, DOCTOR_COMPONENT, BROKEN);
@@ -339,7 +252,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
   clearDoctorFolders(repoRoot);
   writeFiles(repoRoot, goodFolder, samples.good);
   writeFiles(repoRoot, brokenFolder, samples.broken);
-  recipe?.syncPreview(repoRoot);
+  syncIterations(repoRoot, environment);
   /** The app, when doctor started it itself (--speed with nothing answering), stopped at the end. */
   let startedApp: Served | null = null;
   /** The studio's own server, in standalone mode, stopped at the end. */
@@ -708,62 +621,15 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       const fixes: string[] = [];
       /** What held, in words, where the gate is not the plain build or route (below). */
       const held: string[] = [];
-      // A site with no build is published as it is: its folders are what reaches production.
-      const published = !environment.build.command && environment.build.output.length > 0;
+      let published = false;
       // A standalone preview is the studio's, so what the served site must not hand out is rough/.
       const servesSite = environment.mode === 'standalone';
       if (environment.gate === 'build' || environment.gate === 'both') {
-        if (published) {
-          const folders = environment.build.output.join(', ');
-          const leaked = findSentinel(repoRoot, environment.build.output, changed);
-          if (leaked.length) {
-            problems.push(
-              `The folders the site publishes as they are (${folders}) hold the sample iteration: ${leaked.slice(0, 3).join(', ')}${leaked.length > 3 ? ', …' : ''}.`
-            );
-            fixes.push(
-              'Nothing from rough/ may be published: publish a folder that does not hold rough/ (buildOutput), or keep rough/ out of what the site deploys (contract point 1).'
-            );
-          } else {
-            held.push(
-              `nothing is built, and the folders published as they are (${folders}) hold nothing from rough/`
-            );
-          }
-        } else if (!environment.build.command) {
-          problems.push('The gate is the build, but the environment names no build command.');
-          fixes.push(
-            'Name the production build command in rough/environment.md (build), or, for a site published as it is, build: none and the folders it publishes (buildOutput).'
-          );
-        } else {
-          const built = await tools.exec(
-            environment.build.command,
-            repoRoot,
-            seconds(environment.timeouts.build),
-            environment.shell
-          );
-          if (built.code === null) {
-            problems.push(
-              `The production build did not finish within ${environment.timeouts.build} s.`
-            );
-            fixes.push(
-              'Give it longer in rough/environment.md (timeouts), or run it by hand to see why.'
-            );
-          } else if (built.code !== 0) {
-            problems.push(`The production build failed (exit ${built.code}).`);
-            fixes.push(
-              'Run the build by hand and fix what it reports; the preview setup must not break it.'
-            );
-          } else {
-            const leaked = findSentinel(repoRoot, environment.build.output, changed);
-            if (leaked.length) {
-              problems.push(
-                `The production build holds the sample iteration: ${leaked.slice(0, 3).join(', ')}${leaked.length > 3 ? ', …' : ''}.`
-              );
-              fixes.push(
-                'Nothing from rough/ may reach the production build; keep the preview setup to development (contract point 1).'
-              );
-            } else held.push('the production build passed and holds nothing from rough/');
-          }
-        }
+        const found = await buildGate(repoRoot, environment, tools, changed);
+        problems.push(...found.problems);
+        fixes.push(...found.fixes);
+        held.push(...found.held);
+        published = found.published;
       }
       if (environment.gate === 'runtime' || environment.gate === 'both') {
         if (!environment.production) {
@@ -919,14 +785,9 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     writeFiles(
       repoRoot,
       iterationDir(page, DOCTOR_COMPONENT, SPEED),
-      Object.fromEntries(
-        Object.entries(samples.good).map(([file, content]) => [
-          file,
-          content.replaceAll(marker, speedMarker)
-        ])
-      )
+      source('good', { marker: speedMarker, fixtureNote, key: keyOf(SPEED) })
     );
-    recipe?.syncPreview(repoRoot);
+    syncIterations(repoRoot, environment);
     const startedAt = tools.now();
     // The warming request, as a finished run makes it; then until the page shows it and says ready.
     await ask(tools, url(SPEED), previewMs);
@@ -981,7 +842,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       recursive: true,
       force: true
     });
-    recipe?.syncPreview(repoRoot);
+    syncIterations(repoRoot, environment);
     fs.rmSync(shotsDir, { recursive: true, force: true });
     if (startedApp) await startedApp.stop();
     if (standalone) await standalone.close();
@@ -1009,100 +870,6 @@ function siteProblems(repoRoot: string, environment: RepoEnvironment): string[] 
   }
   return problems;
 }
-
-/**
- * Check 8: every file the setup wrote outside rough/ is listed with its template and matches it
- * (decision 28); a recipe's files are what the recipe writes now; and when a setup run is open,
- * nothing else outside rough/ changed since it started, besides init's own prep files and the
- * manifests a dev dependency touches with approval (decision 19).
- */
-async function setupFilesCheck(
-  repoRoot: string,
-  environment: RepoEnvironment,
-  recipe: Recipe | null,
-  link: Awaited<ReturnType<typeof readRepoLink>>
-): Promise<CheckResult> {
-  const problems = checkSetupFiles(repoRoot, environment);
-  const fixes: string[] = [];
-  if (problems.length) {
-    fixes.push(
-      `Make each file in setupFiles match its template in ${ROUGH_DIR}/setup/ (roughbook setup --apply writes the templates into place), and list every template.`
-    );
-  }
-  let recipeFiles: string[] = [];
-  if (recipe && link) {
-    recipeFiles = recipe.setupFiles(repoRoot, link);
-    const plan = planPrep(repoRoot, { link, recipe });
-    const stale = plan.changes.filter(change => recipeFiles.includes(change.file));
-    if (stale.length) {
-      problems.push(
-        `The ${recipe.name} recipe would write ${stale.map(change => change.file).join(', ')} differently now.`
-      );
-      fixes.push('Run roughbook setup --upgrade to bring the preview setup up to date.');
-    }
-  }
-  const setup = await openSetup(repoRoot);
-  const snapshot = setup ? await readSnapshot(repoRoot, setup.id) : null;
-  if (snapshot) {
-    const now = await hashRepo(repoRoot, environment.ignore);
-    const listed = new Set([
-      ...environment.setupFiles.map(file => file.path),
-      ...recipeFiles,
-      ...PREP_FILES,
-      ...MANIFESTS
-    ]);
-    // The setup run wrote the environment, whose ignore list the snapshot before it did not have:
-    // a file that only left the listing because the environment now ignores its folder, and is
-    // still on disk, did not change.
-    const unlisted = allChanged(compareFiles(snapshot.files, now.files)).filter(
-      file =>
-        !file.startsWith(`${ROUGH_DIR}/`) &&
-        !listed.has(file) &&
-        !(
-          !(file in now.files) &&
-          ignored(file, environment.ignore) &&
-          fs.existsSync(path.join(repoRoot, ...file.split('/')))
-        )
-    );
-    if (unlisted.length) {
-      problems.push(
-        `The setup run changed ${unlisted.length} file${unlisted.length === 1 ? '' : 's'} outside ${ROUGH_DIR}/ that setupFiles does not list: ${unlisted.slice(0, 5).join(', ')}${unlisted.length > 5 ? ', \u2026' : ''}.`
-      );
-      fixes.push(
-        `List each in setupFiles with its template in ${ROUGH_DIR}/setup/ (a whole file, or "<path> (snippet)" for lines added to a file the app has), or put it back (contract point 6).`
-      );
-    }
-  }
-  if (problems.length) return result('setup-files', 'fail', problems.join(' '), fixes.join(' '));
-  const count = environment.setupFiles.length + recipeFiles.length;
-  return result(
-    'setup-files',
-    'pass',
-    count
-      ? `${count} setup file${count === 1 ? '' : 's'} in place and matching${snapshot ? ', and nothing else changed outside rough/ since the setup run started' : ''}.`
-      : `The setup writes nothing outside ${ROUGH_DIR}/.`
-  );
-}
-
-/** Manifests and lockfiles a dev dependency added with approval changes (decision 19). */
-const MANIFESTS = [
-  'package.json',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-  'bun.lock',
-  'bun.lockb',
-  'composer.json',
-  'composer.lock',
-  'Gemfile',
-  'Gemfile.lock',
-  'pubspec.yaml',
-  'pubspec.lock',
-  'requirements.txt',
-  'pyproject.toml',
-  'poetry.lock',
-  'uv.lock'
-];
 
 /** The report as lines for the terminal. */
 export function renderReport(report: DoctorReport): string[] {

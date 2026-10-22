@@ -3,7 +3,7 @@
 // types.ts). The repo's commands go through the per-repo queue: one at a time (decision 36).
 import os from 'node:os';
 import { hostLookup } from '../agents/index.js';
-import { runToEnd, serveUntil } from '../launch/processes.js';
+import { runCapture, runToEnd, serveUntil } from '../launch/processes.js';
 import { findProgramOnPath } from '../launch/which.js';
 import { queued } from '../runs/queue.js';
 import { findBrowser, probePreview, takeScreenshot } from '../screenshot/browser.js';
@@ -33,6 +33,8 @@ export function realTools(env: NodeJS.ProcessEnv, repoRoot = ''): DoctorTools {
       browser ? takeScreenshot({ browser, url, file, size, overlays, variant }) : false,
     exec: (command, cwd, timeoutMs, shell) =>
       queued(repoRoot || cwd, () => runToEnd(command, cwd, timeoutMs, shell)),
+    snapshot: (command, cwd, timeoutMs, shell, variables) =>
+      queued(repoRoot || cwd, () => runCapture(command, cwd, timeoutMs, shell, variables)),
     serve: (command, cwd, url, timeoutMs, shell) =>
       queued(repoRoot || cwd, () => serveUntil(command, cwd, url, timeoutMs, shell)),
     which: program => findProgramOnPath(program, lookup),

@@ -36,6 +36,17 @@ export type EnvironmentView = {
   reload: 'app' | 'studio';
   start: { command: string | null; url: string; approved: boolean };
   timeouts: { preview: number };
+  /** The repo's snapshot command, when it has one, and whether it is approved here. */
+  snapshot?: { approved: boolean } | null;
+  /** The repo's device command, when it has one, and whether it is approved here. */
+  device?: { approved: boolean } | null;
+};
+
+/** One iteration's snapshot images as the server last knew them. */
+export type SnapshotView = {
+  status: 'none' | 'rendering' | 'ready' | 'failed';
+  message: string | null;
+  at: string | null;
 };
 
 /** What the app the previews come from is doing, as the server last saw it. */

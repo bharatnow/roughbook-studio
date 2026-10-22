@@ -2,14 +2,19 @@
 import type { Family } from '../environment/types.js';
 
 /** What an iteration's output must pass, as the backend sends it (its utils/compile/checks.ts). */
+import type { NativeFamily } from './nativeFloor.js';
+
 export type Check =
   | { kind: 'entry-file'; file: string }
-  | { kind: 'approved-headline'; version: number; headline: string }
+  /** `native`: the source's string literals escape quotes with a backslash (a native family). */
+  | { kind: 'approved-headline'; version: number; headline: string; native?: true }
   | { kind: 'changed-from-parent'; parent: string }
   /** The craft floor: placeholder copy, transition: all, img alt, icon button names, focus. Warnings. */
   | { kind: 'craft-floor' }
   /** The model tells to look for, and the fonts the Design System chose (detector.ts). */
-  | { kind: 'detector'; tells: string[]; fonts: string[] };
+  | { kind: 'detector'; tells: string[]; fonts: string[] }
+  /** The native floor, for the native toolkits' families: placeholder copy, unnamed icon buttons. Warnings. */
+  | { kind: 'native-floor'; family: NativeFamily };
 
 export type RunKind = 'generate' | 'fork' | 'refine';
 export type RunAgent =
@@ -40,6 +45,11 @@ export type StartRunRequest = {
   /** The repo's family of checks and its entry file, from its environment (decision 23). */
   family?: Family;
   entry?: string;
+  /**
+   * The studio copies the project's asset files into the iteration's assets/ folder, so the prompt
+   * points there instead of at the studio's address (decision 29). Sent only when true.
+   */
+  assetsCopy?: boolean;
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }

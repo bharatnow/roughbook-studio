@@ -164,6 +164,52 @@ export function runToEnd(
   });
 }
 
+/** How much of a command's output `runCapture` keeps: its end, where a tool says what failed. */
+const CAPTURE_LIMIT = 256 * 1024;
+
+/**
+ * Runs a command line to its end in `cwd` with variables of its own added to the studio's
+ * environment, keeping what it printed (both streams, the last 256 KB): the snapshot contract's
+ * runner, whose command says per key what it rendered. The exit code is null when it timed out.
+ */
+export function runCapture(
+  line: string,
+  cwd: string,
+  timeoutMs: number,
+  shell: Shell = 'none',
+  env: Record<string, string> = {}
+): Promise<{ code: number | null; output: string }> {
+  const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
+  if (!resolved) return Promise.resolve({ code: 1, output: 'The command is empty.' });
+  return new Promise(resolve => {
+    let output = '';
+    const keep = (chunk: Buffer) => {
+      output += chunk.toString('utf8');
+      if (output.length > CAPTURE_LIMIT) output = output.slice(-CAPTURE_LIMIT);
+    };
+    const child = spawn(resolved.command, resolved.args, {
+      cwd,
+      env: { ...process.env, ...env },
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    child.stdout?.on('data', keep);
+    child.stderr?.on('data', keep);
+    const timer = setTimeout(() => {
+      void stopProcess(child).then(() => resolve({ code: null, output }));
+    }, timeoutMs);
+    child.once('close', code => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, output });
+    });
+    child.once('error', error => {
+      clearTimeout(timer);
+      resolve({ code: 1, output: `${output}${error.message}` });
+    });
+  });
+}
+
 export type Served = { stop(): Promise<void> };
 
 /** Starts a command line in `cwd` and waits until `url` answers anything; null when it did not in time. */

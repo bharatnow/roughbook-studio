@@ -209,17 +209,12 @@ export function environmentFromHeader(
   }
   const base = recipe ? recipe.environment(link) : bareEnvironment(link);
   // With no recipe, the file must say what a recipe would have, in the table's order. Standalone
-  // previews need nothing of the app running, so no start command or preview path.
+  // previews need nothing of the app running, so no start command or preview path; snapshot
+  // previews need the command that renders keys to images instead.
   if (!recipe) {
     const named = text(fields, 'mode') ?? base.mode;
-    const own = named === 'standalone' ? [] : ['start'];
-    for (const field of [
-      'entry',
-      'sources',
-      ...own,
-      ...(named === 'live' ? ['preview'] : []),
-      'gate'
-    ]) {
+    const own = named === 'live' ? ['start', 'preview'] : named === 'snapshot' ? ['snapshot'] : [];
+    for (const field of ['entry', 'sources', ...own, 'gate']) {
       if (fields[field] === undefined) {
         refuse(field, 'is required when no recipe set this repo up (recipe: none).');
       }
@@ -244,7 +239,21 @@ export function environmentFromHeader(
   }
   const preview = text(fields, 'preview');
   if (preview !== undefined && (!preview.startsWith('/') || !preview.includes('{key}'))) {
-    refuse('preview', 'is a path starting with / that holds {key} where the iteration goes.');
+    refuse(
+      'preview',
+      ((mode as PreviewMode | undefined) ?? base.mode) === 'snapshot'
+        ? 'is the address of a live preview; in snapshot mode the command that renders keys to images is snapshot.'
+        : 'is a path starting with / that holds {key} where the iteration goes.'
+    );
+  }
+  // The snapshot contract's command, and the one that opens a key on a device; `none` for neither.
+  const snapshotText = forOs(fields, 'snapshot', os);
+  const snapshot =
+    snapshotText === undefined ? undefined : snapshotText === 'none' ? null : snapshotText;
+  const deviceText = forOs(fields, 'device', os);
+  const device = deviceText === undefined ? undefined : deviceText === 'none' ? null : deviceText;
+  if (device && !device.includes('{key}')) {
+    refuse('device', 'is the command that opens one iteration, with {key} where its key goes.');
   }
   const startText = forOs(fields, 'start', os);
   const start = startText === undefined ? undefined : commandAt('start', startText, true);
@@ -357,6 +366,12 @@ export function environmentFromHeader(
     );
   }
   const shownBy = (mode as PreviewMode | undefined) ?? base.mode;
+  if (shownBy === 'snapshot' && !(snapshot === undefined ? base.snapshot : snapshot)) {
+    refuse(
+      'snapshot',
+      'is the command that renders keys to images (rough/CONTRACT.md); snapshot mode needs one.'
+    );
+  }
   if (shownBy === 'standalone') {
     if (preview !== undefined && preview !== STANDALONE_PREVIEW) {
       refuse(
@@ -430,6 +445,8 @@ export function environmentFromHeader(
     shell: (shell as Shell | undefined) ?? base.shell,
     start: start ? { command: start.command, url: start.url } : base.start,
     preview: shownBy === 'standalone' ? STANDALONE_PREVIEW : (preview ?? base.preview),
+    snapshot: snapshot === undefined ? base.snapshot : snapshot,
+    device: device === undefined ? base.device : device,
     viewports: viewports ?? base.viewports,
     variants: variants ?? base.variants,
     reload:
@@ -438,7 +455,9 @@ export function environmentFromHeader(
         : ((reload as 'app' | 'studio' | undefined) ?? base.reload),
     stylesheets: stylesheets ?? base.stylesheets,
     public: servedFrom,
-    ignore: list(fields, 'ignore') ?? base.ignore,
+    // A mirror in the source tree is the studio's copy of rough/, so snapshots and the watcher
+    // never count it as a change outside an iteration (decision 25).
+    ignore: withMirror(list(fields, 'ignore') ?? base.ignore, placement ?? base.placement),
     overlays: list(fields, 'overlays') ?? base.overlays,
     fixture: fixture === undefined ? base.fixture : fixture === 'none' ? null : fixture,
     build: {
@@ -473,7 +492,12 @@ export function environmentFromHeader(
           : assets === 'none'
             ? null
             : repoPath('assets', assets),
-      copy: assetsCopy === undefined ? base.assets.copy : /^(yes|true)$/.test(assetsCopy)
+      // Snapshot tools have no network, so a snapshot stack's iterations get their assets copied
+      // in unless the header says otherwise (decision 29).
+      copy:
+        assetsCopy === undefined
+          ? base.assets.copy || shownBy === 'snapshot'
+          : /^(yes|true)$/.test(assetsCopy)
     },
     copy: copy ?? base.copy,
     terms: terms ?? base.terms,
@@ -481,6 +505,17 @@ export function environmentFromHeader(
     setupFiles: setupFiles ?? base.setupFiles,
     devDependencies: devDependencies ?? base.devDependencies
   };
+}
+
+/** The ignore list with an in-tree mirror's folder added, when no entry covers it already. */
+function withMirror(ignore: string[], placement: RepoEnvironment['placement']): string[] {
+  if (placement.kind !== 'in-tree') return ignore;
+  const mirror = placement.path;
+  const covered = ignore.some(item => {
+    const clean = item.replace(/^\.?\/+/, '').replace(/\/+$/, '');
+    return mirror === clean || mirror.startsWith(`${clean}/`);
+  });
+  return covered ? ignore : [...ignore, mirror];
 }
 
 /** The extension of an entry file, dots and all: `index.blade.php` gives `.blade.php`. */

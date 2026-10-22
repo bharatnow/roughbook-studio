@@ -33,6 +33,8 @@ export function environmentCommands(environment: RepoEnvironment): EnvironmentCo
     commands.push({ field, command, shell: environment.shell });
   };
   add('start', environment.start.command);
+  add('snapshot', environment.snapshot);
+  add('device', environment.device);
   add('build', environment.build.command);
   add('production', environment.production?.command);
   for (const check of environment.checks) add('checks', check);

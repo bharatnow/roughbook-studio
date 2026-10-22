@@ -18,6 +18,7 @@ import {
   latestHumanReview,
   previewAddress,
   reviewSummary,
+  snapshotImageName,
   termLabel,
   useUiHost
 } from '@roughbook/ui';
@@ -28,7 +29,7 @@ import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
-import type { AppView } from '../types';
+import type { AppView, SnapshotView } from '../types';
 
 const action =
   'inline-flex h-9 items-center gap-2 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost';
@@ -59,6 +60,73 @@ function useScreenshot(
     };
   }, [page, component, iteration, size, version]);
   return url;
+}
+
+/**
+ * Snapshot images, one per shot, fetched with the token; fetched again when `version` changes,
+ * after the command rendered them again.
+ */
+function useSnapshotImages(
+  page: string,
+  component: string,
+  iteration: string,
+  names: string[],
+  version: string,
+  enabled: boolean
+): Record<string, string> {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const wanted = names.join(',');
+  useEffect(() => {
+    if (!enabled || !wanted) return;
+    let live = true;
+    const made: string[] = [];
+    void Promise.all(
+      wanted.split(',').map(async name => {
+        const url = await screenshotUrl(page, component, iteration, name);
+        if (url) made.push(url);
+        return [name, url] as const;
+      })
+    ).then(entries => {
+      if (!live) return;
+      setUrls(
+        Object.fromEntries(entries.filter(([, url]) => url !== null)) as Record<string, string>
+      );
+    });
+    return () => {
+      live = false;
+      for (const url of made) URL.revokeObjectURL(url);
+    };
+  }, [page, component, iteration, wanted, version, enabled]);
+  return urls;
+}
+
+/** One iteration's snapshot state, asked again often while it renders, and on every change. */
+function useSnapshotState(
+  page: string,
+  component: string,
+  iteration: string,
+  changeSeq: number,
+  enabled: boolean
+): [SnapshotView | null, (next: SnapshotView) => void] {
+  const [state, setState] = useState<SnapshotView | null>(null);
+  const rendering = state?.status === 'rendering';
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    const ask = () =>
+      void get<SnapshotView>(`${iterationPath(page, component, iteration)}/snapshots`)
+        .then(next => {
+          if (live) setState(next);
+        })
+        .catch(() => undefined);
+    ask();
+    const timer = window.setInterval(ask, rendering ? 1500 : 10_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [page, component, iteration, changeSeq, enabled, rendering]);
+  return [state, setState];
 }
 
 /**
@@ -122,6 +190,26 @@ export function IterationScreen({
   const rating = useRatings(page, component)[id] ?? null;
   const app = useApp(state?.app ?? null);
   useEffect(() => setRefineOpen(refine), [refine]);
+  // A live preview through a mobile stack's web target has the repo's snapshots beside it, for
+  // final review; in snapshot mode they are the preview itself.
+  const [finalReview, setFinalReview] = useState(false);
+  const mode = state?.environment.mode ?? 'live';
+  const showImages = mode === 'snapshot' || (finalReview && Boolean(state?.environment.snapshot));
+  const shotNames = (state?.environment.viewports ?? []).flatMap(viewport =>
+    (state?.environment.variants.length ? state.environment.variants : [null]).map(variant =>
+      snapshotImageName(viewport.name, variant?.id ?? null, state?.environment.variants ?? [])
+    )
+  );
+  const imagesChanged = changes.keys.filter(item => item === `${key}#images`).length;
+  const [snapshot, setSnapshot] = useSnapshotState(page, component, id, changes.seq, showImages);
+  const images = useSnapshotImages(
+    page,
+    component,
+    id,
+    shotNames,
+    `${snapshot?.at ?? ''}:${snapshot?.status ?? ''}:${imagesChanged}:${changes.seq}:${shotVersion}`,
+    showImages
+  );
 
   const found = findComponent(project, page, component);
   const iteration = found?.component.iterations.find(item => item.id === id);
@@ -165,6 +253,32 @@ export function IterationScreen({
     } finally {
       setShooting(false);
       await refresh();
+    }
+  }
+
+  async function renderAgain() {
+    setSnapshot({ status: 'rendering', message: null, at: snapshot?.at ?? null });
+    try {
+      const next = await post<SnapshotView>(`${iterationPath(page, component, id)}/snapshots`, {
+        force: true
+      });
+      setSnapshot(next);
+      if (next.status === 'failed' && next.message) say({ tone: 'error', text: next.message });
+      setShotVersion(version => version + 1);
+    } catch (error) {
+      setSnapshot({ status: 'failed', message: describe(error), at: null });
+      say({ tone: 'error', text: describe(error) });
+    }
+  }
+
+  async function openOnDevice() {
+    try {
+      const result = await post<{ ok: boolean; message: string }>(
+        `${iterationPath(page, component, id)}/device`
+      );
+      say({ tone: result.ok ? 'info' : 'error', text: result.message });
+    } catch (error) {
+      say({ tone: 'error', text: describe(error) });
     }
   }
 
@@ -292,12 +406,17 @@ export function IterationScreen({
         }
       >
         <PreviewFrame
-          mode={environment.mode}
+          mode={showImages ? 'snapshot' : environment.mode}
           items={[
             {
               key,
               label: iteration.name,
               src,
+              images: (viewport, variant) =>
+                images[snapshotImageName(viewport, variant || null, environment.variants)] ?? null,
+              snapshot: snapshot
+                ? { status: snapshot.status, message: snapshot.message }
+                : undefined,
               fallbackSrc: shot,
               making: run?.status === 'started',
               exists: true
@@ -319,7 +438,40 @@ export function IterationScreen({
               : undefined
           }
           timeoutMs={environment.timeouts.preview * 1000}
-        />
+          onRender={environment.snapshot?.approved ? () => void renderAgain() : undefined}
+          rendering={snapshot?.status === 'rendering'}
+          onOpenDevice={environment.device?.approved ? () => void openOnDevice() : undefined}
+        >
+          {mode !== 'snapshot' && environment.snapshot ? (
+            <div
+              role="group"
+              aria-label="What the frame shows"
+              className="flex rounded-full bg-frost p-1"
+            >
+              {(
+                [
+                  [false, 'Live'],
+                  [true, 'Snapshots']
+                ] as const
+              ).map(([on, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={finalReview === on}
+                  title={
+                    on
+                      ? 'The images the repo renders, for final review'
+                      : 'The page, through the web target'
+                  }
+                  onClick={() => setFinalReview(on)}
+                  className={`h-7 rounded-full px-3 text-sm ${finalReview === on ? 'bg-canvas text-graphite shadow-[0_1px_1px_rgba(39,40,53,0.1)]' : 'bg-transparent text-slate hover:text-graphite'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </PreviewFrame>
       </Stage>
 
       <SelectConfirmDrawer

@@ -17,7 +17,9 @@ import { recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
+import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { copyAssets } from './assets.js';
 import { checkIteration, importsFromRough } from './checks.js';
 import {
   assertTarget,
@@ -114,7 +116,8 @@ export async function startRuns(
     ...(link.skills?.length ? { skills: link.skills } : {}),
     screenshots: true,
     family: environment.family,
-    entry: environment.entry
+    entry: environment.entry,
+    ...(environment.assets.copy ? { assetsCopy: true } : {})
   });
   for (const run of started) {
     assertTarget(request.page, request.component, run.iteration);
@@ -168,9 +171,14 @@ export async function startRuns(
       run.placeholders ?? {},
       { hasEnvironmentFile: hasEnvironmentFile(repoRoot) }
     );
-    // A standalone preview is the studio's, behind its token: the agent is not sent to it.
+    // A stack whose previews load nothing over the network gets the asset files in its folder.
+    if (environment.assets.copy) {
+      await copyAssets(repoRoot, api, link, record.targetFolder, prompt);
+    }
+    // A standalone preview is the studio's, behind its token, and a snapshot preview has no
+    // address: the agent is sent to neither.
     const preview =
-      options.devUrl && environment.mode !== 'standalone'
+      options.devUrl && environment.mode === 'live'
         ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
         : null;
     writePrompt(
@@ -183,7 +191,7 @@ export async function startRuns(
     await saveRun(repoRoot, record);
     records.push(record);
   }
-  recipe?.syncPreview(repoRoot);
+  syncIterations(repoRoot, environment);
   return records;
 }
 
@@ -321,7 +329,7 @@ export async function finishRun(
     reported
   };
   await saveRun(repoRoot, finished);
-  (await repoSetup(repoRoot, link)).recipe?.syncPreview(repoRoot);
+  syncIterations(repoRoot, (await repoSetup(repoRoot, link)).environment);
   return finished;
 }
 

@@ -29,8 +29,8 @@ import { findProgramOnPath } from '../launch/which.js';
 import { manualCommand, planTerminal, type Session } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import type { RepoEnvironment, Terms, Viewport } from '../environment/types.js';
-import { recipeOf } from '../recipes/index.js';
 import { isApproved, readApprovals } from '../repo/approvals.js';
+import { syncIterations } from '../repo/mirror.js';
 import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
 import { roughPath } from '../repo/root.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
@@ -43,6 +43,13 @@ import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
 import { SHOTS_MANIFEST, screenshotPath, type ShotOptions } from '../screenshot/iteration.js';
+import { openOnDevice } from '../snapshot/device.js';
+import {
+  describeResult,
+  renderSnapshots,
+  type SnapshotExec,
+  type SnapshotRun
+} from '../snapshot/render.js';
 import {
   createStandaloneHandler,
   withToken,
@@ -63,6 +70,8 @@ export type LocalStudioOptions = {
   devUrl: string;
   port: number;
   pty: PtySupport;
+  /** How the snapshot and device commands run; replaced in tests. */
+  snapshotExec?: SnapshotExec;
 };
 
 /** The repo's environment as the page needs it for the frame: no path, no command line but the start's. */
@@ -77,6 +86,21 @@ export type EnvironmentView = {
   /** The start command (null when the designer starts the app), its address, and whether it is approved here. */
   start: { command: string | null; url: string; approved: boolean };
   timeouts: { preview: number };
+  /**
+   * The snapshot command, when the repo has one (the preview itself in snapshot mode, final review
+   * beside a live one), and whether it is approved here; no command line.
+   */
+  snapshot: { approved: boolean } | null;
+  /** The device command, when the repo has one, and whether it is approved here. */
+  device: { approved: boolean } | null;
+};
+
+/** What the studio last knew of one iteration's snapshot images. */
+export type SnapshotView = {
+  status: 'none' | 'rendering' | 'ready' | 'failed';
+  message: string | null;
+  /** When the images were last rendered. */
+  at: string | null;
 };
 
 /** What the app the previews come from is doing, as the studio last saw it. */
@@ -91,6 +115,10 @@ export type AppView = {
 
 /** How long after the last write to an iteration its screenshots are taken again. */
 const RESHOT_AFTER_MS = 5000;
+/** The one timer under which snapshot mode's changed keys wait, to be rendered together. */
+const PENDING = '#snapshots';
+/** After a key in the change feed: its images changed, not its files. */
+export const IMAGES = '#images';
 /** How long the app is given to answer when asked whether it is up. */
 const APP_ASK_MS = 3000;
 
@@ -339,6 +367,10 @@ export class LocalStudio {
   } | null = null;
   private app: AppView = { status: 'unknown', terminal: null, since: null, lastLine: null };
   private readonly reshots = new Map<string, NodeJS.Timeout>();
+  /** Snapshot images per key, as the last render left them; rendering while the command runs. */
+  private readonly snapshotStates = new Map<string, SnapshotView>();
+  /** The changed keys waiting to be rendered, in snapshot mode. */
+  private readonly pendingSnapshots = new Set<string>();
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
   private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
@@ -369,6 +401,11 @@ export class LocalStudio {
   /** Whether the studio's own server shows the previews (the environment's mode, as it is now). */
   get standaloneMode(): boolean {
     return this.environment.mode === 'standalone';
+  }
+
+  /** Whether the repo's own snapshot command renders the previews, with no app to run. */
+  get snapshotMode(): boolean {
+    return this.environment.mode === 'snapshot';
   }
 
   /**
@@ -439,14 +476,23 @@ export class LocalStudio {
         url: environment.start.url,
         approved: command ? isApproved(approvals, command, environment.shell) : false
       },
-      timeouts: { preview: environment.timeouts.preview }
+      timeouts: { preview: environment.timeouts.preview },
+      snapshot: environment.snapshot
+        ? { approved: isApproved(approvals, environment.snapshot, environment.shell) }
+        : null,
+      device: environment.device
+        ? { approved: isApproved(approvals, environment.device, environment.shell) }
+        : null
     };
   }
 
   /** The app's state, with the last line of its session while it starts. */
   appView(): AppView {
-    // In standalone mode the studio's own server is the app, up while the studio is.
-    if (this.standaloneMode) return { status: 'up', terminal: null, since: null, lastLine: null };
+    // In standalone mode the studio's own server is the app, up while the studio is; in snapshot
+    // mode nothing runs between renders.
+    if (this.standaloneMode || this.snapshotMode) {
+      return { status: 'up', terminal: null, since: null, lastLine: null };
+    }
     const terminal = this.app.terminal ? this.terminals?.get(this.app.terminal) : null;
     if (this.app.status === 'starting' && terminal?.status === 'exited') {
       this.app = { ...this.app, status: 'down' };
@@ -462,7 +508,7 @@ export class LocalStudio {
 
   /** Asks the app once whether it answers at its address, and keeps the answer for the page. */
   async checkApp(): Promise<AppView> {
-    if (this.standaloneMode) return this.appView();
+    if (this.standaloneMode || this.snapshotMode) return this.appView();
     const answer = await this.options.context.askPreview(`${this.options.devUrl}/`, APP_ASK_MS);
     if (answer) {
       this.app = {
@@ -491,6 +537,11 @@ export class LocalStudio {
     if (this.standaloneMode) {
       throw new BadRequest(
         `In standalone mode the studio's own server shows the previews, at ${this.devUrl}; there is no app to start.`
+      );
+    }
+    if (this.snapshotMode) {
+      throw new BadRequest(
+        "In snapshot mode the repo's snapshot command renders the previews as images; there is no app to start."
       );
     }
     const command = environment.start.command;
@@ -572,6 +623,20 @@ export class LocalStudio {
   }
 
   private scheduleReshot(key: string): void {
+    // Snapshot mode renders every changed key in one run of the command, after the last write.
+    if (this.snapshotMode) {
+      if (key.endsWith(IMAGES)) return;
+      this.pendingSnapshots.add(key);
+      const pending = this.reshots.get(PENDING);
+      if (pending) clearTimeout(pending);
+      const timer = setTimeout(() => {
+        this.reshots.delete(PENDING);
+        void this.renderPending();
+      }, RESHOT_AFTER_MS);
+      timer.unref();
+      this.reshots.set(PENDING, timer);
+      return;
+    }
     const waiting = this.reshots.get(key);
     if (waiting) clearTimeout(waiting);
     const timer = setTimeout(() => {
@@ -580,6 +645,26 @@ export class LocalStudio {
     }, RESHOT_AFTER_MS);
     timer.unref();
     this.reshots.set(key, timer);
+  }
+
+  /** Renders the keys that changed while the UI was open, but none an agent is still writing. */
+  private async renderPending(): Promise<void> {
+    const keys = [...this.pendingSnapshots];
+    this.pendingSnapshots.clear();
+    try {
+      const open = new Set(
+        (await listRuns(this.repoRoot))
+          .filter(run => run.status === 'started')
+          .map(run => `${run.page}/${run.component}/${run.iteration}`)
+      );
+      const ready = keys.filter(key => {
+        const [page, component, iteration] = key.split('/') as [string, string, string];
+        return !open.has(key) && iterationExists(this.repoRoot, page, component, iteration);
+      });
+      if (ready.length) await this.render(ready, {});
+    } catch {
+      // The next change tries again; the designer can also ask for them on the stage.
+    }
   }
 
   private async reshoot(key: string): Promise<void> {
@@ -1133,7 +1218,18 @@ export class LocalStudio {
       );
     }
     const environment = this.previewEnvironment();
-    recipeOf(environment)?.syncPreview(this.repoRoot);
+    // Snapshot mode: the repo's command renders the images, and the frame follows its state.
+    if (environment.mode === 'snapshot') {
+      const key = `${target.page}/${target.component}/${target.iteration}`;
+      const run = await this.render([key], { force: options.force });
+      const result = run.results[key]!;
+      return {
+        files: result.files,
+        warning: describeResult(key, result),
+        ...(run.unchanged.includes(key) ? { skipped: true as const } : {})
+      };
+    }
+    syncIterations(this.repoRoot, environment);
     return queued(this.repoRoot, () =>
       this.context.screenshot(
         this.repoRoot,
@@ -1146,6 +1242,91 @@ export class LocalStudio {
         environment,
         options
       )
+    );
+  }
+
+  /**
+   * Renders keys' images with the repo's snapshot command, through the repo's queue, keeping each
+   * key's state for the frame: rendering while the command runs, then ready or failed with why.
+   * Only the keys whose files changed are rendered unless `force`. In a live repo these are final
+   * review's images, beside the page.
+   */
+  async render(keys: string[], options: { force?: boolean }): Promise<SnapshotRun> {
+    // A key reaches the command line, so it is a key and nothing else.
+    for (const key of keys) {
+      const [page = '', component = '', iteration = '', ...rest] = key.split('/');
+      if (rest.length) throw new BadRequest('Not an iteration.');
+      this.assertIteration({ page, component, iteration });
+    }
+    const environment = this.environment;
+    if (!environment.snapshot) {
+      throw new BadRequest('rough/environment.md names no snapshot command.');
+    }
+    if (!isApproved(await readApprovals(this.repoRoot), environment.snapshot, environment.shell)) {
+      throw new BadRequest(
+        `The snapshot command is not approved on this machine (${environment.snapshot}). Run roughbook doctor in a terminal and approve it.`
+      );
+    }
+    const since = new Date().toISOString();
+    for (const key of keys) {
+      const before = this.snapshotStates.get(key);
+      this.snapshotStates.set(key, { status: 'rendering', message: null, at: before?.at ?? null });
+    }
+    try {
+      const run = await queued(this.repoRoot, () =>
+        renderSnapshots(this.repoRoot, environment, keys, {
+          force: options.force,
+          exec: this.options.snapshotExec
+        })
+      );
+      for (const [key, result] of Object.entries(run.results)) {
+        this.snapshotStates.set(key, {
+          status: result.state === 'ready' ? 'ready' : 'failed',
+          message: describeResult(key, result),
+          at:
+            run.asked.includes(key) && result.state === 'ready'
+              ? since
+              : (this.snapshotStates.get(key)?.at ?? null)
+        });
+      }
+      // The frame fetches the images again: a change to them, though not to the iteration's files.
+      for (const key of run.asked) this.changes.note(`${key}${IMAGES}`);
+      return run;
+    } catch (error) {
+      for (const key of keys) {
+        this.snapshotStates.set(key, { status: 'failed', message: describeError(error), at: null });
+      }
+      throw error;
+    }
+  }
+
+  /** One key's snapshot images as the frame shows them: rendering, ready, failed or none yet. */
+  snapshotState(target: ReviewTarget): SnapshotView {
+    this.assertIteration(target);
+    const key = `${target.page}/${target.component}/${target.iteration}`;
+    const known = this.snapshotStates.get(key);
+    if (known) return known;
+    const environment = this.environment;
+    const names = screenshotSet(environment.viewports, environment.variants).map(shot => shot.name);
+    const there = names.every(size =>
+      fs.existsSync(
+        this.disk(screenshotPath(target.page, target.component, target.iteration, size))
+      )
+    );
+    return { status: there ? 'ready' : 'none', message: null, at: null };
+  }
+
+  /** Opens one iteration on the simulator, emulator or device, with the environment's command. */
+  async openDevice(target: ReviewTarget): Promise<{ ok: boolean; message: string }> {
+    this.assertIteration(target);
+    if (!iterationExists(this.repoRoot, target.page, target.component, target.iteration)) {
+      throw new BadRequest(
+        `${target.page}/${target.component}/${target.iteration} is not in this repo.`
+      );
+    }
+    const key = `${target.page}/${target.component}/${target.iteration}`;
+    return queued(this.repoRoot, () =>
+      openOnDevice(this.repoRoot, this.environment, key, this.options.snapshotExec)
     );
   }
 
@@ -1162,7 +1343,7 @@ export class LocalStudio {
   /** Keeps rough/preview-registry.ts in step with the iteration folders. */
   keepRegistry(): void {
     try {
-      recipeOf(this.environment)?.syncPreview(this.repoRoot);
+      syncIterations(this.repoRoot, this.environment);
     } catch {
       // A folder being written mid-scan; the next tick catches up.
     }

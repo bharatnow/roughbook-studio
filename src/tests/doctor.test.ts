@@ -195,6 +195,8 @@ function fakeTools(
             }
           };
     },
+    // A live repo has no snapshot command for doctor to run.
+    snapshot: async () => ({ code: 1, output: '' }),
     addresses: () => ['192.168.1.20'],
     // No real waiting: each look at the clock is a second later.
     sleep: async () => {},

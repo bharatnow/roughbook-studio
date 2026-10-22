@@ -1,10 +1,12 @@
 // The conformance suite: roughbook doctor over a recipe's fixture, the way a designer's repo would
-// see it. `node conformance/run.mjs next [--skip-build] [--speed] [--keep]` copies the fixture to
+// see it. `node conformance/run.mjs next [--skip-build] [--speed] [--snapshots] [--keep]` copies the fixture to
 // a temp folder, installs it, prepares it as `roughbook init` would (without a server: the link is
 // a stand-in), starts its dev server, runs doctor against it, and takes everything down. With
 // `--speed`, doctor starts the dev server itself with the environment's start command, as
 // `roughbook start` does, so the cold start is measured with the other budgets. Exit code: 0 pass,
-// 1 fail, 2 unverified. Needs `npm run build` first, since it runs the studio from dist/.
+// 1 fail, 2 unverified. With `--snapshots`, doctor checks the recipe's snapshot command (final review
+// beside a live preview) instead of the page. Needs `npm run build` first, since it runs the studio
+// from dist/.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -17,9 +19,12 @@ const args = process.argv.slice(2);
 const name = args.find(arg => !arg.startsWith('--'));
 const skipBuild = args.includes('--skip-build');
 const speed = args.includes('--speed');
+const snapshots = args.includes('--snapshots');
 const keep = args.includes('--keep');
 if (!name) {
-  console.error('Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--keep]');
+  console.error(
+    'Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--snapshots] [--keep]'
+  );
   process.exit(2);
 }
 const fixture = path.join(root, 'conformance', 'fixtures', name);
@@ -36,10 +41,13 @@ const dist = file => import(pathToFileURL(path.join(root, 'dist', file)).href);
 const { planPrep, applyPrep } = await dist('repo/prep.js');
 const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
 const { serveUntil } = await dist('launch/processes.js');
+const { recipeFor } = await dist('recipes/index.js');
 
 /** How the fixture's dev server is started, per recipe, with the port it should take. */
 const DEV_COMMANDS = {
-  next: port => `npm run dev -- --port ${port}`
+  next: port => `npm run dev -- --port ${port}`,
+  // Metro on this machine only, as the recipe starts it.
+  expo: port => `npx expo start --localhost --port ${port}`
 };
 const devCommand = DEV_COMMANDS[name];
 if (!devCommand) {
@@ -76,7 +84,8 @@ try {
 
   // As roughbook init would, with a stand-in link: the suite has no server to link to.
   const plan = planPrep(work, {
-    link: { version: 1, orgId: 'conformance', project: 'fixture', roughCommitted: true }
+    link: { version: 1, orgId: 'conformance', project: 'fixture', roughCommitted: true },
+    recipe: recipeFor(name)
   });
   if (plan.problems.length) throw new Error(plan.problems.join(' '));
   applyPrep(plan);
@@ -105,7 +114,8 @@ try {
     skipBuild,
     approve: true,
     speed,
-    startApp: speed
+    startApp: speed,
+    snapshots
   });
   console.log('');
   for (const line of renderReport(report)) console.log(line);

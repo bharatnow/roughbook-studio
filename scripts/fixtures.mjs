@@ -22,10 +22,17 @@ function quote(arg) {
  * a shell, so the whole command line is built here and given to the shell as one string.
  */
 function run(command, args, cwd) {
+  // No one answers a scaffold's questions here: no input, and CI set, so it takes its defaults
+  // (create-expo-app otherwise asks about the git repository the fixtures folder is in).
+  const options = {
+    cwd,
+    stdio: ['ignore', 'inherit', 'inherit'],
+    env: { ...process.env, CI: '1' }
+  };
   const result =
     process.platform === 'win32'
-      ? spawnSync([command, ...args].map(quote).join(' '), { cwd, stdio: 'inherit', shell: true })
-      : spawnSync(command, args, { cwd, stdio: 'inherit' });
+      ? spawnSync([command, ...args].map(quote).join(' '), { ...options, shell: true })
+      : spawnSync(command, args, options);
   if (result.status !== 0) {
     throw new Error(
       `${command} ${args.join(' ')} failed in ${cwd} (exit ${result.status ?? 'signal'})`
@@ -39,8 +46,12 @@ function write(name, fixture, latest) {
   console.log(`\n== ${name}: ${fixture.scaffold}@${version}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(fixturesDir, { recursive: true });
-  // The scaffold makes the folder itself; it refuses a folder that is not empty.
-  run('npx', ['--yes', `${fixture.scaffold}@${version}`, name, ...fixture.args], fixturesDir);
+  // The scaffold makes the folder itself; it refuses a folder that is not empty. A scaffold that
+  // refuses the fixture's name as an app's (create-expo-app and "expo") makes it as `app`.
+  const appName = fixture.app ?? name;
+  fs.rmSync(path.join(fixturesDir, appName), { recursive: true, force: true });
+  run('npx', ['--yes', `${fixture.scaffold}@${version}`, appName, ...fixture.args], fixturesDir);
+  if (appName !== name) fs.renameSync(path.join(fixturesDir, appName), dir);
   // Pin every dependency without installing any: node_modules is never committed.
   run(
     'npm',

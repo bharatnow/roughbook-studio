@@ -109,7 +109,7 @@ const JS_FRAMEWORKS: {
     family: 'react-like'
   },
   { dependency: '@angular/core', token: 'angular', name: 'Angular', family: 'markup-css' },
-  { dependency: 'expo', token: 'expo', name: 'Expo', family: 'react-like' },
+  { dependency: 'expo', token: 'expo', name: 'Expo', family: 'react-like', recipe: 'expo' },
   {
     dependency: 'react-native',
     token: 'react-native',
@@ -221,7 +221,8 @@ export function detectStack(repo: string): Detected {
       name: 'Flutter',
       token: 'flutter',
       family: 'flutter',
-      mode: 'live'
+      mode: 'live',
+      recipe: 'flutter'
     });
     extras.push('dart');
   }
