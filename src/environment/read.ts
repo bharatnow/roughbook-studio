@@ -42,6 +42,8 @@ export const ENTRY_NOTE_PLACEHOLDER = '{{roughbook:entry-note}}';
 export const TERM_PAGE_PLACEHOLDER = '{{roughbook:term-page}}';
 export const TERM_COMPONENT_PLACEHOLDER = '{{roughbook:term-component}}';
 export const ENVIRONMENT_PLACEHOLDER = '{{roughbook:environment}}';
+/** The sentence that says how the iteration is shown, which the preview mode decides (F7). */
+export const PREVIEW_PLACEHOLDER = '{{roughbook:preview}}';
 
 /**
  * The preview path in standalone mode: the studio's own server's, whatever the stack. It ends with
@@ -396,10 +398,35 @@ export function environmentFromHeader(
   const checks = listForOs(fields, 'checks', os);
   const promote = text(fields, 'promote');
   const promoteExtensions = list(fields, 'promoteExtensions');
-  const assets = text(fields, 'assets');
+  // `<folder>`, `<folder> @ <path>` for a folder the app serves somewhere other than its root, or
+  // `<folder> @ bundled` for assets that ship with the code; none for no folder at all.
+  const assetsText = text(fields, 'assets');
+  const assetsParts =
+    assetsText === undefined || assetsText === 'none'
+      ? null
+      : /^(\S+?)(?:\s+@\s+(\S+))?$/.exec(assetsText.trim());
+  const assets = assetsText === 'none' ? 'none' : (assetsParts?.[1] ?? assetsText);
+  const assetsAt = assetsParts?.[2];
+  if (
+    assetsAt !== undefined &&
+    assetsAt !== 'bundled' &&
+    (!/^\/[^\s?#]*$/.test(assetsAt) || assetsAt.split('/').some(part => part === '..'))
+  ) {
+    refuse(
+      'assets',
+      `is the folder promoted assets go to, with " @ <path>" when the app serves it somewhere other than its root (public/images @ /images), or " @ bundled" when they ship with the code; not "${assetsText}".`
+    );
+  }
   const assetsCopy = text(fields, 'assetsCopy');
   if (assetsCopy !== undefined && !/^(yes|no|true|false)$/.test(assetsCopy)) {
     refuse('assetsCopy', 'is yes or no.');
+  }
+  const sketches = text(fields, 'sketches');
+  if (sketches !== undefined && sketches !== 'copy' && sketches !== 'port') {
+    refuse(
+      'sketches',
+      'is copy, where a web sketch renders as it is, or port, where pulling one rebuilds it in this stack.'
+    );
   }
   const copyText = text(fields, 'copy');
   let copy: RepoEnvironment['copy'] | undefined;
@@ -485,25 +512,55 @@ export function environmentFromHeader(
           ? base.promote.extensions
           : [extensionOf(entry ?? base.entry)]
     },
-    assets: {
-      dir:
-        assets === undefined
-          ? base.assets.dir
-          : assets === 'none'
-            ? null
-            : repoPath('assets', assets),
-      // Snapshot tools have no network, so a snapshot stack's iterations get their assets copied
-      // in unless the header says otherwise (decision 29).
-      copy:
-        assetsCopy === undefined
-          ? base.assets.copy || shownBy === 'snapshot'
-          : /^(yes|true)$/.test(assetsCopy)
-    },
+    assets: assetsField(base, { assets, assetsAt, assetsCopy, shownBy, recipe: Boolean(recipe) }),
     copy: copy ?? base.copy,
+    sketches: (sketches as 'copy' | 'port' | undefined) ?? base.sketches,
     terms: terms ?? base.terms,
     workshop: workshop === undefined ? base.workshop : workshop === 'none' ? null : workshop,
     setupFiles: setupFiles ?? base.setupFiles,
     devDependencies: devDependencies ?? base.devDependencies
+  };
+}
+
+/**
+ * Where promoted assets go and how the app uses them (decision 29). Snapshot tools have no
+ * network, so a snapshot stack's iterations get their assets copied in unless the header says
+ * otherwise. A folder named without an address keeps the recipe's; with no recipe, the app serves
+ * it at its root, or bundles it where previews need assets copied in.
+ */
+function assetsField(
+  base: RepoEnvironment,
+  header: {
+    assets: string | undefined;
+    assetsAt: string | undefined;
+    assetsCopy: string | undefined;
+    shownBy: PreviewMode;
+    recipe: boolean;
+  }
+): RepoEnvironment['assets'] {
+  const copy =
+    header.assetsCopy === undefined
+      ? base.assets.copy || header.shownBy === 'snapshot'
+      : /^(yes|true)$/.test(header.assetsCopy);
+  const url =
+    header.assetsAt === 'bundled'
+      ? null
+      : header.assetsAt !== undefined
+        ? header.assetsAt.replace(/(.)\/+$/, '$1')
+        : header.recipe
+          ? base.assets.url
+          : copy
+            ? null
+            : '/';
+  return {
+    dir:
+      header.assets === undefined
+        ? base.assets.dir
+        : header.assets === 'none'
+          ? null
+          : repoPath('assets', header.assets),
+    url,
+    copy
   };
 }
 
@@ -600,19 +657,36 @@ export function entryNote(environment: RepoEnvironment): string {
   return environment.family === 'react-like' ? ' with a default export' : '';
 }
 
+/**
+ * How a prompt says the iteration is shown, by the repo's preview mode: through the app's own
+ * development-only route (the live mode, as every prompt said before F7), as the images the
+ * repo's snapshot command renders, or on the studio's own page with the site's stylesheets.
+ */
+export function previewSentence(environment: RepoEnvironment): string {
+  switch (environment.mode) {
+    case 'snapshot':
+      return "This iteration is shown as images: the repo's snapshot command renders it\nwith the app's own theme and the preview wrapper, at every viewport and variant.";
+    case 'standalone':
+      return "This iteration renders on the studio's own preview page, with the site's\nstylesheets and its public folder, as the site's own pages would show it.";
+    default:
+      return "This iteration renders inside the client's app, through a development-only\npreview route, with the app's own root layout and global styles.";
+  }
+}
+
 export type Placeholders = {
   entry?: string;
   entryNote?: string;
   termPage?: string;
   termComponent?: string;
   environment?: string;
+  preview?: string;
 };
 
 /**
  * A prompt with the environment's values where the backend left its stand-ins: the entry file and
- * its family's note on it, the stack's words for page and component as labels, and the line about
- * rough/environment.md, which is taken out, with its line break, when the repo has no environment
- * file.
+ * its family's note on it, the stack's words for page and component as labels, the sentence that
+ * says how its preview mode shows the iteration, and the line about rough/environment.md, which is
+ * taken out, with its line break, when the repo has no environment file.
  */
 export function fillEnvironment(
   prompt: string,
@@ -632,6 +706,7 @@ export function fillEnvironment(
     .replaceAll(placeholders.termComponent ?? TERM_COMPONENT_PLACEHOLDER, () =>
       capitalized(environment.terms.component)
     )
+    .replaceAll(placeholders.preview ?? PREVIEW_PLACEHOLDER, () => previewSentence(environment))
     .replace(new RegExp(`^${escaped}\\r?\\n`, 'm'), () => (line ? `${line}\n` : ''))
     .replaceAll(environmentStandIn, () => line);
 }

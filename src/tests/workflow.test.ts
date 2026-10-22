@@ -17,6 +17,7 @@ import { main, type MainOptions } from '../commands/index.js';
 import { parseComponent, parseIteration } from '../commands/shared.js';
 import { readCredentials, saveCredentials } from '../config/credentials.js';
 import { readSettings } from '../config/settings.js';
+import { ENVIRONMENT_LINE } from '../environment/read.js';
 import type { Launch } from '../launch/open.js';
 import type { Executable } from '../launch/which.js';
 import { serverCommand, thisStudio } from '../mcp/install.js';
@@ -1421,6 +1422,14 @@ describe('roughbook pull', () => {
   ];
   const pulled = (iteration: string, files: unknown[] = SKETCH_FILES) =>
     ok({ iteration, parent: 'iteration-03', files }, 201);
+  /** Every package the sketch imports, and Tailwind: an app its files render in as they are. */
+  const EVERY_PACKAGE: Record<string, string> = {
+    next: '16.0.0',
+    react: '19.2.0',
+    'lucide-react': '1.0.0',
+    motion: '12.0.0',
+    tailwindcss: '4.0.0'
+  };
 
   it('marks a pulled entry as a client component once, and leaves every other file alone', () => {
     const body = 'export default function Hero() {\n  return null;\n}\n';
@@ -1446,7 +1455,7 @@ describe('roughbook pull', () => {
     );
   });
 
-  it('lists the sketches, pulls one as the next iteration, and says what the app lacks', async () => {
+  it('lists the sketches, and copies one as the next iteration where it renders as it is', async () => {
     const studio = await setup({
       [`GET ${SKETCHES}`]: () =>
         ok([
@@ -1469,15 +1478,10 @@ describe('roughbook pull', () => {
             created: null
           }
         ]),
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
       [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08')
     });
-    write(
-      studio.repo,
-      'package.json',
-      JSON.stringify({
-        dependencies: { next: '16.0.0', react: '19.2.0', 'lucide-react': '1.0.0' }
-      })
-    );
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: EVERY_PACKAGE }));
     write(studio.repo, 'pnpm-lock.yaml', '');
 
     assert.equal(await studio.run(['pull', 'home/hero']), 0, studio.io.errors.join('\n'));
@@ -1516,18 +1520,282 @@ describe('roughbook pull', () => {
     assert.match(read(studio.repo, 'rough/preview-registry.ts'), /iteration-08/);
     assert.deepEqual(studio.io.lines.slice(4), [
       `home/hero/iteration-08: ${folder}, from the web sketch iteration-03 (3 files)`,
-      'It imports motion, which this app does not list. Add it with: pnpm add motion',
-      'It is styled with Tailwind classes, and this app does not list tailwindcss, so it will render unstyled here.',
       'Review it in roughbook start, or refine it: roughbook run home/hero --refine iteration-08 --intent "<what to change>"'
     ]);
+    // Its files were read first, which allocates nothing, then pulled once.
+    assert.deepEqual(paths(studio.requests).slice(-2), [
+      `GET ${SKETCHES}/iteration-03/files`,
+      `POST ${SKETCHES}/iteration-03/pull`
+    ]);
+  });
+
+  it('offers to add a package the sketch imports and the app lacks, and copies it once added', async () => {
+    const studio = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
+      [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08')
+    });
+    const { motion, ...rest } = EVERY_PACKAGE;
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: rest }));
+    write(studio.repo, 'pnpm-lock.yaml', '');
+    const added: string[] = [];
+    studio.overrides.addPackages = async (repoRoot, command) => {
+      added.push(command);
+      write(repoRoot, 'package.json', JSON.stringify({ dependencies: { ...rest, motion } }));
+      return { ok: true, output: '' };
+    };
+    studio.io.answers.push('y');
+    assert.equal(
+      await studio.run(['pull', 'home/hero/iteration-03']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.match(studio.io.questions.at(-1)!, /^Add motion to this app with "pnpm add motion"/);
+    assert.deepEqual(added, ['pnpm add motion']);
+    assert.ok(fs.existsSync(path.join(studio.repo, 'rough/home/hero/iteration-08/index.tsx')));
+    assert.ok(
+      studio.io.lines.includes(
+        'It imports motion, which this app does not list, so its files would not render here as they are.'
+      )
+    );
+    assert.ok(studio.io.lines.includes('Running pnpm add motion'));
+    assert.ok(!studio.requests.some(request => request.url.endsWith('/runs')));
+
+    // With --add the command runs without the question; a failed install pulls nothing.
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: rest }));
+    studio.overrides.addPackages = async () => ({ ok: false, output: 'ERR_PNPM_FETCH_404' });
+    const asked = studio.io.questions.length;
+    assert.equal(await studio.run(['pull', 'home/hero/iteration-03', '--add']), 1);
+    assert.equal(studio.io.questions.length, asked);
+    assert.match(studio.io.errors.at(-1)!, /pnpm add motion did not finish/);
+    assert.ok(studio.io.errors.includes('  ERR_PNPM_FETCH_404'));
+  });
+
+  it("ports a sketch the app lacks a package for when nobody says to add it, from the sketch's files as a reference", async () => {
+    const studio = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
+      [`POST ${PROJECT}/runs`]: () =>
+        ok(
+          [
+            {
+              ...started('iteration-09', RUN_A),
+              parent: 'iteration-03',
+              prompt:
+                '<target>\n{{roughbook:term-page}}: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\n</implementation>\n',
+              placeholders: {
+                assetOrigin: '{{roughbook:asset-origin}}',
+                entry: '{{roughbook:entry}}',
+                entryNote: '{{roughbook:entry-note}}',
+                termPage: '{{roughbook:term-page}}',
+                termComponent: '{{roughbook:term-component}}',
+                environment: '{{roughbook:environment}}',
+                preview: '{{roughbook:preview}}'
+              }
+            }
+          ],
+          201
+        ),
+      [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: request =>
+        ok({ status: (request.body as { outcome: string }).outcome })
+    });
+    const { motion: _motion, ...rest } = EVERY_PACKAGE;
+    void _motion;
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: rest }));
+    // Nobody answers the question, so nothing is added: the sketch is ported instead.
+    assert.equal(
+      await studio.run(['pull', 'home/hero/iteration-03']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.equal(studio.io.questions.length, 1);
+    const asked = studio.requests.find(request => request.url.endsWith('/runs'))!;
+    assert.deepEqual(
+      {
+        ...(asked.body as Record<string, unknown>),
+        skills: undefined
+      },
+      {
+        page: 'home',
+        component: 'hero',
+        agent: 'claude-code',
+        mode: 'interactive',
+        kind: 'pull',
+        sketch: 'iteration-03',
+        screenshots: true,
+        family: 'react-like',
+        entry: 'index.tsx',
+        skills: undefined
+      }
+    );
+    assert.ok(!studio.requests.some(request => request.url.endsWith('/pull')), 'nothing copied');
+    // The sketch beside the component, as it came; the port's own folder starts as a placeholder.
+    const reference = 'rough/home/hero/sketches/iteration-03';
+    assert.equal(read(studio.repo, `${reference}/index.tsx`), SKETCH_FILES[0]!.content);
+    assert.match(read(studio.repo, 'rough/home/hero/iteration-09/index.tsx'), /Not yet generated/);
+    assert.doesNotMatch(read(studio.repo, 'rough/preview-registry.ts'), /sketches/);
+    const prompt = read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`);
+    assert.ok(
+      prompt.startsWith(
+        "<target>\nPage: Home\nSketch (read only): rough/home/hero/sketches/iteration-03/\n</target>\n<implementation>\nThis iteration renders inside the client's app, through a development-only\npreview route, with the app's own root layout and global styles. Read the app\nfirst.\nEntry file is index.tsx with a default export.\n</implementation>\n"
+      ),
+      prompt
+    );
+    const [record] = await listRuns(studio.repo);
+    assert.equal(record!.kind, 'pull');
+    assert.equal(record!.parent, 'iteration-03');
+    assert.ok(
+      studio.io.lines.some(line => /^Porting iteration-03 into this repo's stack/.test(line))
+    );
+    assert.equal(studio.plans.length, 1, 'the agent opened in a terminal');
+
+    // Its reference counts as neither the run's change nor any other's.
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-09/index.tsx',
+      'export default function Hero() { return <h1>Design that ships</h1>; }\n'
+    );
+    assert.equal(await studio.run(['done']), 0, studio.io.errors.join('\n'));
+    const finish = studio.requests.at(-1)!.body as { outcome: string; outOfScopeWrites: number };
+    assert.equal(finish.outOfScopeWrites, 0);
+  });
+
+  it('ports without asking on a stack that does not render a sketch, and when asked to', async () => {
+    const studio = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
+      [`POST ${PROJECT}/runs`]: () =>
+        ok([{ ...started('iteration-09', RUN_A), parent: 'iteration-03' }], 201)
+    });
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: EVERY_PACKAGE }));
+    // --port where a copy would do: the designer's choice.
+    assert.equal(await studio.run(['pull', 'home/hero/iteration-03', '--port']), 0);
+    assert.equal(studio.io.questions.length, 0);
+    const body = studio.requests.find(request => request.url.endsWith('/runs'))!.body as {
+      kind: string;
+      sketch: string;
+    };
+    assert.deepEqual([body.kind, body.sketch], ['pull', 'iteration-03']);
+
+    // A Laravel app with Blade, set up with no recipe: a sketch is ported, nothing is asked.
+    const laravel = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
+      [`POST ${PROJECT}/runs`]: () =>
+        ok([{ ...started('iteration-09', RUN_A), parent: 'iteration-03' }], 201)
+    });
+    write(
+      laravel.repo,
+      'rough/environment.md',
+      '---\ncontract: 1\nrecipe: none\nstack:\n  - laravel-13\n  - blade\nfamily: markup-css\nentry: index.blade.php\nsources:\n  - .blade.php\nstart: php artisan serve @ http://127.0.0.1:8000\npreview: /rough-preview/{key}\ngate: runtime\nterms:\n  - page: view\n---\n'
+    );
+    assert.equal(
+      await laravel.run(['pull', 'home/hero/iteration-03']),
+      0,
+      laravel.io.errors.join('\n')
+    );
+    assert.equal(laravel.io.questions.length, 0);
+    assert.match(
+      laravel.io.lines[0]!,
+      /does not render one as it is \(rough\/environment\.md, sketches: port\)/
+    );
+    const sent = laravel.requests.find(request => request.url.endsWith('/runs'))!.body as Record<
+      string,
+      unknown
+    >;
+    assert.deepEqual(
+      [sent.kind, sent.family, sent.entry, sent.stack],
+      ['pull', 'markup-css', 'index.blade.php', ['laravel-13', 'blade']]
+    );
+    assert.ok(
+      fs.existsSync(path.join(laravel.repo, 'rough/home/hero/iteration-09/index.blade.php'))
+    );
+    assert.ok(
+      fs.existsSync(path.join(laravel.repo, 'rough/home/hero/sketches/iteration-03/index.tsx'))
+    );
+  });
+
+  it('ports a sketch into a Flutter app through its recipe: in Dart, mirrored into lib/, its assets copied in', async () => {
+    // Built and tested without a Flutter SDK, by the owner's decision: the run against a real
+    // Flutter app is left unverified (F7's status in the plan).
+    const studio = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
+      [`POST ${PROJECT}/runs`]: () =>
+        ok(
+          [
+            {
+              ...started('iteration-09', RUN_A),
+              parent: 'iteration-03',
+              prompt:
+                '<target>\n{{roughbook:term-page}}: Home\n{{roughbook:term-component}}: Hero\n</target>\n<implementation>\n{{roughbook:environment}}\n{{roughbook:preview}} Read the app\nfirst.\nEntry file is {{roughbook:entry}}{{roughbook:entry-note}}.\nThe hero is /api/files/project/site/hero.png.\n</implementation>\n',
+              placeholders: {
+                assetOrigin: '{{roughbook:asset-origin}}',
+                entry: '{{roughbook:entry}}',
+                entryNote: '{{roughbook:entry-note}}',
+                termPage: '{{roughbook:term-page}}',
+                termComponent: '{{roughbook:term-component}}',
+                environment: '{{roughbook:environment}}',
+                preview: '{{roughbook:preview}}'
+              },
+              checks: [{ kind: 'entry-file', file: 'iteration.dart' }]
+            }
+          ],
+          201
+        ),
+      [`GET ${PROJECT}/files/project/hero.png`]: () => ({ status: 200, text: 'PNG-BYTES' })
+    });
+    write(
+      studio.repo,
+      'pubspec.yaml',
+      'name: harbor_app\nenvironment:\n  sdk: ^3.9.0\ndependencies:\n  flutter:\n    sdk: flutter\n'
+    );
+    write(studio.repo, 'rough/environment.md', '---\ncontract: 1\nrecipe: flutter\n---\n');
+    assert.equal(
+      await studio.run(['pull', 'home/hero/iteration-03']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.equal(
+      studio.io.questions.length,
+      0,
+      'nothing to add: a sketch never renders in Flutter'
+    );
+    const sent = studio.requests.find(request => request.url.endsWith('/runs'))!.body as Record<
+      string,
+      unknown
+    >;
+    assert.deepEqual(
+      [sent.kind, sent.sketch, sent.family, sent.entry, sent.assetsCopy],
+      ['pull', 'iteration-03', 'flutter', 'iteration.dart', true]
+    );
+    // The port's own folder starts as the recipe's Dart placeholder, mirrored into lib/rough/ with
+    // the registry; the sketch's React stays beside the component, never mirrored or compiled.
+    assert.match(
+      read(studio.repo, 'rough/home/hero/iteration-09/iteration.dart'),
+      /Widget buildIteration/
+    );
+    assert.ok(
+      fs.existsSync(path.join(studio.repo, 'lib/rough/home/hero/iteration-09/iteration.dart'))
+    );
+    assert.ok(!fs.existsSync(path.join(studio.repo, 'lib/rough/home/hero/sketches')));
+    assert.match(read(studio.repo, 'lib/rough/registry.dart'), /home\/hero\/iteration-09/);
+    assert.doesNotMatch(read(studio.repo, 'lib/rough/registry.dart'), /sketches/);
+    assert.ok(
+      fs.existsSync(path.join(studio.repo, 'rough/home/hero/sketches/iteration-03/index.tsx'))
+    );
+    // Its assets ship with the code, so they are copied into the iteration (decision 29).
+    assert.equal(read(studio.repo, 'rough/home/hero/iteration-09/assets/hero.png'), 'PNG-BYTES');
+    const prompt = read(studio.repo, `rough/home/hero/prompts/${RUN_A}.md`);
+    assert.ok(prompt.startsWith('<target>\nScreen: Home\nWidget: Hero\n</target>\n'), prompt);
+    assert.ok(prompt.includes('Entry file is iteration.dart.\n'));
+    assert.ok(prompt.includes(`<implementation>\n${ENVIRONMENT_LINE}\nThis iteration renders`));
+    assert.doesNotMatch(prompt, /\{\{roughbook:/);
   });
 
   it('writes nothing outside the new folder, never over an iteration, and says why it cannot', async () => {
     let files: unknown[] = [];
     const studio = await setup({
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files }),
       [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08', files),
-      [`POST ${SKETCHES}/iteration-04/pull`]: () => refused('SKETCH_RUNNING', 409)
+      [`GET ${SKETCHES}/iteration-04/files`]: () => refused('SKETCH_RUNNING', 409)
     });
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: EVERY_PACKAGE }));
     const page = read(studio.repo, 'src/app/page.tsx');
     for (const name of [
       '../../../src/app/page.tsx',
@@ -1560,10 +1828,12 @@ describe('roughbook pull', () => {
   it('is not counted against a run that was going while it was pulled', async () => {
     const studio = await setup({
       [`POST ${PROJECT}/runs`]: () => ok([started('iteration-07', RUN_A)], 201),
+      [`GET ${SKETCHES}/iteration-03/files`]: () => ok({ files: SKETCH_FILES }),
       [`POST ${SKETCHES}/iteration-03/pull`]: () => pulled('iteration-08'),
       [`POST /orgs/${ORG}/runs/${RUN_A}/finish`]: request =>
         ok({ status: (request.body as { outcome: string }).outcome })
     });
+    write(studio.repo, 'package.json', JSON.stringify({ dependencies: EVERY_PACKAGE }));
     assert.equal(await studio.run(['run', 'home/hero', '--direction', 'Quiet']), 0);
     assert.equal(await studio.run(['pull', 'home/hero/iteration-03']), 0);
     write(
@@ -1621,7 +1891,7 @@ describe('roughbook promote', () => {
     const code = await studio.run(['promote', 'home/hero']);
     assert.equal(code, 0, studio.io.errors.join('\n'));
 
-    // The server hears which asset files, never where anything goes in the repo.
+    // The server hears which asset files and the family, never where anything goes in the repo.
     const asked = studio.requests.find(request => request.url.endsWith('/promotions'))!;
     assert.deepEqual(asked.body, {
       page: 'home',
@@ -1630,7 +1900,9 @@ describe('roughbook promote', () => {
       assets: [
         { scope: 'project', file: 'hero.png' },
         { scope: 'library', file: 'mark.svg' }
-      ]
+      ],
+      // A family token, so the server leaves what the stack decides for this studio to fill (F7).
+      family: 'react-like'
     });
     assert.equal(read(studio.repo, 'public/rough/home/hero/hero.png'), 'PNG-BYTES');
     assert.equal(read(studio.repo, 'rough/home/hero/copy.md'), promotion.copyMarkdown);
@@ -1684,6 +1956,68 @@ describe('roughbook promote', () => {
     assert.match(
       read(studio.repo, `rough/home/hero/prompts/promote-${PROMOTION}.md`),
       /^Write: components\/Hero\.tsx\nRead components near components\/\n/
+    );
+  });
+
+  it("promotes to a template of the environment's stack, with copy in its localized file and assets where it serves them", async () => {
+    const standIns = {
+      environment: '{{roughbook:environment}}',
+      read: '{{roughbook:promote-read}}',
+      keepCopy: '{{roughbook:copy-keep}}',
+      except: '{{roughbook:copy-except}}',
+      assetIntro: '{{roughbook:asset-intro}}',
+      assetBase: '{{roughbook:asset-base}}',
+      rules: '{{roughbook:promote-rules}}',
+      usage: '{{roughbook:usage}}'
+    };
+    const stackPromotion: Promotion = {
+      ...promotion,
+      prompt:
+        '<first>\n{{roughbook:environment}}\nRead {{roughbook:promote-read}} near {{roughbook:target-dir}}/\n</first>\n- {{roughbook:copy-keep}}\n{{roughbook:asset-intro}}\n- /api/files/project/site/hero.png -> {{roughbook:asset-base}}rough/home/hero/hero.png (already copied to {{roughbook:public-dir}}/rough/home/hero/hero.png)\n- Write {{roughbook:target-file}}; do not edit any existing file{{roughbook:copy-except}}.\n{{roughbook:promote-rules}}\n- Do not commit. Then say how to use it: {{roughbook:usage}}.\n',
+      placeholders: { ...promotion.placeholders, ...standIns }
+    };
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () => ok(stackPromotion, 201),
+      [`GET ${PROJECT}/files/project/hero.png`]: () => ({ status: 200, text: 'PNG-BYTES' })
+    });
+    write(
+      studio.repo,
+      'rough/environment.md',
+      '---\ncontract: 1\nrecipe: none\nstack:\n  - laravel-13\n  - blade\nfamily: markup-css\nentry: index.blade.php\nsources:\n  - .blade.php\n  - .css\nstart: php artisan serve @ http://127.0.0.1:8000\npreview: /rough-preview/{key}\ngate: runtime\npromote: resources/views/components\npromoteExtensions:\n  - .blade.php\nassets: public/images @ /images\ncopy: localized lang/en/sections.php\nignore:\n  - vendor\n  - storage\n---\n'
+    );
+    write(
+      studio.repo,
+      'rough/home/hero/iteration-02/index.blade.php',
+      '<section><img src="http://localhost:4000/api/files/project/site/hero.png" alt=""><h1>{{ $headline }}</h1></section>\n'
+    );
+    // A file in a folder the environment ignores is never the app's own code.
+    assert.equal(
+      await studio.run(['promote', 'home/hero', '--to', 'vendor/acme/hero.blade.php']),
+      1
+    );
+    assert.match(studio.io.errors.at(-1)!, /vendor\/, which rough\/environment\.md ignores/);
+    assert.equal(
+      await studio.run([
+        'promote',
+        'home/hero',
+        '--to',
+        'resources/views/components/hero.blade.php'
+      ]),
+      0,
+      studio.io.errors.join('\n')
+    );
+    const asked = studio.requests.find(request => request.url.endsWith('/promotions'))!;
+    assert.equal((asked.body as { family: string }).family, 'markup-css');
+    assert.equal(read(studio.repo, 'public/images/rough/home/hero/hero.png'), 'PNG-BYTES');
+    assert.equal(
+      read(studio.repo, `rough/home/hero/prompts/promote-${PROMOTION}.md`),
+      `<first>\n${ENVIRONMENT_LINE}\nRead its manifests, how styling is done (stylesheets, a theme\nor design tokens) near resources/views/components/\n</first>\n- The approved copy, word for word, in lang/en/sections.php: add each string there under keys of this component's own, in that file's own format, and use them from the component. Do not rewrite, shorten or add claims.\nReplace each studio URL in the reference with its public path in this repo:\n- /api/files/project/site/hero.png -> /images/rough/home/hero/hero.png (already copied to public/images/rough/home/hero/hero.png)\n- Write resources/views/components/hero.blade.php; do not edit any existing file, except lang/en/sections.php, where the approved copy goes.\n- Do not commit. Then say how to use it: how this stack includes it and what it takes.\n`
+    );
+    assert.ok(
+      studio.io.lines.includes(
+        '  This repo keeps copy in lang/en/sections.php (rough/environment.md, copy: localized): the agent lands the approved copy there.'
+      )
     );
   });
 

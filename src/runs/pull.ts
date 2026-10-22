@@ -1,19 +1,28 @@
 // Sketch → local (decision 10 of the split plan): a web sketch becomes the starting point of a
-// local iteration, a fork whose parent is the sketch. The backend allocates the iteration and
-// sends the sketch's files; the studio writes them into rough/, points their asset URLs at its
-// own server, and says what the app still needs to render them. Nothing goes back up.
+// local iteration, a fork whose parent is the sketch. The backend allocates the iteration; the
+// studio decides how the sketch comes in (F7 of the frameworks plan). Every sketch is React with
+// Tailwind, made in the sandbox (decision 14): where this repo renders that as it is and has the
+// packages it imports, its files are copied in, their asset URLs pointed at the studio's own
+// server. Anywhere else it is ported: the files are kept beside the component as a read-only
+// reference, and a pull run's agent rebuilds the sketch in the repo's own stack. Nothing goes up
+// but the repo's stack tokens.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { PulledSketch, SketchFile } from '../api/types.js';
 import { readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
+import { runCapture } from '../launch/processes.js';
 import { recipeOf } from '../recipes/index.js';
 import { syncIterations } from '../repo/mirror.js';
 import { iterationDir } from '../repo/iterations.js';
-import type { RepoLink } from '../repo/link.js';
+import { cleanStack, type RepoLink } from '../repo/link.js';
+import { ROUGH_DIR } from '../repo/root.js';
+import { startRuns, type StartOptions } from './lifecycle.js';
 import { assertTarget, iterationExists } from './slots.js';
 import { recordOwnWritesForOpenRuns } from './snapshot.js';
+import type { RunAgent, RunMode, RunRecord } from './types.js';
 
 /** A sketch's files as the backend's build allows them: a few folders deep, known types only. */
 const SKETCH_PATH =
@@ -23,6 +32,11 @@ const TEXT_FILE = /\.(?:tsx|ts|jsx|js|css|json|svg)$/;
 /** Far above what the backend allows a sketch, so only a broken answer is refused. */
 const MAX_FILES = 64;
 const MAX_BYTES = 8 * 1024 * 1024;
+/** How long adding the packages a sketch imports may take. */
+const INSTALL_TIMEOUT_MS = 10 * 60_000;
+
+/** The folder beside a component's iterations that holds the sketches ported from, as references. */
+export const SKETCHES_DIR = 'sketches';
 
 /** What the backend's refusals mean here. */
 const REFUSALS: Record<string, (sketch: string) => string> = {
@@ -49,6 +63,22 @@ export type PullResult = {
   installCommand: string | null;
   /** The sketch is styled with Tailwind classes, and the app does not list tailwindcss. */
   needsTailwind: boolean;
+};
+
+/**
+ * How a sketch comes into this repo. `copy`: its files render here as they are. `port`: a pull
+ * run's agent rebuilds it in the repo's stack, for the reasons given. When the only thing between
+ * a port and a copy is packages the app does not list, `add` is the command that adds them, for
+ * the designer to approve.
+ */
+export type PullPlan = {
+  how: 'copy' | 'port';
+  /** Why it is ported, one sentence each; empty for a copy. */
+  why: string[];
+  /** Packages the sketch imports that the app does not list. */
+  missingPackages: string[];
+  /** The command that adds the missing packages, when adding them is all a copy needs. */
+  add: string | null;
 };
 
 /**
@@ -114,7 +144,7 @@ export function importedPackages(sources: string[]): string[] {
 }
 
 /** The app's dependencies, or null when its package.json cannot be read. */
-function appDependencies(repoRoot: string): Set<string> | null {
+export function appDependencies(repoRoot: string): Set<string> | null {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>;
@@ -143,6 +173,74 @@ export function installCommand(repoRoot: string, packages: string[]): string | n
   return `${tool} ${packages.join(' ')}`;
 }
 
+/** The sketch's code, as text. */
+function sketchCode(files: SketchFile[]): string[] {
+  return files
+    .filter(file => CODE_FILE.test(file.path) && file.encoding === 'utf8')
+    .map(file => file.content);
+}
+
+/** Whether the sketch is styled with Tailwind classes in an app that does not list tailwindcss. */
+function lacksTailwind(files: SketchFile[], dependencies: Set<string> | null): boolean {
+  return (
+    dependencies !== null &&
+    !dependencies.has('tailwindcss') &&
+    sketchCode(files).some(text => /\bclassName\s*=/.test(text))
+  );
+}
+
+/**
+ * Whether a sketch's files can be copied into this repo as they are, or the sketch is ported
+ * (decision 14, F7 of the frameworks plan). Copied only where the environment says a sketch
+ * renders here as it is, its iterations have the sketch's entry file, the app lists every package
+ * the sketch imports, and it has Tailwind when the sketch is styled with its classes. Otherwise a
+ * pull run rebuilds it, never a copy that would not render.
+ */
+export function planPull(
+  environment: RepoEnvironment,
+  files: SketchFile[],
+  dependencies: Set<string> | null,
+  install: (packages: string[]) => string | null = () => null
+): PullPlan {
+  const why: string[] = [];
+  const stack = environment.stack.join(', ') || `the ${environment.family} family`;
+  if (environment.sketches !== 'copy') {
+    why.push(
+      `A web sketch is React with Tailwind, and this repo's stack (${stack}) does not render one as it is (rough/environment.md, sketches: port).`
+    );
+  } else if (!files.some(file => file.path === environment.entry)) {
+    why.push(
+      `An iteration here is ${environment.entry}, and the sketch has none: its files are React.`
+    );
+  } else if (dependencies === null) {
+    why.push("This app's package.json cannot be read, so the sketch's packages cannot be found.");
+  }
+  const missingPackages =
+    dependencies === null
+      ? []
+      : importedPackages(sketchCode(files)).filter(name => !dependencies.has(name));
+  const tailwind = lacksTailwind(files, dependencies);
+  const stackFits = !why.length;
+  if (stackFits && missingPackages.length) {
+    const names = missingPackages.join(', ');
+    why.push(
+      `It imports ${names}, which this app does not list, so its files would not render here as they are.`
+    );
+  }
+  if (stackFits && tailwind) {
+    why.push(
+      'It is styled with Tailwind classes, and this app does not list tailwindcss, so its files would render unstyled here.'
+    );
+  }
+  return {
+    how: why.length ? 'port' : 'copy',
+    why,
+    missingPackages,
+    // Adding packages turns a port into a copy only when nothing else stands in the way.
+    add: stackFits && !tailwind && missingPackages.length ? install(missingPackages) : null
+  };
+}
+
 /** What the designer should do before the pulled iteration renders, in sentences. */
 export function pullAdvice(result: PullResult): string[] {
   const lines: string[] = [];
@@ -160,9 +258,56 @@ export function pullAdvice(result: PullResult): string[] {
   return lines;
 }
 
+/** The backend's refusal in the designer's words, or the error as it is. */
+function refusal(error: unknown, sketch: string): unknown {
+  const words = error instanceof ApiError ? REFUSALS[error.code] : undefined;
+  return words ? new Error(words(sketch)) : error;
+}
+
+/** The sketch's files, checked, without pulling it: nothing is allocated on the server. */
+export async function sketchFiles(
+  api: StudioApi,
+  link: RepoLink,
+  target: { page: string; component: string; sketch: string }
+): Promise<SketchFile[]> {
+  const { page, component, sketch } = target;
+  assertTarget(page, component, sketch);
+  try {
+    const answer = await api.sketchFiles(link.orgId, link.project, page, component, sketch);
+    return checkFiles(answer.files);
+  } catch (error) {
+    throw refusal(error, sketch);
+  }
+}
+
+/** What a pull asks of the repo: its environment, the app's packages, and the plan for a sketch. */
+export async function pullPlanFor(
+  repoRoot: string,
+  link: RepoLink,
+  files: SketchFile[]
+): Promise<PullPlan> {
+  const environment = await readEnvironment(repoRoot, link);
+  return planPull(environment, files, appDependencies(repoRoot), packages =>
+    installCommand(repoRoot, packages)
+  );
+}
+
 /**
- * Pulls a web sketch into rough/ as the component's next local iteration. Every path the server
- * sends is checked first; an existing iteration is never written over.
+ * Adds the packages a sketch imports with the app's own package manager, once the designer has
+ * approved the command: in the repo, as an argument array, never through a shell.
+ */
+export async function addPackages(
+  repoRoot: string,
+  command: string
+): Promise<{ ok: boolean; output: string }> {
+  const result = await runCapture(command, repoRoot, INSTALL_TIMEOUT_MS);
+  return { ok: result.code === 0, output: result.output };
+}
+
+/**
+ * Pulls a web sketch into rough/ as the component's next local iteration, copying its files as
+ * they are. Every path the server sends is checked first; an existing iteration is never written
+ * over. Refused where the plan says the sketch is ported here.
  */
 export async function pullSketch(
   repoRoot: string,
@@ -173,29 +318,31 @@ export async function pullSketch(
 ): Promise<PullResult> {
   const { page, component, sketch } = target;
   assertTarget(page, component, sketch);
+  const environment = await readEnvironment(repoRoot, link);
+  const recipe = recipeOf(environment);
+  if (environment.sketches !== 'copy') {
+    throw new Error(
+      `A web sketch is React, and this repo's stack (${environment.stack.join(', ') || environment.family}) does not render one as it is: pulling it here ports it, with your agent.`
+    );
+  }
   let pulled: PulledSketch;
   try {
-    pulled = await api.pullSketch(link.orgId, link.project, page, component, sketch);
+    pulled = await api.pullSketch(
+      link.orgId,
+      link.project,
+      page,
+      component,
+      sketch,
+      cleanStack(environment.stack)
+    );
   } catch (error) {
-    const refusal = error instanceof ApiError ? REFUSALS[error.code] : undefined;
-    throw refusal ? new Error(refusal(sketch)) : error;
+    throw refusal(error, sketch);
   }
   assertTarget(page, component, pulled.iteration);
   const files = checkFiles(pulled.files);
   const folder = iterationDir(page, component, pulled.iteration);
   if (iterationExists(repoRoot, page, component, pulled.iteration)) {
     throw new Error(`${folder} already exists. An existing iteration is never written over.`);
-  }
-  // A sketch is React (decision 14 of the frameworks plan); the recipe says what this app needs
-  // of its files to render them, such as a directive on the entry.
-  const environment = await readEnvironment(repoRoot, link);
-  const recipe = recipeOf(environment);
-  // A sketch's files render as they are only where the stack is React-like; anywhere else they
-  // would be a port, which a later release makes a run of its own (F7 of the frameworks plan).
-  if (environment.family !== 'react-like') {
-    throw new Error(
-      `A web sketch is React, and this repo's stack (${environment.stack.join(', ') || environment.family}) is not: pulling one here means porting it, which a later studio release does as a run of its own. Until then, start iterations here with roughbook run.`
-    );
   }
 
   const dir = path.join(repoRoot, ...folder.split('/'));
@@ -225,10 +372,9 @@ export async function pullSketch(
     files.map(file => `${folder}/${file.path}`)
   );
 
-  const code = files.filter(file => CODE_FILE.test(file.path) && file.encoding === 'utf8');
   const dependencies = appDependencies(repoRoot);
   const missingPackages = dependencies
-    ? importedPackages(code.map(file => file.content)).filter(name => !dependencies.has(name))
+    ? importedPackages(sketchCode(files)).filter(name => !dependencies.has(name))
     : [];
   return {
     iteration: pulled.iteration,
@@ -237,9 +383,77 @@ export async function pullSketch(
     files: files.map(file => file.path),
     missingPackages,
     installCommand: installCommand(repoRoot, missingPackages),
-    needsTailwind:
-      dependencies !== null &&
-      !dependencies.has('tailwindcss') &&
-      code.some(file => /\bclassName\s*=/.test(file.content))
+    needsTailwind: lacksTailwind(files, dependencies)
   };
+}
+
+/**
+ * Where a ported sketch's files are kept, repo-relative: beside the component's iterations, not
+ * as one of them, so no preview, registry or mirror ever reads them. Committed with rough/, as
+ * the record of what the port was made from.
+ */
+export function sketchReferenceDir(page: string, component: string, sketch: string): string {
+  assertTarget(page, component, sketch);
+  return `${ROUGH_DIR}/${page}/${component}/${SKETCHES_DIR}/${sketch}`;
+}
+
+/**
+ * Writes a sketch's files as its reference: as the server sent them, rewriting only what differs,
+ * so a second port of the same sketch finds it in place.
+ */
+export function writeSketchReference(
+  repoRoot: string,
+  target: { page: string; component: string; sketch: string },
+  files: SketchFile[]
+): string {
+  const folder = sketchReferenceDir(target.page, target.component, target.sketch);
+  const dir = path.join(repoRoot, ...folder.split('/'));
+  for (const file of checkFiles(files)) {
+    const to = path.join(dir, ...file.path.split('/'));
+    const bytes =
+      file.encoding === 'base64'
+        ? Buffer.from(file.content, 'base64')
+        : Buffer.from(file.content.replace(/\r\n/g, '\n'), 'utf8');
+    const current = fs.existsSync(to) ? fs.readFileSync(to) : null;
+    if (current && current.equals(bytes)) continue;
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.writeFileSync(to, bytes);
+  }
+  return folder;
+}
+
+/**
+ * Ports a web sketch into this repo's stack: a pull run, whose iteration the backend allocates
+ * as a fork of the sketch and whose prompt says to rebuild it here. The sketch's files are written
+ * beside the component first, as the read-only reference the prompt names, before the repo is
+ * snapshotted, so they count as neither this run's change nor any other's.
+ */
+export async function portSketch(
+  repoRoot: string,
+  api: StudioApi,
+  link: RepoLink,
+  target: { page: string; component: string; sketch: string },
+  run: { agent: RunAgent; mode: RunMode; files: SketchFile[] },
+  options: StartOptions = {}
+): Promise<RunRecord[]> {
+  const { page, component, sketch } = target;
+  assertTarget(page, component, sketch);
+  const files = checkFiles(run.files);
+  return startRuns(
+    repoRoot,
+    api,
+    link,
+    { page, component, agent: run.agent, mode: run.mode, kind: 'pull', sketch },
+    {
+      ...options,
+      beforeSlots: started => {
+        for (const item of started) {
+          if (item.parent !== sketch) {
+            throw new Error(`The server ported ${item.parent ?? 'nothing'}, not ${sketch}.`);
+          }
+        }
+        writeSketchReference(repoRoot, target, files);
+      }
+    }
+  );
 }

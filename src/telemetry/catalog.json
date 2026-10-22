@@ -239,7 +239,7 @@
       }
     },
     "iteration.rated": {
-      "description": "An iteration was rated, from 1 to 5, and how long after it was made.",
+      "description": "An iteration was rated, from 1 to 5, and how long after it was made: with the stack tokens of the repo it was made in, and whether it is a web sketch copied or ported into that repo, so ratings compare by stack.",
       "sentBy": "server",
       "props": {
         "origin": {
@@ -258,6 +258,21 @@
           "kind": "int",
           "min": 0,
           "max": 315360000
+        },
+        "stack": {
+          "kind": "list",
+          "of": {
+            "kind": "token"
+          },
+          "max": 12
+        },
+        "pulled": {
+          "kind": "enum",
+          "values": [
+            "copy",
+            "port"
+          ],
+          "nullable": true
         }
       }
     },
@@ -310,7 +325,7 @@
       }
     },
     "sketch.pulled": {
-      "description": "A web sketch was pulled into a repo as a local iteration.",
+      "description": "A web sketch was pulled into a repo as a local iteration: its files copied as they are, or ported into the repo's stack by an agent.",
       "sentBy": "server",
       "props": {
         "sketchId": {
@@ -318,6 +333,13 @@
         },
         "iterationId": {
           "kind": "id"
+        },
+        "how": {
+          "kind": "enum",
+          "values": [
+            "copy",
+            "port"
+          ]
         }
       }
     },

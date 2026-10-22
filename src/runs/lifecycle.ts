@@ -16,7 +16,7 @@ import type { RepoEnvironment } from '../environment/types.js';
 import { recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
-import type { RepoLink } from '../repo/link.js';
+import { cleanStack, type RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { copyAssets } from './assets.js';
@@ -40,7 +40,14 @@ import {
   type Revert
 } from './snapshot.js';
 import { listRuns, readRun, saveRun, updateRun } from './store.js';
-import type { FinishedBy, Finding, RunOutcome, RunRecord, StartRunRequest } from './types.js';
+import type {
+  FinishedBy,
+  Finding,
+  RunOutcome,
+  RunRecord,
+  StartRunRequest,
+  StartedRun
+} from './types.js';
 
 /** Token counts a headless agent reported, sent with its result. */
 export type RunUsage = {
@@ -88,6 +95,11 @@ export type StartOptions = {
   /** The app's dev server, so the prompt can say where the iteration renders. */
   devUrl?: string;
   now?: () => Date;
+  /**
+   * Writes what the runs read but do not write, once the backend has allocated them and before
+   * the repo is snapshotted, so it counts as neither run's change: a ported sketch's reference.
+   */
+  beforeSlots?: (started: StartedRun[]) => void;
 };
 
 export async function startRuns(
@@ -100,7 +112,7 @@ export async function startRuns(
   const now = options.now ?? (() => new Date());
   const assetOrigin = options.assetOrigin ?? localOrigin({ localPort: null });
   assertTarget(request.page, request.component, 'iteration-01');
-  if (request.kind !== 'generate') {
+  if (request.kind === 'fork' || request.kind === 'refine') {
     assertTarget(request.page, request.component, request.parent);
     if (!iterationExists(repoRoot, request.page, request.component, request.parent)) {
       throw new Error(
@@ -108,16 +120,21 @@ export async function startRuns(
       );
     }
   }
+  // A port's parent is a web sketch, which is never in the repo: its files are a reference only.
+  if (request.kind === 'pull') assertTarget(request.page, request.component, request.sketch);
   const { environment, recipe } = await repoSetup(repoRoot, link);
+  const stack = cleanStack(environment.stack);
   // This studio takes screenshots (roughbook screenshot), so the prompt says when to look (D7).
-  // The family and entry file choose the checks the backend sends (decision 23).
+  // The family and entry file choose the checks the backend sends (decision 23); the stack's
+  // tokens stay with the iteration, so its ratings compare by stack (F7).
   const started = await api.startRuns(link.orgId, link.project, {
     ...request,
     ...(link.skills?.length ? { skills: link.skills } : {}),
     screenshots: true,
     family: environment.family,
     entry: environment.entry,
-    ...(environment.assets.copy ? { assetsCopy: true } : {})
+    ...(environment.assets.copy ? { assetsCopy: true } : {}),
+    ...(stack.length ? { stack } : {})
   });
   for (const run of started) {
     assertTarget(request.page, request.component, run.iteration);
@@ -129,6 +146,7 @@ export async function startRuns(
     }
   }
 
+  options.beforeSlots?.(started);
   // Before the slots, so writing them counts as the runs' own change.
   await takeSnapshot(
     repoRoot,
@@ -160,7 +178,9 @@ export async function startRuns(
       outOfScope: [],
       reported: null
     };
-    createSlot(repoRoot, record, {
+    // A port starts from the placeholder like a new direction: its parent is the sketch, which
+    // is not one of the repo's iterations to copy.
+    createSlot(repoRoot, request.kind === 'pull' ? { ...record, parent: null } : record, {
       file: environment.entry,
       content: recipe ? recipe.placeholder(environment.entry) : genericPlaceholder()
     });

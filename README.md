@@ -36,7 +36,7 @@ its own copy and asks before fetching each new one.
 | `roughbook screenshot [<page>/<component>/<iteration>]`  | Takes an iteration's screenshots again (the last finished run's when none is named), as the iteration screen's Take screenshots does                                                                                                                                                                                                                                |
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers                                                                                                                                                                                       |
 | `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                                                                                                                                                                                              |
-| `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration                                                                                                                                                                                                                                                                         |
+| `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration: copied where it renders as it is, else ported into your stack by your agent (`--port`, `--add`)                                                                                                                                                                        |
 | `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                                                                                                                                                                                          |
 | `roughbook agents [--default <agent>]`                   | Lists the coding agents and editors found here, their sign-in and whether they can run unattended; sets the default                                                                                                                                                                                                                                                 |
 | `roughbook mcp install [<editor>…]`                      | Lets your editors' and agents' own agents find, check and finish runs themselves: adds `roughbook mcp`, the MCP server, to each one found here, or to those named                                                                                                                                                                                                   |
@@ -275,24 +275,45 @@ screenshot` takes them once that is fixed. What the studio itself writes while a
 ## Pull
 
 `pull` brings a web sketch into the repo as the starting point of a local iteration: a fork whose
-parent is the sketch. The backend allocates the next number and sends the sketch's files; the
-studio checks every path before writing (its own folder only, known file types, a few folders
-deep), never writes over an iteration, points the sketch's `/api/files/…` URLs at the local server,
-and regenerates the preview registry. The iteration is generated already, so it can be reviewed,
-refined (`run --refine`) and promoted like any other. Sketches use React, Tailwind and a few allowed
-packages (motion, lucide-react, clsx, three, model-viewer); `pull` names any the app's
-`package.json` does not list, with the command that adds them. A run going at the time does not
-count the pulled files as its own writes. Nothing local goes up.
+parent is the sketch. Sketches use React, Tailwind and a few allowed packages (motion,
+lucide-react, clsx, three, model-viewer), so the studio reads the sketch's files first, allocating
+nothing, and decides how it comes in:
+
+- **Copied**, where `rough/environment.md` says a sketch renders here as it is (`sketches: copy`,
+  as the Next.js recipe does), the iterations' entry is the sketch's, and the app's `package.json`
+  lists every package the sketch imports and Tailwind. The backend allocates the next number and
+  sends the files; the studio checks every path before writing (its own folder only, known file
+  types, a few folders deep), never writes over an iteration, points the sketch's `/api/files/…`
+  URLs at the local server, and regenerates the preview registry. The iteration is generated
+  already, so it can be reviewed, refined (`run --refine`) and promoted like any other.
+- **Ported** everywhere else: a pull run, started like `roughbook run` (`--agent`, `--headless`),
+  whose agent rebuilds the sketch in the repo's own stack, with its components and tokens, keeping
+  its layout, type, colour, copy and motion. The sketch's files are kept beside the component in
+  `rough/<page>/<component>/sketches/<sketch>/` as a read-only reference no preview, registry or
+  mirror reads.
+
+When only packages the app does not list stand between the two, `pull` says which and asks before
+adding them with the app's own package manager (`--add` says yes ahead, `--port` ports anyway);
+nothing is added without a yes, and with nobody to answer the sketch is ported. The local UI's
+Pull asks the same in a drawer. A run going at the time does not count the pulled files as its own
+writes. Nothing local goes up but the repo's stack tokens, which stay with the iteration so
+ratings compare ported work with copied work, stack by stack.
 
 ## Promote
 
 `promote` takes the component's selected iteration (or `--iteration`). The backend writes the
 prompt from the brief; the studio copies the project and library assets the iteration uses into
-`public/rough/<page>/<component>/` (beside the app's `package.json`, or `--public <folder>`), the
-approved copy to `rough/<page>/<component>/copy.md`, fills in the component file
-(`src/components/<Name>.tsx` by default, or `--to <file>`), and opens your agent with the prompt.
-The server never hears the file's path. An existing file is never overwritten, and nothing is
-committed: you review the diff.
+`public/rough/<page>/<component>/` (beside the app's `package.json`, the environment's `assets`
+folder, or `--public <folder>`), the approved copy to `rough/<page>/<component>/copy.md`, fills in
+the component file (`src/components/<Name>.tsx` by default on Next.js, the environment's `promote`
+folder and file kinds on any other stack, or `--to <file>`), and opens your agent with the prompt.
+What the prompt says of the stack comes from the environment and the recipe: what to read first,
+how an asset is used (from the address the app serves its assets folder at, `assets: public/images
+@ /images`, or as the file itself where the stack bundles it), the stack's own rules, and, with
+`copy: localized <file>`, that the approved copy lands in that file, the one existing file the
+agent may change. The file must be one of the environment's kinds, inside the repo, outside
+`rough/`, the public folder and the folders the environment ignores. The server never hears the
+file's path. An existing file is never overwritten, and nothing is committed: you review the diff.
 
 ## The preview contract
 

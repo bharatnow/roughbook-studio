@@ -228,8 +228,11 @@ export const expo: Recipe = {
       // Metro's first bundle of a fresh app takes a while.
       timeouts: { start: 180, preview: 180, build: 600 },
       promote: { dir: null, extensions: ['.tsx', '.jsx'] },
-      assets: { dir: 'assets/images', copy: false },
+      // Bundled by Metro: a component requires the file itself.
+      assets: { dir: 'assets/images', url: null, copy: false },
       copy: { kind: 'inline' },
+      // A sketch's markup is the web's, which React Native does not render: it is ported.
+      sketches: 'port',
       terms: { page: 'screen', component: 'component' },
       workshop: null,
       setupFiles: [],
@@ -256,6 +259,11 @@ export const expo: Recipe = {
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${pascalCase(componentName)}.tsx`,
   promoteExtensions: ['.tsx', '.jsx'],
+  promoteWords: {
+    read: 'package.json, how styling is done\n(StyleSheet, a theme or a styling library)',
+    rules: [],
+    usage: 'its import line and props'
+  },
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       [ENTRY]: `import { Text, View } from "react-native";

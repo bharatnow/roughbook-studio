@@ -7,8 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import type { AssetScope, ComponentRecord, Promotion, ProjectTree } from '../api/types.js';
-import { readEnvironment } from '../environment/read.js';
+import { ENVIRONMENT_LINE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
 import { fallbackRecipe, recipeOf } from '../recipes/index.js';
+import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { pascalCase } from '../repo/names.js';
@@ -43,14 +45,26 @@ export function referencedAssets(sources: string[], projectSlug: string): AssetN
   return [...seen.values()];
 }
 
+/** The ignored folder `file` is in, or null: what the environment's `ignore` names. */
+function ignoredFolder(file: string, ignore: string[]): string | null {
+  for (const item of ignore) {
+    const folder = item.replace(/\\/g, '/').replace(/^\.?\/+|\/+$/g, '');
+    if (folder && (file === folder || file.startsWith(`${folder}/`))) return folder;
+  }
+  return null;
+}
+
 /**
- * A component path inside the repo, outside rough/ and the public folder, with one of the
- * recipe's extensions; the problem, or null.
+ * A file promote may write: a path inside the repo, outside rough/, the public folder and the
+ * folders the environment ignores (a dependency folder, a build's output, an in-tree mirror),
+ * with one of the extensions the environment's `promote` names (decision 31); the problem, or
+ * null.
  */
 export function checkTargetFile(
   file: string,
   publicDir: string,
-  extensions: string[] = fallbackRecipe.promoteExtensions
+  extensions: string[] = fallbackRecipe.promoteExtensions,
+  ignore: string[] = []
 ): string | null {
   const normalized = file.replace(/\\/g, '/');
   if (!/^[A-Za-z0-9_@()[\]./-]+$/.test(normalized) || !hasExtension(normalized, extensions)) {
@@ -67,6 +81,31 @@ export function checkTargetFile(
   if (normalized.startsWith(`${ROUGH_DIR}/`) || normalized.startsWith(`${publicDir}/`)) {
     return 'The component cannot live in rough/ or the public folder.';
   }
+  const ignored = ignoredFolder(normalized, ignore);
+  if (ignored) {
+    return `The component cannot live in ${ignored}/, which rough/environment.md ignores: nothing there is the app's own code.`;
+  }
+  return null;
+}
+
+/**
+ * Where approved copy lands in a repo that keeps it localized (decision 34): a file inside the
+ * repo, outside rough/ and the ignored folders; the problem, or null.
+ */
+export function checkCopyFile(file: string, ignore: string[] = []): string | null {
+  const normalized = file.replace(/\\/g, '/');
+  if (
+    normalized.startsWith('/') ||
+    /^[a-z]:/i.test(normalized) ||
+    normalized.split('/').includes('..')
+  ) {
+    return 'The localized copy file must be a relative path inside the repo.';
+  }
+  if (normalized === ROUGH_DIR || normalized.startsWith(`${ROUGH_DIR}/`)) {
+    return "The localized copy file is the app's own, never one in rough/.";
+  }
+  const ignored = ignoredFolder(normalized, ignore);
+  if (ignored) return `The localized copy file cannot be in ${ignored}/, which the repo ignores.`;
   return null;
 }
 
@@ -77,13 +116,85 @@ function repoFolder(text: string): string | null {
   return folder;
 }
 
-/** The server's prompt with this repo's paths in place of its stand-ins. */
-export function fillInPrompt(promotion: Promotion, targetFile: string, publicDir: string): string {
+/**
+ * What the promote prompt says of the repo's stack, as the backend's stand-ins ask (F7 of the
+ * frameworks plan): the environment line, what to read first, where approved copy lands, how an
+ * asset is used, the stack's own rules and how the component is used. For a repo of the fallback
+ * recipe with no environment file, the words the prompt always had.
+ */
+export type PromoteWords = {
+  environment: string;
+  read: string;
+  keepCopy: string;
+  except: string;
+  assetIntro: string;
+  assetBase: string;
+  rules: string;
+  usage: string;
+};
+
+/** What a repo set up by no recipe is told: nothing of any one stack. */
+const NEUTRAL_WORDS: NonNullable<Recipe['promoteWords']> = {
+  read: 'its manifests, how styling is done (stylesheets, a theme\nor design tokens)',
+  rules: [],
+  usage: 'how this stack includes it and what it takes'
+};
+
+export function promoteWords(
+  environment: RepoEnvironment,
+  recipe: Recipe | null,
+  publicDir: string,
+  options: { hasEnvironmentFile: boolean }
+): PromoteWords {
+  const own = recipe?.promoteWords ?? NEUTRAL_WORDS;
+  const copy = environment.copy;
+  const served = environment.assets.url;
+  return {
+    environment: options.hasEnvironmentFile ? `${ENVIRONMENT_LINE}\n` : '',
+    read: own.read,
+    keepCopy:
+      copy.kind === 'localized'
+        ? `The approved copy, word for word, in ${copy.file}: add each string there under keys of this component's own, in that file's own format, and use them from the component. Do not rewrite, shorten or add claims.`
+        : 'The approved copy, word for word. Do not rewrite, shorten or add claims.',
+    except: copy.kind === 'localized' ? `, except ${copy.file}, where the approved copy goes` : '',
+    assetIntro:
+      served === null
+        ? 'Each studio URL in the reference is a file already copied into this repo: use that file\nthe way this stack uses a file that ships with its code:'
+        : 'Replace each studio URL in the reference with its public path in this repo:',
+    // Bundled assets are used as the files they are; served ones from the folder's address.
+    assetBase: served === null ? `${publicDir}/` : served === '/' ? '/' : `${served}/`,
+    rules: own.rules.map(line => `${line}\n`).join(''),
+    usage: own.usage
+  };
+}
+
+/**
+ * The server's prompt with this repo's paths in place of its stand-ins, and what its stack
+ * decides where the server left a stand-in for that: the environment line and the stack's rules
+ * stand on lines of their own, which go with their line breaks when they have nothing to say.
+ */
+export function fillInPrompt(
+  promotion: Promotion,
+  targetFile: string,
+  publicDir: string,
+  words?: PromoteWords
+): string {
+  const { placeholders } = promotion;
   // Functions, so a "$" in a path is not read as a replacement pattern.
-  return promotion.prompt
-    .replaceAll(promotion.placeholders.targetFile, () => targetFile)
-    .replaceAll(promotion.placeholders.targetDir, () => path.posix.dirname(targetFile))
-    .replaceAll(promotion.placeholders.publicDir, () => publicDir);
+  let prompt = promotion.prompt
+    .replaceAll(placeholders.targetFile, () => targetFile)
+    .replaceAll(placeholders.targetDir, () => path.posix.dirname(targetFile))
+    .replaceAll(placeholders.publicDir, () => publicDir);
+  if (!words) return prompt;
+  for (const key of ['environment', 'rules'] as const) {
+    const standIn = placeholders[key];
+    if (standIn) prompt = prompt.replaceAll(`${standIn}\n`, () => words[key]);
+  }
+  for (const key of ['read', 'keepCopy', 'except', 'assetIntro', 'assetBase', 'usage'] as const) {
+    const standIn = placeholders[key];
+    if (standIn) prompt = prompt.replaceAll(standIn, () => words[key]);
+  }
+  return prompt;
 }
 
 export function promotePromptFile(page: string, component: string, promotionId: string): string {
@@ -210,8 +321,12 @@ export async function preparePromotion(
         )
       : `${componentsDir}/${pascalCase(record.name)}${extensions[0] ?? ''}`)
   ).replace(/\\/g, '/');
-  const problem = checkTargetFile(targetFile, publicDir, extensions);
+  const problem = checkTargetFile(targetFile, publicDir, extensions, environment.ignore);
   if (problem) throw new Error(problem);
+  if (environment.copy.kind === 'localized') {
+    const wrong = checkCopyFile(environment.copy.file, environment.ignore);
+    if (wrong) throw new Error(wrong);
+  }
   if (fs.existsSync(toDisk(repoRoot, targetFile))) {
     throw new Error(
       `${targetFile} already exists. Choose another file with --to; Roughbook never overwrites the app's code.`
@@ -223,7 +338,9 @@ export async function preparePromotion(
     page,
     component,
     iteration,
-    assets: referencedAssets(sources, link.project)
+    assets: referencedAssets(sources, link.project),
+    // What the prompt says of the stack is then left for this studio to fill (F7).
+    family: environment.family
   });
 
   const copied: string[] = [];
@@ -243,7 +360,17 @@ export async function preparePromotion(
   }
   const promptFile = promotePromptFile(page, component, promotion.promotionId);
   fs.mkdirSync(path.dirname(toDisk(repoRoot, promptFile)), { recursive: true });
-  fs.writeFileSync(toDisk(repoRoot, promptFile), fillInPrompt(promotion, targetFile, publicDir));
+  fs.writeFileSync(
+    toDisk(repoRoot, promptFile),
+    fillInPrompt(
+      promotion,
+      targetFile,
+      publicDir,
+      promoteWords(environment, recipe, publicDir, {
+        hasEnvironmentFile: hasEnvironmentFile(repoRoot)
+      })
+    )
+  );
   // Runs still open did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(repoRoot, [
     ...copied,

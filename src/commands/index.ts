@@ -107,6 +107,7 @@ export type MainOptions = {
     | 'waitForStop'
     | 'stdio'
     | 'doctorTools'
+    | 'addPackages'
   >
 >;
 
@@ -158,6 +159,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     askPreview: options.askPreview ?? askPreview,
     pty: options.pty,
     doctorTools: options.doctorTools,
+    addPackages: options.addPackages,
     waitForStop: options.waitForStop ?? untilSignalled,
     stdio: options.stdio ?? {
       input: process.stdin,

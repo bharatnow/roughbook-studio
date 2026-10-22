@@ -41,8 +41,10 @@ export function bareEnvironment(link: RepoLink | null): RepoEnvironment {
     checks: [],
     timeouts: { start: 60, preview: 150, build: 600 },
     promote: { dir: null, extensions: [] },
-    assets: { dir: null, copy: false },
+    assets: { dir: null, url: '/', copy: false },
     copy: { kind: 'inline' },
+    // A sketch renders as it is only where the setup says so (F7 of the frameworks plan).
+    sketches: 'port',
     terms: { page: 'page', component: 'component' },
     workshop: null,
     setupFiles: [],

@@ -149,11 +149,19 @@ export type RepoEnvironment = {
    */
   promote: { dir: string | null; extensions: string[] };
   /**
-   * Where promoted assets go (null: the project's delivery default), and whether previews need an
-   * iteration's assets copied into its folder (decision 29).
+   * Where promoted assets go (null: the project's delivery default), the address the app serves
+   * that folder at (`/` for its root, or a path such as `/images`; null when the stack bundles its
+   * assets with its code, so a promoted component uses the file itself), and whether previews need
+   * an iteration's assets copied into its folder (decision 29).
    */
-  assets: { dir: string | null; copy: boolean };
+  assets: { dir: string | null; url: string | null; copy: boolean };
   copy: CopyPlacement;
+  /**
+   * What pulling a web sketch does here (F7 of the frameworks plan): `copy` its files as they
+   * are, where they render unchanged given the packages they import, or `port` it, in a run whose
+   * agent rebuilds it in this repo's stack.
+   */
+  sketches: 'copy' | 'port';
   terms: Terms;
   /** The component workshop previews go through, if any. */
   workshop: string | null;

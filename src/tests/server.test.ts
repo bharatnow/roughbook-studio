@@ -246,7 +246,12 @@ describe('the local server', () => {
     });
 
     const startRuns = (request: RecordedRequest) => {
-      const body = request.body as { kind: string; directions?: unknown[]; parent?: string };
+      const body = request.body as {
+        kind: string;
+        directions?: unknown[];
+        parent?: string;
+        sketch?: string;
+      };
       const count = body.kind === 'generate' ? body.directions!.length : 1;
       const runs: StartedRun[] = Array.from({ length: count }, () => {
         const iteration = `iteration-${String(next).padStart(2, '0')}`;
@@ -254,7 +259,7 @@ describe('the local server', () => {
         return {
           runId: `eeeeeeee-eeee-4eee-8eee-${String(next).padStart(12, '0')}`,
           iteration,
-          parent: body.parent ?? null,
+          parent: body.parent ?? body.sketch ?? null,
           targetFolder: `rough/home/hero/${iteration}`,
           prompt: `Write ${iteration}.\nUse them as {{roughbook:asset-origin}}/api/files/... in this iteration.\n`,
           placeholders: { assetOrigin: '{{roughbook:asset-origin}}' },
@@ -352,6 +357,16 @@ describe('the local server', () => {
           next += 1;
           return ok({ iteration, parent: 'iteration-40', files: [SKETCH_INDEX] }, 201);
         }
+      ],
+      [
+        'GET',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/sketches/iteration-40/files$`),
+        () => ok({ files: [SKETCH_INDEX] })
+      ],
+      [
+        'GET',
+        new RegExp(`^${PROJECT}/pages/home/components/hero/sketches/iteration-41/files$`),
+        () => refused('SKETCH_RUNNING', 409)
       ],
       [
         'POST',
@@ -834,27 +849,84 @@ describe('the local server', () => {
       ['iteration-40']
     );
 
+    // This app lists neither motion nor Tailwind: nothing is pulled, and the page hears that the
+    // sketch is ported, and why, with nothing it could add to make it a copy (F7).
+    const manifest = path.join(repo, 'package.json');
+    const original = fs.readFileSync(manifest, 'utf8');
+    const toPort = await api('POST', '/api/sketches/home/hero/iteration-40/pull');
+    assert.equal(toPort.status, 200, JSON.stringify(toPort.json));
+    const answer = toPort.json.data as {
+      kind: string;
+      why: string[];
+      packages: string[];
+      add: string | null;
+      reference: string;
+    };
+    assert.equal(answer.kind, 'port');
+    assert.deepEqual(answer.packages, ['motion']);
+    assert.equal(answer.add, null);
+    assert.match(answer.why.join(' '), /does not list tailwindcss/);
+    assert.equal(answer.reference, 'rough/home/hero/sketches/iteration-40');
+    assert.equal(backend.requests.filter(request => request.url.endsWith('/pull')).length, 0);
+    // With Tailwind, only motion is missing: the page is offered the command that adds it.
+    fs.writeFileSync(
+      manifest,
+      JSON.stringify({ dependencies: { next: '16.0.0', tailwindcss: '4.0.0' } })
+    );
+    const offer = (await api('POST', '/api/sketches/home/hero/iteration-40/pull')).json.data as {
+      add: string | null;
+    };
+    assert.equal(offer.add, 'npm install motion');
+
+    // With every package listed, it is copied as it is.
+    fs.writeFileSync(
+      manifest,
+      JSON.stringify({ dependencies: { next: '16.0.0', motion: '12.0.0', tailwindcss: '4.0.0' } })
+    );
     const pulled = await api('POST', '/api/sketches/home/hero/iteration-40/pull');
     assert.equal(pulled.status, 200, JSON.stringify(pulled.json));
-    const { iteration, folder, advice } = pulled.json.data as {
+    const { kind, iteration, folder, advice } = pulled.json.data as {
+      kind: string;
       iteration: string;
       folder: string;
       advice: string[];
     };
+    assert.equal(kind, 'copied');
     assert.equal(folder, `rough/home/hero/${iteration}`);
     assert.ok(
       fs
         .readFileSync(path.join(repo, ...folder.split('/'), 'index.tsx'), 'utf8')
         .includes(`src="${origin}/api/files/project/site/hero.png"`)
     );
-    assert.deepEqual(advice, [
-      'It imports motion, which this app does not list. Add it with: npm install motion',
-      'It is styled with Tailwind classes, and this app does not list tailwindcss, so it will render unstyled here.'
-    ]);
+    assert.deepEqual(advice, []);
     assert.deepEqual(
       backend.requests.filter(request => request.url.endsWith('/pull')).map(item => item.body),
       [{}]
     );
+
+    // The port the page starts is a run like any other, with the sketch as its reference.
+    const ported = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      mode: 'interactive',
+      terminal: 'builtin',
+      kind: 'pull',
+      sketch: 'iteration-40'
+    });
+    assert.equal(ported.status, 200, JSON.stringify(ported.json));
+    const [port] = ported.json.data.runs;
+    assert.equal(port.kind, 'pull');
+    assert.equal(port.parent, 'iteration-40');
+    const sent = backend.requests.filter(request => request.url.endsWith('/runs')).at(-1)!;
+    const body = sent.body as { kind: string; sketch: string };
+    assert.deepEqual([body.kind, body.sketch], ['pull', 'iteration-40']);
+    assert.equal(
+      fs.readFileSync(path.join(repo, 'rough/home/hero/sketches/iteration-40/index.tsx'), 'utf8'),
+      SKETCH_INDEX.content
+    );
+    const badSketch = { page: 'home', component: 'hero', mode: 'interactive', kind: 'pull' };
+    assert.equal((await api('POST', '/api/runs', { ...badSketch, sketch: '../x' })).status, 400);
+    fs.writeFileSync(manifest, original);
 
     const running = await api('POST', '/api/sketches/home/hero/iteration-41/pull');
     assert.equal(running.status, 400);

@@ -16,7 +16,8 @@ export type Check =
   /** The native floor, for the native toolkits' families: placeholder copy, unnamed icon buttons. Warnings. */
   | { kind: 'native-floor'; family: NativeFamily };
 
-export type RunKind = 'generate' | 'fork' | 'refine';
+/** `pull`: a web sketch ported into the repo's stack by the agent (F7 of the frameworks plan). */
+export type RunKind = 'generate' | 'fork' | 'refine' | 'pull';
 export type RunAgent =
   | 'claude-code'
   | 'codex'
@@ -32,7 +33,7 @@ export type RunMode = 'interactive' | 'headless' | 'editor';
 export type RunOutcome = 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled';
 export type FinishedBy = 'agent' | 'done' | 'local-ui' | 'headless';
 
-/** What `POST /runs` asks for: new directions, a fork, or a refinement. */
+/** What `POST /runs` asks for: new directions, a fork, a refinement, or a sketch's port. */
 export type StartRunRequest = {
   page: string;
   component: string;
@@ -50,9 +51,13 @@ export type StartRunRequest = {
    * points there instead of at the studio's address (decision 29). Sent only when true.
    */
   assetsCopy?: boolean;
+  /** The repo's stack tokens, kept on the iteration so ratings compare by stack (F7). */
+  stack?: string[];
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }
+  /** The sketch's files are a read-only reference beside the component; the agent rebuilds it. */
+  | { kind: 'pull'; sketch: string }
   | {
       kind: 'refine';
       parent: string;
@@ -82,6 +87,7 @@ export type StartedRun = {
     termPage?: string;
     termComponent?: string;
     environment?: string;
+    preview?: string;
   };
   checks: Check[];
 };

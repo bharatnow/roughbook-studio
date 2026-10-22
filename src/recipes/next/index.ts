@@ -202,8 +202,10 @@ export const next: Recipe = {
       checks: [],
       timeouts: { start: 60, preview: 150, build: 600 },
       promote: { dir: null, extensions: ['.tsx', '.jsx'] },
-      assets: { dir: null, copy: false },
+      assets: { dir: null, url: '/', copy: false },
       copy: { kind: 'inline' },
+      // A sketch is React with Tailwind, which the App Router renders as it is (decision 14).
+      sketches: 'copy',
       terms: { page: 'page', component: 'component' },
       workshop: null,
       setupFiles: [],
@@ -232,6 +234,12 @@ export const next: Recipe = {
   pullTransform: withClientDirective,
   promoteDefault: defaultComponentFile,
   promoteExtensions: ['.tsx', '.jsx'],
+  // As every promote prompt read before F7, word for word.
+  promoteWords: {
+    read: 'package.json, how styling is done\n(Tailwind config or CSS files)',
+    rules: ['- Add "use client" only if the component needs it.'],
+    usage: 'its import line and props'
+  },
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       'index.tsx': `export default function RoughbookDoctorSample({ note }: { note?: string }) {

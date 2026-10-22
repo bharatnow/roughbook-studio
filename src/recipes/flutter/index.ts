@@ -138,8 +138,9 @@ export const flutter: Recipe = {
       checks: ['flutter analyze'],
       timeouts: { start: 240, preview: 300, build: 900 },
       promote: { dir: 'lib/widgets', extensions: ['.dart'] },
-      assets: { dir: 'assets', copy: true },
+      assets: { dir: 'assets', url: null, copy: true },
       copy: { kind: 'inline' },
+      sketches: 'port',
       terms: { page: 'screen', component: 'widget' },
       workshop: null,
       setupFiles: [],
@@ -167,6 +168,13 @@ Widget buildIteration(Map<String, dynamic> fixture) =>
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${componentName.replace(/-/g, '_')}.dart`,
   promoteExtensions: ['.dart'],
+  promoteWords: {
+    read: "pubspec.yaml, the app's ThemeData and its theme\nextensions",
+    rules: [
+      "- If an asset's folder is not among pubspec.yaml's flutter assets, say which line to add\n  there; do not edit pubspec.yaml yourself."
+    ],
+    usage: 'its import line and constructor arguments'
+  },
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
       [ENTRY]: `import 'package:flutter/material.dart';

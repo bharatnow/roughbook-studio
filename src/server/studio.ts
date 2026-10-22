@@ -37,7 +37,15 @@ import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
-import { pullAdvice, pullSketch } from '../runs/pull.js';
+import {
+  addPackages,
+  portSketch,
+  pullAdvice,
+  pullPlanFor,
+  pullSketch,
+  sketchFiles,
+  sketchReferenceDir
+} from '../runs/pull.js';
 import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.js';
 import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
@@ -175,6 +183,8 @@ export type RunBody = {
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
   | { kind: 'fork'; parent: string }
+  /** A web sketch ported into this repo's stack: a pull run (F7 of the frameworks plan). */
+  | { kind: 'pull'; sketch: string }
   | {
       kind: 'refine';
       parent: string;
@@ -832,9 +842,27 @@ export class LocalStudio {
       ...kind
     } as StartRunRequest;
     // Iterations load the project's asset files from this server.
-    const runs = await startRuns(this.repoRoot, api, link, request, {
-      assetOrigin: localOrigin({ localPort: this.options.port })
-    });
+    const assetOrigin = localOrigin({ localPort: this.options.port });
+    // A port writes the sketch's files beside the component first, as its reference.
+    const runs =
+      request.kind === 'pull'
+        ? await portSketch(
+            this.repoRoot,
+            api,
+            link,
+            { page: request.page, component: request.component, sketch: request.sketch },
+            {
+              agent: request.agent,
+              mode: request.mode,
+              files: await sketchFiles(api, link, {
+                page: request.page,
+                component: request.component,
+                sketch: request.sketch
+              })
+            },
+            { assetOrigin }
+          )
+        : await startRuns(this.repoRoot, api, link, request, { assetOrigin });
     const model = typeof body.model === 'string' && body.model ? body.model : null;
 
     if (adapter.kind === 'editor') {
@@ -1080,18 +1108,41 @@ export class LocalStudio {
     return api.sketches(link.orgId, link.project, page, component);
   }
 
-  /** Pulls a web sketch into rough/ as a new local iteration, and says what the app still needs. */
-  async pull(target: ReviewTarget) {
+  /**
+   * Pulls a web sketch into rough/ (F7 of the frameworks plan): copied as a new local iteration
+   * where its files render here as they are, saying what the app still needs. Anywhere else the
+   * answer says it is ported, and why, and allocates nothing: the page starts the port as a pull
+   * run (`POST /api/runs`, kind pull). Where only packages the app does not list stand between
+   * the two, the answer names the command that adds them; `how: "add"` runs it, the designer
+   * having approved it on the page, and copies the sketch.
+   */
+  async pull(target: ReviewTarget, body: Record<string, unknown> = {}) {
     this.assertIteration(target);
     const { api, link } = this.options;
-    const pulled = await pullSketch(
-      this.repoRoot,
-      api,
-      link,
-      { page: target.page, component: target.component, sketch: target.iteration },
-      { assetOrigin: localOrigin({ localPort: this.options.port }) }
-    );
-    return { ...pulled, advice: pullAdvice(pulled) };
+    const sketch = { page: target.page, component: target.component, sketch: target.iteration };
+    const files = await sketchFiles(api, link, sketch);
+    let plan = await pullPlanFor(this.repoRoot, link, files);
+    if (plan.how === 'port' && plan.add && body.how === 'add') {
+      const added = await (this.context.addPackages ?? addPackages)(this.repoRoot, plan.add);
+      if (!added.ok) {
+        const tail = added.output.trim().split('\n').slice(-3).join(' ');
+        throw new BadRequest(`${plan.add} did not finish${tail ? `: ${tail}` : '.'}`);
+      }
+      plan = await pullPlanFor(this.repoRoot, link, files);
+    }
+    if (plan.how === 'port' || body.how === 'port') {
+      return {
+        kind: 'port' as const,
+        why: plan.why,
+        packages: plan.missingPackages,
+        add: plan.add,
+        reference: sketchReferenceDir(sketch.page, sketch.component, sketch.sketch)
+      };
+    }
+    const pulled = await pullSketch(this.repoRoot, api, link, sketch, {
+      assetOrigin: localOrigin({ localPort: this.options.port })
+    });
+    return { kind: 'copied' as const, ...pulled, advice: pullAdvice(pulled) };
   }
 
   async promote(body: {
@@ -1435,6 +1486,10 @@ export class LocalStudio {
         if (!ITERATION.test(String(body.parent)))
           throw new BadRequest('Name the iteration to fork.');
         return { kind: 'fork', parent: body.parent };
+      case 'pull':
+        if (!ITERATION.test(String(body.sketch)))
+          throw new BadRequest('Name the web sketch to port.');
+        return { kind: 'pull', sketch: body.sketch };
       case 'refine': {
         if (!ITERATION.test(String(body.parent))) {
           throw new BadRequest('Name the iteration to refine.');
@@ -1454,7 +1509,9 @@ export class LocalStudio {
         };
       }
       default:
-        throw new BadRequest('A run makes new directions, a fork, or a refinement.');
+        throw new BadRequest(
+          'A run makes new directions, a fork, a refinement, or the port of a web sketch.'
+        );
     }
   }
 

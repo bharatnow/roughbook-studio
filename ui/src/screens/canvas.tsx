@@ -52,7 +52,7 @@ import { useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
 import { RefineDrawer } from '../parts/refine';
 import { WhoseChangesDrawer, useRunOps, type RunOps } from '../parts/run-card';
-import { LaunchResult } from '../parts/run-options';
+import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
 import { addressFor, navigate } from '../router';
 import type { Launched, ProjectView, RunView, StudioState } from '../types';
 
@@ -321,18 +321,51 @@ function StudioCanvasView({
     document.getElementById(PROMPT_FIELD)?.focus();
   }
 
-  async function pull(page: string, component: string, sketch: string) {
+  const [runChoice] = useRunChoice(state);
+  const { start: startRuns } = useStartRuns();
+  /** A pull that only packages the app does not list keep from being a copy: the designer's call. */
+  const [pullChoice, setPullChoice] = useState<PullChoice | null>(null);
+
+  /**
+   * Pulls a web sketch: copied where its files render here as they are, or ported into this
+   * repo's stack by a pull run, which opens like any run. `how` is the designer's answer when
+   * only missing packages stood in the way: add them and copy, or port.
+   */
+  async function pull(page: string, component: string, sketch: string, how?: 'add' | 'port') {
+    setPullChoice(null);
     setPulling(sketch);
     try {
-      const pulled = await post<{ iteration: string; advice: string[] }>(
-        `/api/sketches/${encodeURIComponent(page)}/${encodeURIComponent(component)}/${encodeURIComponent(sketch)}/pull`
+      const answer = await post<PullAnswer>(
+        `/api/sketches/${encodeURIComponent(page)}/${encodeURIComponent(component)}/${encodeURIComponent(sketch)}/pull`,
+        how ? { how } : {}
       );
+      if (answer.kind === 'copied') {
+        say({
+          tone: 'info',
+          text: [`Pulled ${sketch} into rough/ as ${answer.iteration}.`, ...answer.advice].join(' ')
+        });
+        await refresh();
+        selectWhenThere(`iteration:${page}/${component}/${answer.iteration}`, true);
+        return;
+      }
+      if (answer.add && !how) {
+        setPullChoice({
+          page,
+          component,
+          sketch,
+          why: answer.why,
+          packages: answer.packages,
+          add: answer.add
+        });
+        return;
+      }
       say({
         tone: 'info',
-        text: [`Pulled ${sketch} into rough/ as ${pulled.iteration}.`, ...pulled.advice].join(' ')
+        text: [`Porting ${sketch} into this repo's stack.`, ...answer.why].join(' ')
       });
-      await refresh();
-      selectWhenThere(`iteration:${page}/${component}/${pulled.iteration}`, true);
+      const started = await startRuns({ page, component, kind: 'pull', sketch }, runChoice);
+      const iteration = started?.runs[0]?.iteration;
+      if (iteration) selectWhenThere(`iteration:${page}/${component}/${iteration}`, true);
     } catch (error) {
       say({ tone: 'error', text: describe(error) });
     } finally {
@@ -654,6 +687,77 @@ function StudioCanvasView({
       <Drawer open={launched !== null} onClose={() => setLaunched(null)} title="Started">
         <LaunchResult launched={launched} />
       </Drawer>
+      <Drawer
+        open={pullChoice !== null}
+        onClose={() => setPullChoice(null)}
+        title={pullChoice ? `Pull ${pullChoice.sketch}` : 'Pull'}
+      >
+        {pullChoice ? (
+          <PullChoiceView
+            choice={pullChoice}
+            busy={pulling !== null}
+            onAnswer={how =>
+              void pull(pullChoice.page, pullChoice.component, pullChoice.sketch, how)
+            }
+          />
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+/** What the local server answers a pull: copied as it is, or to be ported, and why. */
+type PullAnswer =
+  | { kind: 'copied'; iteration: string; advice: string[] }
+  | { kind: 'port'; why: string[]; packages: string[]; add: string | null; reference: string };
+
+type PullChoice = {
+  page: string;
+  component: string;
+  sketch: string;
+  why: string[];
+  packages: string[];
+  add: string;
+};
+
+/** Add the packages a sketch imports and copy it, or port it: nothing is added without a click. */
+function PullChoiceView({
+  choice,
+  busy,
+  onAnswer
+}: {
+  choice: PullChoice;
+  busy: boolean;
+  onAnswer: (how: 'add' | 'port') => void;
+}) {
+  return (
+    <div className="space-y-3 text-sm text-graphite">
+      {choice.why.map(line => (
+        <p key={line}>{line}</p>
+      ))}
+      <p>
+        Add {choice.packages.join(', ')} to this app with{' '}
+        <code className="font-mono">{choice.add}</code> and copy the sketch as it is, or port it:
+        your agent rebuilds it with this app&apos;s own components.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => onAnswer('add')}
+        >
+          Add and copy
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50"
+          disabled={busy}
+          onClick={() => onAnswer('port')}
+        >
+          Port it
+        </button>
+      </div>
     </div>
   );
 }

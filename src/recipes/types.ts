@@ -56,6 +56,12 @@ export type Recipe = {
   /** The extensions a promoted component's file may have, with their dots. */
   promoteExtensions: string[];
   /**
+   * What the promote prompt says of this stack (F7 of the frameworks plan): what to read first to
+   * follow the repo, the stack's own rules as "- …" lines, and how the agent says the component
+   * is used once it is written.
+   */
+  promoteWords: { read: string; rules: string[]; usage: string };
+  /**
    * The iterations `roughbook doctor` writes to check the preview: one that renders `marker` (and
    * `fixtureNote`, from its fixture file, when the stack's preview takes one) and one that fails
    * to render. Files by name, as an iteration folder holds them.

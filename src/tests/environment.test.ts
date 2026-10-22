@@ -273,7 +273,8 @@ describe('the environment', () => {
       dir: 'resources/views/components',
       extensions: ['.blade.php']
     });
-    assert.deepEqual(environment.assets, { dir: 'public/images', copy: false });
+    // Served at the app's root, as a folder named with no address is (F7).
+    assert.deepEqual(environment.assets, { dir: 'public/images', url: '/', copy: false });
     assert.deepEqual(environment.copy, { kind: 'localized', file: 'lang/en/sections.php' });
     assert.deepEqual(environment.terms, { page: 'view', component: 'partial' });
     assert.equal(environment.workshop, null);

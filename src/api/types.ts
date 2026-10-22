@@ -124,7 +124,23 @@ export type Promotion = {
   promotionId: string;
   /** With stand-ins for the component file and public folder, which the studio fills in. */
   prompt: string;
-  placeholders: { targetFile: string; targetDir: string; publicDir: string };
+  placeholders: {
+    targetFile: string;
+    targetDir: string;
+    publicDir: string;
+    /**
+     * Where the prompt says what the repo's stack decides (F7 of the frameworks plan): sent only
+     * when the request named the repo's family.
+     */
+    environment?: string;
+    read?: string;
+    keepCopy?: string;
+    except?: string;
+    assetIntro?: string;
+    assetBase?: string;
+    rules?: string;
+    usage?: string;
+  };
   copyMarkdown: string | null;
   componentName: string;
   defaults: { componentsDir: string; publicDir: string };

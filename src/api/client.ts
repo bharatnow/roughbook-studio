@@ -1,4 +1,5 @@
 import { ApiError, OfflineError } from './errors.js';
+import type { Family } from '../environment/types.js';
 import type { StartRunRequest, StartedRun } from '../runs/types.js';
 import type {
   AssetScope,
@@ -15,7 +16,8 @@ import type {
   PullableSketch,
   PulledSketch,
   RatingSummary,
-  SetupPrompt
+  SetupPrompt,
+  SketchFile
 } from './types.js';
 
 /** Where the backend serves the studio's routes. */
@@ -123,6 +125,8 @@ export class StudioApi {
       component: string;
       iteration: string;
       assets: { scope: AssetScope; file: string }[];
+      /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
+      family?: Family;
     }
   ): Promise<Promotion> {
     return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
@@ -162,18 +166,39 @@ export class StudioApi {
     return this.request('GET', `${componentPath(orgId, project, page, component)}/sketches`);
   }
 
-  /** Allocates the next local iteration as a fork of the sketch, with the sketch's files. */
+  /**
+   * Allocates the next local iteration as a fork of the sketch, with the sketch's files to copy as
+   * they are; the repo's stack tokens stay with it, so its ratings compare by stack.
+   */
   pullSketch(
     orgId: string,
     project: string,
     page: string,
     component: string,
-    sketch: string
+    sketch: string,
+    stack: string[] = []
   ): Promise<PulledSketch> {
     return this.request(
       'POST',
       `${componentPath(orgId, project, page, component)}/sketches/${encodeURIComponent(sketch)}/pull`,
-      {}
+      stack.length ? { stack } : {}
+    );
+  }
+
+  /**
+   * A sketch's files without pulling it, so the studio can tell whether they render here as they
+   * are or the sketch is ported (F7 of the frameworks plan). Nothing is allocated.
+   */
+  sketchFiles(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string,
+    sketch: string
+  ): Promise<{ files: SketchFile[] }> {
+    return this.request(
+      'GET',
+      `${componentPath(orgId, project, page, component)}/sketches/${encodeURIComponent(sketch)}/files`
     );
   }
 

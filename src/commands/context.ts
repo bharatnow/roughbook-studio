@@ -51,6 +51,11 @@ export type CommandContext = {
   pty?: PtySupport;
   /** What roughbook doctor does outside the repo, replaced in tests. */
   doctorTools?: Partial<DoctorTools>;
+  /**
+   * Adds the packages a pulled sketch imports, with the command the designer approved, in the
+   * repo; the app's own package manager by default, replaced in tests.
+   */
+  addPackages?: (repoRoot: string, command: string) => Promise<{ ok: boolean; output: string }>;
   /** Resolves when a long-running command should stop: Ctrl+C, or a test saying so. */
   waitForStop: () => Promise<void>;
   /** The raw streams `mcp` speaks the protocol on, and whether a person is typing into it. */

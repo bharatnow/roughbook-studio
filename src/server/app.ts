@@ -218,8 +218,8 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('GET', '/api/sketches/:page/:component', (_request, params) =>
       studio.sketches(params.page!, params.component!)
     ),
-    route('POST', '/api/sketches/:page/:component/:iteration/pull', (_request, params) =>
-      studio.pull(target(params))
+    route('POST', '/api/sketches/:page/:component/:iteration/pull', async (request, params) =>
+      studio.pull(target(params), await readBody(request))
     ),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
