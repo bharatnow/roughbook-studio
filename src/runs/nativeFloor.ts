@@ -120,6 +120,11 @@ const UNNAMED: Record<NativeFamily, { count: (text: string) => number; what: str
   compose: { count: composeUnnamed, what: 'an IconButton whose Icon has contentDescription = null' }
 };
 
+/** An icon-only button with no name, as a native family's code has one: what the warning names. */
+export function unnamedButtonIn(family: NativeFamily): string {
+  return UNNAMED[family].what;
+}
+
 /** The native floor's warnings for an iteration's files, file by file in the order given. */
 export function nativeFloorFindings(files: Map<string, string>, family: NativeFamily): Finding[] {
   const findings: Finding[] = [];

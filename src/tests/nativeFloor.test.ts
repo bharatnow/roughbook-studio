@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describeCheck } from '../mcp/tools.js';
 import { applyChecks } from '../runs/checks.js';
-import { nativeFloorFindings, unescapeNative } from '../runs/nativeFloor.js';
+import { nativeFloorFindings, unescapeNative, type NativeFamily } from '../runs/nativeFloor.js';
+import type { RunRecord } from '../runs/types.js';
 
 // The same cases as the backend's src/tests/compile/nativeFloor.test.ts: the backend sends the
 // native-floor check for the native toolkits' families, and both sides apply it the same way.
@@ -124,5 +126,22 @@ describe('the native floor', () => {
       ['PLACEHOLDER_COPY', 'ICON_BUTTON_UNNAMED']
     );
     assert.equal(unescapeNative('Say \\"hi\\" for \\$9'), 'Say "hi" for $9');
+  });
+
+  it('is described to an agent the way its family names an unnamed button', () => {
+    const run = { targetFolder: 'rough/home/hero/iteration-01' } as RunRecord;
+    const said = (family: NativeFamily) => describeCheck({ kind: 'native-floor', family }, run);
+    assert.equal(
+      said('flutter'),
+      'The source has no placeholder copy, such as lorem ipsum or a stand-in name like Jane Doe, and no icon-only button with no name for a screen reader: an IconButton with no tooltip. Warnings only.'
+    );
+    assert.match(
+      said('swiftui'),
+      /screen reader: a Button labelled by an Image alone with no accessibilityLabel\. Warnings only\.$/
+    );
+    assert.match(
+      said('compose'),
+      /screen reader: an IconButton whose Icon has contentDescription = null\. Warnings only\.$/
+    );
   });
 });

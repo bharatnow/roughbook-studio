@@ -10,6 +10,7 @@ import { requireApi, type CommandContext } from '../commands/context.js';
 import { requireRepoLink } from '../repo/link.js';
 import { findRepoRoot } from '../repo/root.js';
 import { assessRun } from '../runs/lifecycle.js';
+import { unnamedButtonIn } from '../runs/nativeFloor.js';
 import { finishingSection } from '../runs/slots.js';
 import { listRuns, namesRun } from '../runs/store.js';
 import type { Check, RunRecord } from '../runs/types.js';
@@ -142,6 +143,8 @@ export function describeCheck(check: Check, run: RunRecord): string {
       return 'The source has no lorem ipsum or stand-in names, no transition-all or transition: all, alt text on every img, a name on every icon-only button, and a focus-visible style wherever the outline is removed. Warnings only.';
     case 'detector':
       return `The source shows none of these model tells: ${check.tells.join(', ')}. Warnings only.`;
+    case 'native-floor':
+      return `The source has no placeholder copy, such as lorem ipsum or a stand-in name like Jane Doe, and no icon-only button with no name for a screen reader: ${unnamedButtonIn(check.family)}. Warnings only.`;
     default:
       return `A check this studio does not know yet (${(check as { kind: string }).kind}); update the studio to read it.`;
   }
