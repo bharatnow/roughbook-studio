@@ -524,10 +524,12 @@ The budgets the plan sets are met the same way on every stack: the canvas shows 
 preview is asked for once when the run finishes, so a dev server that compiles on first request
 has it ready before you look; one headless browser is kept for the session and its tab reused for
 every screenshot and probe (started on the first, closed after a few minutes idle or when the
-command ends); frames load only while on screen, four at most; and screenshots are taken once per
-iteration, at every viewport and variant, and again only when its files or the environment's
-viewports changed (`rough/.screenshots/<iteration>/shots.json` records what they were taken of;
-Take them again on the stage takes them anyway).
+command ends or is interrupted, its throwaway profile removed once it has exited; the profiles are
+in `roughbook-browsers` in the OS temp folder, and each start removes those whose studio and
+browser have both gone); frames load only while on screen, four at most; and screenshots are
+taken once per iteration, at every viewport and variant, and again only when its files or the
+environment's viewports changed (`rough/.screenshots/<iteration>/shots.json` records what they
+were taken of; Take them again on the stage takes them anyway).
 
 ## Layout
 

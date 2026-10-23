@@ -8,14 +8,21 @@
 // the viewport is set through the DevTools protocol over a pipe instead of --window-size, and
 // Chrome is preferred to Edge, which fills saved passwords in even into a fresh profile.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Probe } from '../doctor/types.js';
 import { defaultEnvironment } from '../environment/read.js';
 import type { ResolvedVariant } from '../environment/variants.js';
+import { stopProcess } from '../launch/processes.js';
+import {
+  makeProfile,
+  profilesFolder,
+  recordBrowser,
+  removeProfile,
+  sweepProfiles
+} from './profiles.js';
 
 /**
  * Runs in the page before its own scripts: notes the preview's ready message (its `Ready` posts
@@ -177,6 +184,8 @@ class Pipe {
     // breaks the pipe: its calls fail, and nothing throws out of the studio's process.
     input.on('error', () => this.dispose());
     output.on('error', () => this.dispose());
+    // A browser that exits closes the pipe, often without answering Browser.close.
+    input.on('close', () => this.dispose());
     input.on('data', (chunk: Buffer) => {
       this.buffer += chunk.toString('utf8');
       let end: number;
@@ -251,6 +260,14 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+/** Whether `promise` settles within `ms`. */
+function settles(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return within(
+    promise.then(() => true),
+    ms
+  ).catch(() => false);
+}
+
 /** One page of the browser, attached: its DevTools calls and events. */
 export type PageSession = {
   send<T>(method: string, params?: Record<string, unknown>): Promise<T>;
@@ -265,6 +282,7 @@ export type BrowserChild = {
   stdio: unknown[];
   kill(): void;
   on(event: 'exit' | 'error', listener: () => void): unknown;
+  once(event: 'exit', listener: () => void): unknown;
 };
 
 /** Starts the browser process; replaced in tests by one that only speaks the protocol. */
@@ -288,6 +306,20 @@ type Page = {
 /** How long a kept browser stays open with nothing to do before it closes itself. */
 const IDLE_MS = 3 * 60_000;
 
+/** How long a browser asked to close is given to exit by itself, before its tree is ended. */
+const EXIT_MS = 5000;
+
+export type KeptBrowserOptions = {
+  spawn?: BrowserSpawn;
+  /** Ends a browser that will not exit, with everything it started; replaced in tests. */
+  stop?: (child: BrowserChild) => Promise<void>;
+  /** The folder its profiles go in: the studio's own in the OS temp folder unless a test's. */
+  profiles?: string;
+  idleMs?: number;
+  settleMs?: number;
+  exitMs?: number;
+};
+
 /**
  * One browser, kept for the session and its tab reused: started on the first screenshot or probe,
  * on a fresh profile, closed when told or after a while with nothing to do, and started anew
@@ -297,9 +329,14 @@ const IDLE_MS = 3 * 60_000;
  */
 export class KeptBrowser {
   private child: BrowserChild | null = null;
+  private exited: Promise<void> | null = null;
   private pipe: Pipe | null = null;
   private profile: string | null = null;
   private starting: Promise<Pipe> | null = null;
+  private closing: Promise<void> | null = null;
+  private sweeping: Promise<void> | null = null;
+  /** Profiles being removed after their browser went away by itself, waited for by close. */
+  private readonly removing = new Set<Promise<boolean>>();
   private readonly pages: Page[] = [];
   private idle: NodeJS.Timeout | null = null;
   /** Called with each call sent to the browser, for tests. */
@@ -307,7 +344,7 @@ export class KeptBrowser {
 
   constructor(
     readonly executable: string,
-    private readonly options: { spawn?: BrowserSpawn; idleMs?: number; settleMs?: number } = {}
+    private readonly options: KeptBrowserOptions = {}
   ) {}
 
   get running(): boolean {
@@ -323,11 +360,29 @@ export class KeptBrowser {
     if (this.pipe && this.running) return this.pipe;
     if (this.starting) return this.starting;
     this.starting = (async () => {
-      const profile = mkdtempSync(path.join(os.tmpdir(), 'roughbook-shot-'));
-      const child = (this.options.spawn ?? realSpawn)(this.executable, browserArgs(profile));
+      const folder = this.options.profiles ?? profilesFolder();
+      // What earlier browsers left (a studio killed, a profile its browser's helpers still held).
+      if (folder && !this.sweeping) {
+        this.sweeping = sweepProfiles(folder).finally(() => {
+          this.sweeping = null;
+        });
+      }
+      const profile = makeProfile(folder);
+      let child: BrowserChild;
+      try {
+        child = (this.options.spawn ?? realSpawn)(this.executable, browserArgs(profile));
+      } catch (error) {
+        await removeProfile(profile);
+        throw error;
+      }
+      recordBrowser(profile, child.pid);
       const pipe = new Pipe(child.stdio[3] as Writable, child.stdio[4] as Readable);
       pipe.onSend = (method, params) => this.onSend?.(method, params);
       this.child = child;
+      this.exited = new Promise(resolve => {
+        child.on('exit', () => resolve());
+        child.on('error', () => resolve());
+      });
       this.pipe = pipe;
       this.profile = profile;
       this.pages.length = 0;
@@ -342,25 +397,20 @@ export class KeptBrowser {
     }
   }
 
-  /** The browser went away on its own: forget it, and remove what it left. */
+  /** The browser went away on its own: forget it, and remove its profile. */
   private lost(child: BrowserChild): void {
     if (this.child !== child) return;
     this.pipe?.dispose();
     this.pipe = null;
     this.child = null;
+    this.exited = null;
     this.pages.length = 0;
-    this.removeProfile();
-  }
-
-  private removeProfile(): void {
     const profile = this.profile;
     this.profile = null;
     if (!profile) return;
-    try {
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
-    } catch {
-      // The browser may still hold its profile; it stays in the OS temp folder.
-    }
+    const removal = removeProfile(profile);
+    this.removing.add(removal);
+    void removal.then(() => this.removing.delete(removal));
   }
 
   private async open(pipe: Pipe): Promise<Page> {
@@ -468,25 +518,50 @@ export class KeptBrowser {
     await pipe.send('Target.closeTarget', { targetId: page.targetId }).catch(() => undefined);
   }
 
-  /** Closes the browser and removes its profile; the next job starts a new one. */
+  /**
+   * Closes the browser, waits for it to exit, and removes its profile; the next job starts a new
+   * one. A close already under way is waited for, so every caller returns once it is done.
+   */
   async close(): Promise<void> {
+    while (this.closing) await this.closing;
+    this.closing = this.shut();
+    try {
+      await this.closing;
+    } finally {
+      this.closing = null;
+    }
+  }
+
+  private async shut(): Promise<void> {
     if (this.idle) clearTimeout(this.idle);
     this.idle = null;
     if (this.starting) await this.starting.catch(() => undefined);
-    const child = this.child;
-    const pipe = this.pipe;
-    if (!child || !pipe) return;
+    const { child, pipe, exited, profile } = this;
     this.child = null;
     this.pipe = null;
+    this.exited = null;
+    this.profile = null;
     this.pages.length = 0;
-    try {
-      await within(pipe.send('Browser.close'), 3000);
-    } catch {
-      // Ended below.
+    if (child && pipe && exited) {
+      try {
+        await within(pipe.send('Browser.close'), 3000);
+      } catch {
+        // Ended below.
+      }
+      pipe.dispose();
+      await this.end(child, exited);
     }
-    pipe.dispose();
-    if (child.exitCode === null) child.kill();
-    this.removeProfile();
+    // Removed only once the browser has exited: before, its files are still open (Windows).
+    if (profile) await removeProfile(profile);
+    await Promise.all([...this.removing, this.sweeping]);
+  }
+
+  /** Waits for the browser to exit; one that has not in time is ended with everything it started. */
+  private async end(child: BrowserChild, exited: Promise<void>): Promise<void> {
+    const ms = this.options.exitMs ?? EXIT_MS;
+    if (await settles(exited, ms)) return;
+    await (this.options.stop ?? stopProcess)(child);
+    await settles(exited, ms);
   }
 }
 
@@ -502,11 +577,12 @@ export function keptBrowser(executable: string): KeptBrowser {
   return browser;
 }
 
-/** Closes every browser this process kept, when a command ends or the local UI stops. */
+/**
+ * Closes every browser this process kept, when a command ends, the local UI stops, or the process
+ * is interrupted; a close already under way is waited for.
+ */
 export async function closeKeptBrowsers(): Promise<void> {
-  const open = [...kept.values()];
-  kept.clear();
-  await Promise.all(open.map(browser => browser.close()));
+  await Promise.all([...kept.values()].map(browser => browser.close()));
 }
 
 function browserFor(browser: string | KeptBrowser): KeptBrowser {

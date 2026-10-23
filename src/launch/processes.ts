@@ -118,8 +118,16 @@ function start(command: string, args: string[], cwd: string): ChildProcess {
   });
 }
 
+/** A started process as stopProcess needs it: a ChildProcess, or a stand-in in tests. */
+export type Stoppable = {
+  pid?: number;
+  exitCode: number | null;
+  once(event: 'exit', listener: () => void): unknown;
+  kill(signal?: NodeJS.Signals): unknown;
+};
+
 /** Ends a process and everything it started, on every platform. */
-export async function stopProcess(child: ChildProcess): Promise<void> {
+export async function stopProcess(child: Stoppable): Promise<void> {
   if (child.exitCode !== null || child.pid === undefined) return;
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   if (process.platform === 'win32') {
@@ -139,6 +147,16 @@ export async function stopProcess(child: ChildProcess): Promise<void> {
     }
   }
   await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 5000).unref())]);
+}
+
+/** Whether a process is still running; one this user may not signal is running too. */
+export function processRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 /** Runs a command line to its end in `cwd`: the exit code, or null when it did not finish in time. */

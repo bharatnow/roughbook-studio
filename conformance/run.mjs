@@ -59,6 +59,7 @@ const dist = file => import(pathToFileURL(path.join(root, 'dist', file)).href);
 const { planPrep, applyPrep } = await dist('repo/prep.js');
 const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
 const { serveUntil } = await dist('launch/processes.js');
+const { closeKeptBrowsers } = await dist('screenshot/browser.js');
 const { recipeFor } = await dist('recipes/index.js');
 const recipe = recipeFor(name);
 const environment = recipe.environment(null);
@@ -113,8 +114,57 @@ function prepareMachine(work) {
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), `roughbook-conformance-${name}-`));
 console.log(`Fixture ${name} in ${work}`);
+let serving = null;
 let served = null;
 let code = 2;
+let cleaning = null;
+
+/**
+ * Takes everything down, once: doctor's browser, the dev server with everything it started (one
+ * still starting is waited for), what the dev command started outside it, and the copy.
+ */
+function cleanUp() {
+  cleaning ??= (async () => {
+    await closeKeptBrowsers();
+    const server = served ?? (await serving?.catch(() => null));
+    if (server) await server.stop();
+    // What the dev command started outside its own process (wp-env's containers).
+    for (const command of pinned.down ?? []) {
+      try {
+        run(command, work, false);
+      } catch {
+        // Taking down is best effort; the report already stands.
+      }
+    }
+    if (keep) {
+      console.log(`\nKept ${work}`);
+      return;
+    }
+    try {
+      // fs.rmSync gives up at once on Windows while a file is still open (a server's child still
+      // exiting), whatever its maxRetries says; fs.promises.rm waits between its tries.
+      await fs.promises.rm(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      console.log(`\nCould not remove ${work}; remove it by hand.`);
+    }
+  })();
+  return cleaning;
+}
+
+// Ctrl+C, or the run being stopped: without this the process dies at once, the dev server goes on
+// running from the copy, and the copy stays in the temp folder. A second signal ends it at once.
+let interrupted = false;
+for (const [signal, exitCode] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143]
+]) {
+  process.on(signal, () => {
+    if (interrupted) process.exit(exitCode);
+    interrupted = true;
+    console.error(`\nInterrupted: taking the fixture down.`);
+    void cleanUp().finally(() => process.exit(exitCode));
+  });
+}
 try {
   fs.cpSync(fixture, work, {
     recursive: true,
@@ -159,7 +209,7 @@ try {
     console.log(`\nDoctor starts the dev server itself at ${devUrl} (--speed)`);
   } else if (live) {
     console.log(`\nStarting the dev server at ${devUrl}`);
-    served = await serveUntil(
+    serving = serveUntil(
       devCommand,
       work,
       `${devUrl}/`,
@@ -168,6 +218,7 @@ try {
       // A container is brought up by a command that exits once the app in it is set up.
       { untilExit: environment.runtime.kind === 'container' }
     );
+    served = await serving;
     if (!served) {
       throw new Error(`The dev server did not answer within ${environment.timeouts.start} s.`);
     }
@@ -191,22 +242,6 @@ try {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
   code = 1;
 } finally {
-  if (served) await served.stop();
-  // What the dev command started outside its own process (wp-env's containers).
-  for (const command of pinned.down ?? []) {
-    try {
-      run(command, work, false);
-    } catch {
-      // Taking down is best effort; the report already stands.
-    }
-  }
-  if (keep) console.log(`\nKept ${work}`);
-  else {
-    try {
-      fs.rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
-    } catch {
-      console.log(`\nCould not remove ${work}; remove it by hand.`);
-    }
-  }
+  await cleanUp();
 }
 process.exit(code);

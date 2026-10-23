@@ -114,12 +114,50 @@ export type MainOptions = {
   >
 >;
 
-/** Until Ctrl+C, or the terminal closing. */
-function untilSignalled(): Promise<void> {
-  return new Promise(resolve => {
-    process.once('SIGINT', () => resolve());
-    process.once('SIGTERM', () => resolve());
-  });
+/** What `catchInterrupts` needs of the process: its stop signals, and a way to exit. */
+export type InterruptHost = {
+  on(signal: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  off(signal: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  exit(code: number): void;
+};
+
+/**
+ * Ctrl+C and SIGTERM, in hand while a command runs. A command waiting for a stop (start, mcp)
+ * has its wait ended, and stops itself. Any other is ended here, once the browser kept for its
+ * screenshots has exited and its profile is gone: dying at once would leave the profile in the
+ * OS temp folder. Another signal while that closes ends the process at once.
+ */
+export function catchInterrupts(
+  host: InterruptHost = process,
+  close: () => Promise<void> = closeKeptBrowsers
+): { waitForStop(): Promise<void>; release(): void } {
+  let stopWaiting: (() => void) | null = null;
+  let closing = false;
+  const interrupted = (code: number) => {
+    if (stopWaiting) {
+      const stop = stopWaiting;
+      stopWaiting = null;
+      stop();
+    } else if (closing) host.exit(code);
+    else {
+      closing = true;
+      void close().finally(() => host.exit(code));
+    }
+  };
+  const onInt = () => interrupted(130);
+  const onTerm = () => interrupted(143);
+  host.on('SIGINT', onInt);
+  host.on('SIGTERM', onTerm);
+  return {
+    waitForStop: () =>
+      new Promise(resolve => {
+        stopWaiting = resolve;
+      }),
+    release: () => {
+      host.off('SIGINT', onInt);
+      host.off('SIGTERM', onTerm);
+    }
+  };
 }
 
 /** Runs one command line and returns the exit code: 0 done, 1 failed, 2 not understood. */
@@ -140,6 +178,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     return 2;
   }
 
+  const interrupts = catchInterrupts();
   const context: CommandContext = {
     io,
     cwd: options.cwd,
@@ -164,7 +203,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     doctorTools: options.doctorTools,
     addPackages: options.addPackages,
     scaffoldTools: options.scaffoldTools,
-    waitForStop: options.waitForStop ?? untilSignalled,
+    waitForStop: options.waitForStop ?? interrupts.waitForStop,
     stdio: options.stdio ?? {
       input: process.stdin,
       output: process.stdout,
@@ -172,6 +211,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     }
   };
   if (command.needsRepo && !context.repoRoot) {
+    interrupts.release();
     io.err('This folder is not in a Roughbook repo. Run roughbook init in the repo first.');
     return 1;
   }
@@ -184,5 +224,6 @@ export async function main(argv: string[], options: MainOptions): Promise<number
   } finally {
     // The browser kept for screenshots would otherwise keep the process alive.
     await closeKeptBrowsers();
+    interrupts.release();
   }
 }

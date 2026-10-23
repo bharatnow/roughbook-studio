@@ -2,9 +2,12 @@
 // request, the kept browser's reuse, incremental screenshots, the queue under two runs finishing
 // at once, the change feed behind reload-on-change, and `roughbook start` starting the app.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
@@ -12,7 +15,7 @@ import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
 import type { CommandContext } from '../commands/context.js';
 import { finishWithScreenshots } from '../commands/done.js';
-import { main } from '../commands/index.js';
+import { catchInterrupts, main } from '../commands/index.js';
 import { saveCredentials } from '../config/credentials.js';
 import { defaultEnvironment, readEnvironmentSync } from '../environment/read.js';
 import {
@@ -21,12 +24,18 @@ import {
   screenshotName,
   withVariant
 } from '../environment/variants.js';
+import { hostPlatform } from '../launch/platform.js';
 import type { PtyModule } from '../launch/pty.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
 import { saveRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
-import { KeptBrowser, takeScreenshot } from '../screenshot/browser.js';
+import {
+  KeptBrowser,
+  takeScreenshot,
+  type BrowserChild,
+  type KeptBrowserOptions
+} from '../screenshot/browser.js';
 import { askPreview, screenshotIteration, screenshotPath } from '../screenshot/iteration.js';
 import { ChangeFeed, changedKey } from '../server/changes.js';
 import { fakeFetch, notFound, ok, recordingIo, refused, tempDir } from './helpers.js';
@@ -314,28 +323,39 @@ describe('the warming request', () => {
  * A browser that is a DevTools protocol endpoint and nothing else: it answers every call over the
  * pipe, fires the load event after a navigation, and records what was asked of it. With
  * reloadOnce, the first page it settles reloads itself under the settle script, as a dev server's
- * loading screen does once it has compiled the page.
+ * loading screen does once it has compiled the page. It exits `exitMs` after Browser.close (with
+ * null, never by itself), noting whether its profile was still there when it did; `stop` stands
+ * in for ending its process tree.
  */
-function fakeBrowser(options: { reloadOnce?: boolean } = {}) {
+function fakeBrowser(options: { reloadOnce?: boolean; exitMs?: number | null } = {}) {
   let reloaded = false;
   const calls: string[] = [];
   let spawned = 0;
-  let killed = 0;
-  const spawn = () => {
+  let stops = 0;
+  type Profile = { dir: string; thereAtExit?: boolean };
+  const profiles: Profile[] = [];
+  const spawn = (_file: string, args: string[]) => {
     spawned += 1;
+    const flag = '--user-data-dir=';
+    const profile: Profile = { dir: args.find(arg => arg.startsWith(flag))!.slice(flag.length) };
+    profiles.push(profile);
     const input = new PassThrough();
     const output = new PassThrough();
     const reply = (message: object) => output.write(`${JSON.stringify(message)}\0`);
     let buffer = '';
-    const child = {
+    const child = Object.assign(new EventEmitter(), {
       pid: 4242,
       exitCode: null as number | null,
       stdio: [null, null, null, input, output],
       kill() {
-        killed += 1;
-        child.exitCode = 1;
-      },
-      on() {}
+        exit(1);
+      }
+    });
+    const exit = (code: number) => {
+      if (child.exitCode !== null) return;
+      profile.thereAtExit = fs.existsSync(profile.dir);
+      child.exitCode = code;
+      child.emit('exit', code, null);
     };
     input.on('data', chunk => {
       buffer += chunk.toString('utf8');
@@ -378,7 +398,7 @@ function fakeBrowser(options: { reloadOnce?: boolean } = {}) {
             break;
           case 'Browser.close':
             reply({ id, result: {} });
-            child.exitCode = 0;
+            if (options.exitMs !== null) setTimeout(() => exit(0), options.exitMs ?? 0);
             break;
           default:
             reply({ id, result: {} });
@@ -387,13 +407,103 @@ function fakeBrowser(options: { reloadOnce?: boolean } = {}) {
     });
     return child;
   };
-  return { spawn, calls, spawned: () => spawned, killed: () => killed };
+  const stop = async (child: BrowserChild) => {
+    stops += 1;
+    child.kill();
+  };
+  return { spawn, stop, calls, profiles, spawned: () => spawned, stops: () => stops };
+}
+
+/** A folder of the test's own for a kept browser's profiles, with nothing else in it. */
+async function profilesDir(): Promise<string> {
+  const dir = path.join(await tempDir('roughbook-profiles-'), 'browsers');
+  fs.mkdirSync(dir);
+  return dir;
+}
+
+/** A kept browser on the fake, its profiles in a folder of the test's own. */
+async function keptFake(fake: ReturnType<typeof fakeBrowser>, options: KeptBrowserOptions = {}) {
+  const profiles = await profilesDir();
+  const browser = new KeptBrowser('/fake/chrome', {
+    spawn: fake.spawn,
+    stop: fake.stop,
+    profiles,
+    settleMs: 0,
+    ...options
+  });
+  return { browser, profiles };
+}
+
+/** One screenshot through `browser`, into a folder of the test's own. */
+async function shotThrough(browser: KeptBrowser): Promise<boolean> {
+  return takeScreenshot({
+    browser,
+    url: 'http://localhost:3000/rough-preview/home/hero/iteration-01',
+    file: path.join(await tempDir('roughbook-browser-'), 'shot.png'),
+    size: { width: 1440, height: 900, mobile: false },
+    overlays: []
+  });
+}
+
+/** A process that runs until killed, and one that has ended: their numbers, for profile records. */
+async function processes() {
+  const live = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  const ended = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise(resolve => ended.once('exit', resolve));
+  return { live: live.pid!, ended: ended.pid!, stop: () => live.kill() };
+}
+
+/** A profile as a studio leaves it in its folder: a few files, and its record beside it. */
+function leaveProfile(folder: string, name: string, record: object | null): string {
+  const profile = path.join(folder, name);
+  write(profile, 'Default/Preferences', '{}');
+  if (record) fs.writeFileSync(`${profile}.json`, JSON.stringify(record));
+  return profile;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** Makes a profile and its record look two days old. */
+function makeOld(profile: string): void {
+  const when = new Date(Date.now() - 2 * DAY_MS);
+  for (const file of [profile, `${profile}.json`]) {
+    if (fs.existsSync(file)) fs.utimesSync(file, when, when);
+  }
+}
+
+/**
+ * Holds a profile's lock as its running browser would: Chrome keeps `lockfile` open on Windows,
+ * and links `SingletonLock` to its host and process elsewhere. Returns what lets it go, once
+ * the file is closed.
+ */
+async function holdLock(profile: string, pid: number): Promise<() => Promise<void>> {
+  if (hostPlatform() !== 'win32') {
+    fs.symlinkSync(`${os.hostname()}-${pid}`, path.join(profile, 'SingletonLock'));
+    return async () => {};
+  }
+  const lock = path.join(profile, 'lockfile');
+  const holder = spawn(
+    'powershell',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `$f = [System.IO.File]::Open('${lock}', 'OpenOrCreate', 'ReadWrite', 'None'); 'held'; [Console]::In.ReadLine() | Out-Null; $f.Close()`
+    ],
+    { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }
+  );
+  await new Promise(resolve => holder.stdout.once('data', resolve));
+  return () =>
+    new Promise(resolve => {
+      holder.once('exit', () => resolve());
+      holder.stdin.end('\n');
+    });
 }
 
 describe('the kept browser', () => {
   it('starts once for the session, reuses its tab for each screenshot, and closes when told', async () => {
     const fake = fakeBrowser();
-    const browser = new KeptBrowser('/fake/chrome', { spawn: fake.spawn, settleMs: 0 });
+    const { browser } = await keptFake(fake);
     const dir = await tempDir('roughbook-browser-');
     const size = { name: 'desktop', width: 1440, height: 900, mobile: false };
     const shot = (file: string, variant: ReturnType<typeof describeVariant> | null) =>
@@ -430,13 +540,21 @@ describe('the kept browser', () => {
     const spawn = () => {
       const input = new PassThrough();
       const output = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        exitCode: null as number | null,
+        stdio: [null, null, null, input, output],
+        kill() {}
+      });
       setImmediate(() => {
         output.destroy(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
         input.destroy(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+        child.exitCode = 1;
+        child.emit('exit', 1, null);
       });
-      return { exitCode: null, stdio: [null, null, null, input, output], kill() {}, on() {} };
+      return child;
     };
-    const browser = new KeptBrowser('/fake/chromium', { spawn, settleMs: 0 });
+    const profiles = await profilesDir();
+    const browser = new KeptBrowser('/fake/chromium', { spawn, profiles, settleMs: 0 });
     const dir = await tempDir('roughbook-browser-');
     const shot = await takeScreenshot({
       browser,
@@ -448,11 +566,12 @@ describe('the kept browser', () => {
     assert.ok(!shot);
     assert.ok(!fs.existsSync(path.join(dir, 'none.png')));
     await browser.close();
+    assert.deepEqual(fs.readdirSync(profiles), [], 'what it left is removed');
   });
 
   it('waits again for a page that reloads itself while it settles, as a loading screen does', async () => {
     const fake = fakeBrowser({ reloadOnce: true });
-    const browser = new KeptBrowser('/fake/chrome', { spawn: fake.spawn, settleMs: 0 });
+    const { browser } = await keptFake(fake);
     const dir = await tempDir('roughbook-browser-');
     assert.ok(
       await takeScreenshot({
@@ -471,7 +590,7 @@ describe('the kept browser', () => {
 
   it('emulates each variant on the page: the colour scheme and the locale', async () => {
     const fake = fakeBrowser();
-    const browser = new KeptBrowser('/fake/chrome', { spawn: fake.spawn, settleMs: 0 });
+    const { browser } = await keptFake(fake);
     const sent: { method: string; params: Record<string, unknown> }[] = [];
     browser.onSend = (method, params) => void sent.push({ method, params });
     const dir = await tempDir('roughbook-browser-');
@@ -513,6 +632,157 @@ describe('the kept browser', () => {
       'a variant with no scheme is photographed light, the same on every machine'
     );
     await browser.close();
+  });
+});
+
+describe("the kept browser's profiles", () => {
+  it('are removed only once the browser has exited, from a folder of the studio’s own', async () => {
+    const fake = fakeBrowser({ exitMs: 150 });
+    const { browser, profiles } = await keptFake(fake);
+    assert.ok(await shotThrough(browser));
+    const [profile] = fake.profiles;
+    assert.equal(path.dirname(profile!.dir), profiles);
+    assert.ok(fs.existsSync(`${profile!.dir}.json`), 'beside its record');
+    await browser.close();
+    assert.equal(profile!.thereAtExit, true, 'still there when the browser exited');
+    assert.deepEqual(fs.readdirSync(profiles), [], 'the profile and its record removed after');
+    assert.equal(fake.stops(), 0, 'a browser that exits by itself is not ended');
+  });
+
+  it('ends a browser that will not exit in time with everything it started, then removes its profile', async () => {
+    const fake = fakeBrowser({ exitMs: null });
+    const { browser, profiles } = await keptFake(fake, { exitMs: 100 });
+    assert.ok(await shotThrough(browser));
+    await browser.close();
+    assert.equal(fake.stops(), 1);
+    assert.equal(fake.profiles[0]!.thereAtExit, true);
+    assert.deepEqual(fs.readdirSync(profiles), []);
+  });
+
+  it('lets every caller of close return once the profile is gone', async () => {
+    const fake = fakeBrowser({ exitMs: 100 });
+    const { browser, profiles } = await keptFake(fake);
+    assert.ok(await shotThrough(browser));
+    const first = browser.close();
+    await browser.close();
+    assert.deepEqual(fs.readdirSync(profiles), []);
+    await first;
+    assert.equal(fake.calls.filter(call => call === 'Browser.close').length, 1);
+  });
+
+  it('that could not be removed are removed on a later start', async () => {
+    const { live, ended, stop } = await processes();
+    try {
+      const fake = fakeBrowser();
+      const { browser, profiles } = await keptFake(fake);
+      // Another studio's, whose browser's helpers held it past the end; this process's own
+      // earlier one; a record whose profile went; a day-old one whose record names numbers in
+      // use again; and a day-old one whose record was lost.
+      leaveProfile(profiles, 'aaaaaaaaaaaa', { studio: ended, browser: ended });
+      leaveProfile(profiles, 'bbbbbbbbbbbb', { studio: process.pid, browser: ended });
+      fs.writeFileSync(
+        path.join(profiles, 'cccccccccccc.json'),
+        JSON.stringify({ studio: ended, browser: null })
+      );
+      makeOld(leaveProfile(profiles, 'dddddddddddd', { studio: live, browser: live }));
+      makeOld(leaveProfile(profiles, 'eeeeeeeeeeee', null));
+      assert.ok(await shotThrough(browser));
+      await browser.close();
+      assert.deepEqual(fs.readdirSync(profiles), []);
+    } finally {
+      stop();
+    }
+  });
+
+  it('are never touched while another running studio may be using them', async () => {
+    const { live, ended, stop } = await processes();
+    let unlock = async () => {};
+    try {
+      const fake = fakeBrowser();
+      const { browser, profiles } = await keptFake(fake);
+      // In use; its browser not started yet; its studio still running, its browser gone; and
+      // the record of a profile not made yet.
+      leaveProfile(profiles, 'aaaaaaaaaaaa', { studio: live, browser: live });
+      leaveProfile(profiles, 'bbbbbbbbbbbb', { studio: live, browser: null });
+      leaveProfile(profiles, 'cccccccccccc', { studio: live, browser: ended });
+      fs.writeFileSync(
+        path.join(profiles, 'dddddddddddd.json'),
+        JSON.stringify({ studio: live, browser: null })
+      );
+      // A folder whose record is not written yet.
+      leaveProfile(profiles, 'eeeeeeeeeeee', null);
+      // A browser that has run a day: its lock is held.
+      const old = leaveProfile(profiles, 'ffffffffffff', { studio: live, browser: live });
+      unlock = await holdLock(old, live);
+      makeOld(old);
+      const before = fs.readdirSync(profiles).sort();
+      assert.ok(await shotThrough(browser));
+      await browser.close();
+      assert.deepEqual(fs.readdirSync(profiles).sort(), before);
+      assert.ok(fs.existsSync(path.join(old, 'Default', 'Preferences')));
+    } finally {
+      await unlock();
+      stop();
+    }
+  });
+});
+
+describe('an interrupted command', () => {
+  /** The process as catchInterrupts sees it: signals the test sends, and the exits asked for. */
+  function fakeHost(onExit: (code: number) => void = () => {}) {
+    const exits: number[] = [];
+    const host = Object.assign(new EventEmitter(), {
+      exit(code: number) {
+        exits.push(code);
+        onExit(code);
+      }
+    });
+    return { host, exits };
+  }
+
+  it('closes the kept browser and removes its profile before the process exits', async () => {
+    const fake = fakeBrowser({ exitMs: 100 });
+    const { browser, profiles } = await keptFake(fake);
+    assert.ok(await shotThrough(browser));
+    let left: string[] | null = null;
+    let exited!: () => void;
+    const exiting = new Promise<void>(resolve => (exited = resolve));
+    const { host, exits } = fakeHost(() => {
+      left = fs.readdirSync(profiles);
+      exited();
+    });
+    const interrupts = catchInterrupts(host, () => browser.close());
+    host.emit('SIGINT');
+    await exiting;
+    assert.deepEqual(exits, [130]);
+    assert.deepEqual(left, [], 'the profile was gone before the exit');
+    interrupts.release();
+    assert.equal(host.listenerCount('SIGINT'), 0);
+    assert.equal(host.listenerCount('SIGTERM'), 0);
+  });
+
+  it('exits at once on another signal while the browser closes', async () => {
+    const { host, exits } = fakeHost();
+    const interrupts = catchInterrupts(host, () => new Promise(() => {}));
+    host.emit('SIGTERM');
+    assert.deepEqual(exits, []);
+    host.emit('SIGTERM');
+    assert.deepEqual(exits, [143]);
+    interrupts.release();
+  });
+
+  it('ends the wait of a command waiting for a stop, which then closes its browser itself', async () => {
+    const { host, exits } = fakeHost();
+    let closed = 0;
+    const interrupts = catchInterrupts(host, async () => {
+      closed += 1;
+    });
+    const waiting = interrupts.waitForStop();
+    host.emit('SIGINT');
+    await waiting;
+    assert.equal(closed, 0);
+    assert.deepEqual(exits, []);
+    interrupts.release();
   });
 });
 
