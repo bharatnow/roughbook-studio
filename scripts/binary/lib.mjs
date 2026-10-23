@@ -297,3 +297,54 @@ export function fillTemplate(text, values, { partial = false } = {}) {
   }
   return { text: filled, missing: [...missing] };
 }
+
+/** The RFC 3161 timestamp server a signature is countersigned by, unless the owner names another. */
+export const DEFAULT_TIMESTAMP = 'http://timestamp.digicert.com';
+
+/**
+ * signtool's arguments for signing the Windows binary `file` with the owner's certificate, as the
+ * environment names it, or null when it names none (the binary then ships unsigned):
+ * ROUGHBOOK_SIGN_PFX, a .pfx file, with ROUGHBOOK_SIGN_PASSWORD; ROUGHBOOK_SIGN_SHA1, the
+ * thumbprint of a certificate in the Windows store or on a hardware token; or ROUGHBOOK_SIGN_DLIB
+ * and ROUGHBOOK_SIGN_DLIB_METADATA, a signing service's signtool plug-in and its settings (Azure
+ * Trusted Signing). ROUGHBOOK_SIGN_TIMESTAMP names the timestamp server, or none for no timestamp.
+ */
+export function signArgs(env, file, { url } = {}) {
+  let certificate;
+  if (env.ROUGHBOOK_SIGN_PFX) {
+    certificate = [
+      '/f',
+      env.ROUGHBOOK_SIGN_PFX,
+      ...(env.ROUGHBOOK_SIGN_PASSWORD ? ['/p', env.ROUGHBOOK_SIGN_PASSWORD] : [])
+    ];
+  } else if (env.ROUGHBOOK_SIGN_SHA1) {
+    if (!/^[0-9a-fA-F]{40}$/.test(env.ROUGHBOOK_SIGN_SHA1)) {
+      throw new Error('ROUGHBOOK_SIGN_SHA1 is a certificate thumbprint: 40 hexadecimal digits.');
+    }
+    certificate = ['/sha1', env.ROUGHBOOK_SIGN_SHA1];
+  } else if (env.ROUGHBOOK_SIGN_DLIB) {
+    if (!env.ROUGHBOOK_SIGN_DLIB_METADATA) {
+      throw new Error('ROUGHBOOK_SIGN_DLIB needs ROUGHBOOK_SIGN_DLIB_METADATA, its settings file.');
+    }
+    certificate = ['/dlib', env.ROUGHBOOK_SIGN_DLIB, '/dmdf', env.ROUGHBOOK_SIGN_DLIB_METADATA];
+  } else {
+    return null;
+  }
+  const timestamp = env.ROUGHBOOK_SIGN_TIMESTAMP ?? DEFAULT_TIMESTAMP;
+  return [
+    'sign',
+    '/fd',
+    'SHA256',
+    ...(timestamp === 'none' ? [] : ['/tr', timestamp, '/td', 'SHA256']),
+    '/d',
+    'Roughbook',
+    ...(url ? ['/du', url] : []),
+    ...certificate,
+    file
+  ];
+}
+
+/** The arguments as they may be shown: a password never is. */
+export function shownArgs(args) {
+  return args.map((arg, index) => (args[index - 1] === '/p' ? '****' : arg));
+}

@@ -15,7 +15,11 @@
 //
 // Node.js's downloads are checked against nodejs.org's SHASUMS256.txt, and npm packages against
 // package-lock.json's integrity. A macOS binary has to be signed after the injection, which only
-// a Mac can do (codesign), so other systems do not build the macOS targets.
+// a Mac can do (codesign), so other systems do not build the macOS targets. The Windows binary is
+// built on Windows with signtool (the Windows SDK's) at hand: Node.js's own signature, which the
+// injection would break, comes off first, and the owner's certificate signs it after when the
+// environment names one (ROUGHBOOK_SIGN_PFX, ROUGHBOOK_SIGN_SHA1 or ROUGHBOOK_SIGN_DLIB; see
+// packaging/README.md), and the signature is verified before the archive is made.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,6 +40,8 @@ import {
   readChecksums,
   readTar,
   sha256,
+  shownArgs,
+  signArgs,
   writeTarGz,
   writeZip
 } from './binary/lib.mjs';
@@ -78,6 +84,64 @@ function npx(npxArgs, options) {
   ].find(file => fs.existsSync(file));
   if (!script) fail('npx was not found beside this Node.js.');
   return run(process.execPath, [script, ...npxArgs], options);
+}
+
+/**
+ * signtool: ROUGHBOOK_SIGNTOOL, or the newest Windows SDK's for this machine, or one on the PATH;
+ * null off Windows or when the SDK is not installed.
+ */
+function findSigntool() {
+  if (process.platform !== 'win32') return null;
+  if (process.env.ROUGHBOOK_SIGNTOOL) return process.env.ROUGHBOOK_SIGNTOOL;
+  const kits = path.join(
+    process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
+    'Windows Kits',
+    '10',
+    'bin'
+  );
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const versions = fs.existsSync(kits)
+    ? fs
+        .readdirSync(kits)
+        .filter(name => /^\d+(\.\d+)+$/.test(name))
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+    : [];
+  for (const version of versions) {
+    const file = path.join(kits, version, arch, 'signtool.exe');
+    if (fs.existsSync(file)) return file;
+  }
+  const found = spawnSync('where.exe', ['signtool.exe'], { encoding: 'utf8' });
+  return found.status === 0 ? found.stdout.split(/\r?\n/)[0].trim() || null : null;
+}
+
+/**
+ * Signs the Windows binary when the environment names a certificate, and checks the signature
+ * with Windows' own policy: what the binary's archive says about it. A test certificate
+ * (ROUGHBOOK_SIGN_TEST=1) is accepted with a root Windows does not trust, and said to be one.
+ */
+function signWindows(signtool, exe) {
+  const signing = signArgs(process.env, exe, { url: `https://github.com/${REPO}` });
+  if (!signing) return 'unsigned: no certificate named (ROUGHBOOK_SIGN_PFX, _SHA1 or _DLIB)';
+  if (!signtool)
+    fail('Signing the Windows binary needs signtool, from the Windows SDK, on Windows.');
+  console.log(`$ signtool ${shownArgs(signing).join(' ')}`);
+  const signed = spawnSync(signtool, signing, { encoding: 'utf8' });
+  if (signed.status !== 0) fail(`signtool could not sign it:\n${signed.stdout}${signed.stderr}`);
+  const verified = spawnSync(signtool, ['verify', '/pa', '/v', exe], { encoding: 'utf8' });
+  const said = `${verified.stdout}${verified.stderr}`;
+  // The signing chain is listed root first, so the signer is its last "Issued to".
+  const chain =
+    said
+      .split('Signing Certificate Chain:')[1]
+      ?.split(/The signature is timestamped|Timestamp/)[0] ?? '';
+  const signer =
+    [...chain.matchAll(/Issued to: (.+)/g)].map(match => match[1].trim()).at(-1) ??
+    'the certificate named';
+  if (verified.status === 0) return `signed by ${signer}, and the signature verifies`;
+  if (process.env.ROUGHBOOK_SIGN_TEST === '1' && /not trusted|untrusted root/i.test(said)) {
+    return `signed by ${signer}, a test certificate Windows does not trust`;
+  }
+  fail(`The signature does not verify:\n${said}`);
 }
 
 async function download(url) {
@@ -210,6 +274,9 @@ async function build(target) {
   fs.writeFileSync(exe, await nodeFor(target));
   if (spec.os !== 'win32') fs.chmodSync(exe, 0o755);
   if (spec.os === 'darwin') run('codesign', ['--remove-signature', exe]);
+  // Node.js's signature would not survive the injection: off it comes, where signtool is here.
+  const signtool = spec.os === 'win32' ? findSigntool() : null;
+  if (signtool) run(signtool, ['remove', '/s', exe], { stdio: 'ignore' });
   npx(
     [
       '--yes',
@@ -224,6 +291,7 @@ async function build(target) {
     { cwd: work }
   );
   if (spec.os === 'darwin') run('codesign', ['--sign', '-', exe]);
+  const signature = spec.os === 'win32' ? signWindows(signtool, exe) : null;
 
   const entries = [
     { path: spec.exe, mode: 0o755, data: fs.readFileSync(exe) },
@@ -251,7 +319,8 @@ async function build(target) {
     built: true,
     archive: path.basename(archive),
     size: fs.statSync(archive).size,
-    ran
+    ran,
+    signature
   };
 }
 
@@ -338,7 +407,7 @@ fs.rmSync(path.join(out, '.work'), { recursive: true, force: true });
 for (const result of results) {
   console.log(
     result.built
-      ? `  ${result.target}: ${result.archive}, ${(result.size / 1048576).toFixed(1)} MB${result.ran ? `; ran here: ${result.ran}` : ''}`
+      ? `  ${result.target}: ${result.archive}, ${(result.size / 1048576).toFixed(1)} MB${result.ran ? `; ran here: ${result.ran}` : ''}${result.signature ? `; ${result.signature}` : ''}`
       : `  ${result.target}: not built, since ${result.why}.`
   );
 }

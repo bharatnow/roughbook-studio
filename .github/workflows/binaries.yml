@@ -29,7 +29,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # The Windows binary is signed when the repository holds the certificate as secrets.
+      - name: The signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.ROUGHBOOK_SIGN_PFX_BASE64 }}
+        run: |
+          if ($env:PFX) {
+            $file = Join-Path $env:RUNNER_TEMP 'roughbook-sign.pfx'
+            [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
+            "ROUGHBOOK_SIGN_PFX=$file" >> $env:GITHUB_ENV
+          }
       - run: npm run binary -- --target ${{ matrix.targets }}
+        env:
+          ROUGHBOOK_SIGN_PASSWORD: ${{ secrets.ROUGHBOOK_SIGN_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
           name: roughbook-${{ matrix.os }}

@@ -50,6 +50,9 @@ type Lib = {
     values: Record<string, string>,
     options?: { partial?: boolean }
   ): { text: string; missing: string[] };
+  DEFAULT_TIMESTAMP: string;
+  signArgs(env: Record<string, string>, file: string, options?: { url?: string }): string[] | null;
+  shownArgs(args: string[]): string[];
 };
 type Entry = {
   IMAGE_MAGIC: string;
@@ -254,6 +257,68 @@ describe('the standalone binary', () => {
       'SHA256_LINUX_ARM64',
       'SHA256_LINUX_X64'
     ]);
+  });
+
+  it("signs the Windows binary with the owner's certificate, however the environment names it", () => {
+    const exe = 'C:\\build\\roughbook.exe';
+    const url = 'https://github.com/owner/repo';
+    // No certificate named: the binary ships unsigned.
+    assert.equal(lib.signArgs({}, exe, { url }), null);
+    // A .pfx file and its password, timestamped by the default server, SHA-256 throughout.
+    const pfx = lib.signArgs(
+      { ROUGHBOOK_SIGN_PFX: 'C:\\keys\\sign.pfx', ROUGHBOOK_SIGN_PASSWORD: 'secret' },
+      exe,
+      { url }
+    )!;
+    assert.deepEqual(pfx, [
+      'sign',
+      '/fd',
+      'SHA256',
+      '/tr',
+      lib.DEFAULT_TIMESTAMP,
+      '/td',
+      'SHA256',
+      '/d',
+      'Roughbook',
+      '/du',
+      url,
+      '/f',
+      'C:\\keys\\sign.pfx',
+      '/p',
+      'secret',
+      exe
+    ]);
+    // The password is never shown.
+    assert.ok(!lib.shownArgs(pfx).includes('secret'));
+    assert.equal(lib.shownArgs(pfx)[lib.shownArgs(pfx).indexOf('/p') + 1], '****');
+    // A certificate in the store or on a token, by its thumbprint; no timestamp when asked.
+    const thumbprint = 'a'.repeat(40);
+    const token = lib.signArgs(
+      { ROUGHBOOK_SIGN_SHA1: thumbprint, ROUGHBOOK_SIGN_TIMESTAMP: 'none' },
+      exe
+    )!;
+    assert.deepEqual(token.slice(-3), ['/sha1', thumbprint, exe]);
+    assert.ok(!token.includes('/tr'));
+    assert.throws(() => lib.signArgs({ ROUGHBOOK_SIGN_SHA1: 'abc' }, exe), /40 hexadecimal/);
+    // A signing service's plug-in (Azure Trusted Signing) needs its settings file.
+    const service = lib.signArgs(
+      {
+        ROUGHBOOK_SIGN_DLIB: 'C:\\tools\\Azure.CodeSigning.Dlib.dll',
+        ROUGHBOOK_SIGN_DLIB_METADATA: 'C:\\tools\\metadata.json'
+      },
+      exe
+    )!;
+    assert.deepEqual(service.slice(-5), [
+      '/dlib',
+      'C:\\tools\\Azure.CodeSigning.Dlib.dll',
+      '/dmdf',
+      'C:\\tools\\metadata.json',
+      exe
+    ]);
+    assert.throws(
+      () => lib.signArgs({ ROUGHBOOK_SIGN_DLIB: 'x.dll' }, exe),
+      /ROUGHBOOK_SIGN_DLIB_METADATA/
+    );
   });
 
   it('keeps every template, install script and manifest naming the same release', () => {

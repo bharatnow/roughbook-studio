@@ -30,7 +30,8 @@ of the Node.js running it:
 3. The executable: the official Node.js for the target (this one, or downloaded from nodejs.org
    and checked against its `SHASUMS256.txt`), with the blob injected by postject. A macOS
    executable is unsigned first and signed (ad hoc) after, with `codesign`, so it is built on a Mac
-   only.
+   only. A Windows executable built on Windows has Node.js's signature taken off first with
+   signtool, and is signed after with the owner's certificate when one is named (below).
 4. The archive: `roughbook-<target>.tar.gz` (`roughbook` and `LICENSE`), or
    `roughbook-windows-x64.zip` (`roughbook.exe` and `LICENSE`); this system's binary is run once
    (`--version`) before the archive counts.
@@ -58,6 +59,7 @@ After the npm release of the same version (the studio's `package.json` version i
    (it refuses while a digest is missing). Or, once GitHub Actions runs for the repo, start the
    Binaries workflow (`.github/workflows/binaries.yml`, by hand only), which builds each on its own
    system, and download its artifacts into `release/`.
+   On Windows, name the signing certificate first (below), so the Windows binary is signed.
 2. Try each archive on its system: `roughbook --version`, then `roughbook doctor` in a linked repo.
 3. A GitHub release `v<version>` on `bharatnow/roughbook-studio` with the five archives,
    `SHA256SUMS`, `install.sh` and `install.ps1` as its assets. The install scripts fetch
@@ -71,7 +73,39 @@ bharatnow/roughbook/roughbook` then `brew test roughbook`.
    `manifests/n/NuveraSoft/Roughbook/<version>/` in a pull request to `microsoft/winget-pkgs`
    (`winget validate --manifest <folder>` first; `wingetcreate` can submit it).
 
-The Windows executable is not code-signed (Node.js's own signature is broken by the injection, and
-postject warns so); SmartScreen may ask before a browser-downloaded copy runs, which the script,
-WinGet and Scoop do not trigger. Signing it, and notarizing the macOS ones, is a later step with
-the owner's certificates.
+## Signing the Windows binary
+
+Built on Windows, the binary is signed with Authenticode by the Windows SDK's signtool (found in
+`Windows Kits\10\bin`, or named by `ROUGHBOOK_SIGNTOOL`) when the environment names a certificate,
+in one of three ways:
+
+| Variables                                             | The certificate                                                                    |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `ROUGHBOOK_SIGN_PFX`, `ROUGHBOOK_SIGN_PASSWORD`       | A `.pfx` file and its password                                                     |
+| `ROUGHBOOK_SIGN_SHA1`                                 | The thumbprint of a certificate in the Windows store, or on a hardware token       |
+| `ROUGHBOOK_SIGN_DLIB`, `ROUGHBOOK_SIGN_DLIB_METADATA` | A signing service's signtool plug-in and its settings file (Azure Trusted Signing) |
+
+The signature is SHA-256, described as Roughbook with the repository's address, and countersigned
+by `http://timestamp.digicert.com` (`ROUGHBOOK_SIGN_TIMESTAMP` names another server, or `none`), so
+it stays valid after the certificate expires. The build then checks it with Windows' own policy
+(`signtool verify /pa`) and stops, with no archive, when it does not verify;
+`ROUGHBOOK_SIGN_TEST=1` accepts a test certificate Windows does not trust, for trying the step. The
+password is never printed. With no certificate named, the binary is built unsigned and the build
+says so; SmartScreen may then ask before a browser-downloaded copy runs (the install script,
+WinGet and Scoop do not trigger it).
+
+A code-signing certificate comes from a certificate authority after it checks the publisher, and
+since 2023 its key lives on a hardware token or in a cloud signing service rather than in a `.pfx`
+file, so `ROUGHBOOK_SIGN_SHA1` (a token) or `ROUGHBOOK_SIGN_DLIB` (Azure Trusted Signing, or a CA's
+cloud service with a signtool plug-in) is the usual way. For example, with Azure Trusted Signing's
+client tools installed:
+
+```powershell
+$env:ROUGHBOOK_SIGN_DLIB = "$env:LOCALAPPDATA\Microsoft\MicrosoftTrustedSigningClientTools\Azure.CodeSigning.Dlib.dll"
+$env:ROUGHBOOK_SIGN_DLIB_METADATA = 'C:\signing\metadata.json'  # Endpoint, CodeSigningAccountName, CertificateProfileName
+npm run binary -- --target windows-x64
+```
+
+The Binaries workflow signs too when the repository has the secrets `ROUGHBOOK_SIGN_PFX_BASE64`
+(the `.pfx` file, base64) and `ROUGHBOOK_SIGN_PASSWORD`. Notarizing the macOS binaries with an
+Apple Developer ID is a step of its own, not done here.
