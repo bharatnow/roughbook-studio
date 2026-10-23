@@ -835,7 +835,8 @@ describe('what the launch recipes need of the core', () => {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
     try {
-      const started = Date.now();
+      // A monotonic clock: this measures an interval, which the wall clock's jumps (WSL) would bend.
+      const started = performance.now();
       const served = await serveUntil(
         `node -e "setTimeout(() => {}, 1500)"`,
         studioRoot,
@@ -845,7 +846,7 @@ describe('what the launch recipes need of the core', () => {
         { untilExit: true }
       );
       assert.ok(served);
-      assert.ok(Date.now() - started >= 1400, 'not before the command finished');
+      assert.ok(performance.now() - started >= 1400, 'not before the command finished');
       await served.stop();
       const failed = await serveUntil(
         `node -e "process.exit(2)"`,
