@@ -74,16 +74,21 @@ export {
   setupSamples
 } from './samples.js';
 
-/** The answer at a URL: its status and text, or null when nothing answered in time. */
+/**
+ * The answer at a URL: its status and text, or null when nothing answered in time. With `host`,
+ * asked by that name, as a request from anywhere may name itself.
+ */
 async function ask(
   tools: DoctorTools,
   url: string,
-  timeoutMs: number
+  timeoutMs: number,
+  host?: string
 ): Promise<{ status: number; text: string } | null> {
   try {
     const response = await tools.fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
-      redirect: 'manual'
+      redirect: 'manual',
+      ...(host ? { headers: { host } } : {})
     });
     return { status: response.status, text: await response.text() };
   } catch {
@@ -789,6 +794,11 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           (Boolean(tools.browser) &&
             !good?.text.includes(marker) &&
             (await probeAt(outside.toString(), changed)).text.includes(changed)));
+      // A dev server that answers on the network may refuse only by the name it is asked by,
+      // which any request there can set to this machine's: asked so, does it show the iteration?
+      const name = new URL(url(GOOD)).host;
+      const byName = !open && exposed ? await ask(tools, outside.toString(), 5000, name) : null;
+      const nameOnly = byName?.status === 200 && byName.text.includes(changed);
       checks.push(
         open
           ? result(
@@ -800,9 +810,11 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           : result(
               'loopback',
               'pass',
-              exposed
-                ? `From ${address} the preview answered HTTP ${exposed.status}, showing nothing.`
-                : `From ${address} nothing answered.`
+              nameOnly
+                ? `From ${address} the preview answered HTTP ${exposed!.status}, showing nothing; but the dev server answers on the network, and shows the iteration to a request there that names this machine as ${name}, which anyone on the network can send. Start the dev server on 127.0.0.1 alone to keep previews on this machine.`
+                : exposed
+                  ? `From ${address} the preview answered HTTP ${exposed.status}, showing nothing.`
+                  : `From ${address} nothing answered.`
             )
       );
     }

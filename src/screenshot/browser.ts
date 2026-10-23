@@ -15,7 +15,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Probe } from '../doctor/types.js';
 import { defaultEnvironment } from '../environment/read.js';
 import type { ResolvedVariant } from '../environment/variants.js';
-import { stopProcess } from '../launch/processes.js';
+import { processesRefused, stopProcess } from '../launch/processes.js';
 import {
   makeProfile,
   profilesFolder,
@@ -360,6 +360,8 @@ export class KeptBrowser {
     if (this.pipe && this.running) return this.pipe;
     if (this.starting) return this.starting;
     this.starting = (async () => {
+      // An interrupted studio closes its browser on the way out; a new one would outlive it.
+      if (processesRefused()) throw new Error('The studio was interrupted.');
       const folder = this.options.profiles ?? profilesFolder();
       // What earlier browsers left (a studio killed, a profile its browser's helpers still held).
       if (folder && !this.sweeping) {

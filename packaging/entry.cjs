@@ -53,15 +53,77 @@ function cacheRoot(env, platform, home) {
   return path.posix.join(env.XDG_CACHE_HOME || path.posix.join(home, '.cache'), 'roughbook');
 }
 
+/** An image's folder in the cache: its version and the start of its digest (lib.mjs, imageId). */
+const IMAGE_NAME = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?-[0-9a-f]{16}$/;
+
+/** Where an image is unpacked before it is renamed into place: its name, and the process's number. */
+const UNPACKING = /^(.+)\.(\d+)\.tmp$/;
+
+/** Inside an image's folder: a file for each process running from it, named by its number. */
+const RUNNING = '.running';
+
+/** Whether a process is running; one this user may not signal is running too. */
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/** Whether a process other than this one runs from an image's folder. */
+function inUse(dir) {
+  let names;
+  try {
+    names = fs.readdirSync(path.join(dir, RUNNING));
+  } catch {
+    return false;
+  }
+  return names.some(
+    name => /^\d+$/.test(name) && Number(name) !== process.pid && alive(Number(name))
+  );
+}
+
+/**
+ * Notes this process in the image's folder until it exits, so a newer version unpacked meanwhile
+ * leaves the folder alone: a long-running `roughbook start` or editor's `roughbook mcp` loads
+ * files from it long after it began.
+ */
+function markRunning(dir) {
+  const mark = path.join(dir, RUNNING, String(process.pid));
+  try {
+    fs.mkdirSync(path.dirname(mark), { recursive: true });
+    fs.writeFileSync(mark, '');
+  } catch {
+    // A cache it cannot write to now still runs; a newer version may then remove the folder.
+    return;
+  }
+  process.once('exit', () => {
+    try {
+      fs.rmSync(mark, { force: true });
+    } catch {
+      // Left; the next cleanup sees that this process has ended.
+    }
+  });
+}
+
 /**
  * The folder the image `id` is unpacked in, unpacking it first when it is not there: into a
  * folder of its own, renamed into place when complete, so two first runs at once cannot leave
- * half an image. Other images, from versions before, are removed when a new one is unpacked.
+ * half an image; a folder of the image left without its `.complete` mark (a first run stopped half
+ * way, a cache cleaned in part) is replaced. When a new image is unpacked, the cache's other
+ * images that nothing runs from, and folders left half unpacked by processes that have ended, are
+ * removed; nothing else in the folder is touched, since ROUGHBOOK_CACHE_DIR may name one that holds
+ * other files.
  */
 function ensureImage(root, id, readImage) {
   const dir = path.join(root, id);
   const done = path.join(dir, '.complete');
-  if (fs.existsSync(done)) return dir;
+  if (fs.existsSync(done)) {
+    markRunning(dir);
+    return dir;
+  }
   fs.mkdirSync(root, { recursive: true });
   const temp = `${dir}.${process.pid}.tmp`;
   fs.rmSync(temp, { recursive: true, force: true });
@@ -74,15 +136,31 @@ function ensureImage(root, id, readImage) {
   try {
     fs.renameSync(temp, dir);
   } catch (error) {
-    fs.rmSync(temp, { recursive: true, force: true });
-    if (!fs.existsSync(done)) throw error;
+    if (fs.existsSync(done)) {
+      // Another first run put the same image in place first.
+      fs.rmSync(temp, { recursive: true, force: true });
+    } else {
+      // The image's folder is there without its mark: nothing runs from it, so it is replaced.
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.renameSync(temp, dir);
+      } catch {
+        fs.rmSync(temp, { recursive: true, force: true });
+        if (!fs.existsSync(done)) throw error;
+      }
+    }
   }
+  markRunning(dir);
   for (const name of fs.readdirSync(root)) {
-    if (name === id || name.endsWith('.tmp')) continue;
+    const unpacking = UNPACKING.exec(name);
+    const stale = unpacking
+      ? IMAGE_NAME.test(unpacking[1]) && !alive(Number(unpacking[2]))
+      : IMAGE_NAME.test(name) && name !== id && !inUse(path.join(root, name));
+    if (!stale) continue;
     try {
       fs.rmSync(path.join(root, name), { recursive: true, force: true });
     } catch {
-      // In use by an older version still running, or not ours to remove: left for next time.
+      // Held by a process still running (Windows locks files in use): left for next time.
     }
   }
   return dir;
@@ -132,7 +210,7 @@ function main() {
     dir = ensureImage(root, id, () => Buffer.from(sea.getRawAsset('image')));
   } catch (error) {
     console.error(
-      `roughbook could not unpack itself into ${root}: ${error.message}. Set ROUGHBOOK_CACHE_DIR to a folder it can write.`
+      `roughbook could not unpack itself into ${root}: ${error.message}. Close any roughbook still running and try again, or set ROUGHBOOK_CACHE_DIR to a folder it can write.`
     );
     process.exitCode = 1;
     return;

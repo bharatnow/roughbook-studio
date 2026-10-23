@@ -38,7 +38,9 @@ through. Written for the agent that sets a repo up or changes its preview setup.
    \`reload: studio\`.
 5. **Loopback.** The preview answers requests addressed to this machine (localhost, 127.0.0.1,
    [::1]) and refuses or hides from any other address, so a dev server reachable on the network
-   shows nothing from rough/.
+   shows nothing from rough/. A refusal by the name a request gives holds only against a browser:
+   anyone on the network can send this machine's name, so where the stack allows, the start
+   command runs the dev server on 127.0.0.1 alone.
 6. **Listed.** Every file the preview setup adds or changes outside rough/ is listed in
    rough/environment.md, so it can be checked and removed.
 

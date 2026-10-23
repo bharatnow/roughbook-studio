@@ -7,6 +7,7 @@ import { exitCodeFor, redactedReport, renderReport, runDoctor } from '../doctor/
 import type { DoctorReport } from '../doctor/types.js';
 import { readEnvironment } from '../environment/read.js';
 import { currentOs } from '../launch/platform.js';
+import { processesRefused } from '../launch/processes.js';
 import { readLocalLink, requireRepoLink, type RepoLink } from '../repo/link.js';
 import { openSetup, saveSetup } from '../runs/setup.js';
 import { openApi, type Command, type CommandContext } from './context.js';
@@ -49,6 +50,8 @@ export async function runDoctorHere(
     snapshots: options.snapshots,
     tools: context.doctorTools
   });
+  // Interrupted, the checks after the interrupt did not run: nothing is kept, ended or sent.
+  if (processesRefused()) return report;
   if (options.json) io.out(JSON.stringify(report, null, 2));
   else for (const line of renderReport(report)) io.out(line);
 

@@ -8,7 +8,7 @@ import type { Io } from '../io.js';
 import { copyText } from '../launch/clipboard.js';
 import { launchDetached, openUrl } from '../launch/open.js';
 import { hostPlatform } from '../launch/platform.js';
-import { stopStartedProcesses } from '../launch/processes.js';
+import { refuseNewProcesses, stopStartedProcesses } from '../launch/processes.js';
 import { launchTerminal } from '../launch/terminal.js';
 import { closeKeptBrowsers } from '../screenshot/browser.js';
 import { askPreview, screenshotIteration } from '../screenshot/iteration.js';
@@ -125,8 +125,11 @@ export type InterruptHost = {
 /**
  * What a command leaves behind when it ends or is interrupted: the browser kept for its
  * screenshots, and the processes it started that still run (a server doctor started itself).
+ * Interrupted, it starts nothing more either: the command's own steps go on until the studio
+ * exits, and a server or browser one of them started then would outlive it.
  */
-async function closeStarted(): Promise<void> {
+async function closeStarted(interrupted = false): Promise<void> {
+  if (interrupted) refuseNewProcesses();
   await Promise.all([closeKeptBrowsers(), stopStartedProcesses()]);
 }
 
@@ -139,7 +142,7 @@ async function closeStarted(): Promise<void> {
  */
 export function catchInterrupts(
   host: InterruptHost = process,
-  close: () => Promise<void> = closeStarted
+  close: () => Promise<void> = () => closeStarted(true)
 ): { waitForStop(): Promise<void>; release(): void } {
   let stopWaiting: (() => void) | null = null;
   let closing = false;

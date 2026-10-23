@@ -5,6 +5,7 @@ import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { screenshotSet, withVariant } from '../environment/variants.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
+import { isApproved, readApprovals } from '../repo/approvals.js';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { describeResult, renderSnapshots, type SnapshotExec } from '../snapshot/render.js';
@@ -163,6 +164,14 @@ export async function screenshotIteration(
   // Snapshot mode: the repo's own tool renders the images, no browser involved.
   if (repo.mode === 'snapshot') {
     const key = `${target.page}/${target.component}/${target.iteration}`;
+    // Only once approved on this machine, whoever asks: done, roughbook screenshot, an agent's
+    // finish_run (decision 18). A commit that changed the command has it asked again.
+    if (repo.snapshot && !isApproved(await readApprovals(repoRoot), repo.snapshot, repo.shell)) {
+      return {
+        files: {},
+        warning: `The snapshot command is not approved on this machine (${repo.snapshot}), so no images were rendered. Run roughbook doctor in a terminal and approve it.`
+      };
+    }
     const run = await renderSnapshots(repoRoot, repo, [key], {
       force: options.force,
       exec: options.snapshotExec

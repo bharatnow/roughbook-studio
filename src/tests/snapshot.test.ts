@@ -573,6 +573,28 @@ describe('rendering snapshots', () => {
     );
     assert.match(failed.warning!, /home\/hero\/iteration-01: .*fails on purpose/);
   });
+
+  it('never runs a snapshot command this machine has not approved', async () => {
+    const { repo } = await repoWith(['home/hero/iteration-01']);
+    // A commit changed the command: done, roughbook screenshot and finish_run do not run it.
+    write(repo, 'rough/environment.md', HEADER.replaceAll('roughSnapshots', 'otherSnapshots'));
+    const environment = readEnvironmentSync(repo, LINK);
+    const tool = fakeSnapshotTool();
+    const shots = await screenshotIteration(
+      repo,
+      'http://localhost:1',
+      { page: 'home', component: 'hero', iteration: 'iteration-01' },
+      {},
+      undefined,
+      null,
+      undefined,
+      environment,
+      { snapshotExec: tool.exec }
+    );
+    assert.deepEqual(shots.files, {});
+    assert.match(shots.warning!, /not approved on this machine \(gradlew(\.bat)? otherSnapshots/);
+    assert.equal(tool.asked.length, 0);
+  });
 });
 
 describe('the environment of a snapshot stack', () => {

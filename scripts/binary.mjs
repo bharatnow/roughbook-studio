@@ -167,10 +167,14 @@ async function cached(name, url, check) {
 const nodeVersion = process.version;
 let shasums = null;
 
-/** The official Node.js executable for a target, at this Node.js's version. */
+/**
+ * The official Node.js executable for a target, at this Node.js's version, checked against
+ * nodejs.org's SHASUMS256: for this system's own target too, since the Node.js running this
+ * script may be a package manager's build (Homebrew's, a distribution's) that needs libraries a
+ * user's machine does not have.
+ */
 async function nodeFor(target) {
   const spec = TARGETS[target];
-  if (target === hostTarget()) return fs.readFileSync(process.execPath);
   shasums ??= readChecksums(
     (await download(`https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`)).toString('utf8')
   );

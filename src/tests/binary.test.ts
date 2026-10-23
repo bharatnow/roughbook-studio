@@ -16,7 +16,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { hostPlatform } from '../launch/platform.js';
 import { npmScript } from '../launch/processes.js';
-import { scriptNode, standaloneBinary } from '../launch/runtime.js';
+import { scriptNode, stableBinaryPath, standaloneBinary } from '../launch/runtime.js';
 import { serverCommand } from '../mcp/install.js';
 import { tempDir } from './helpers.js';
 
@@ -154,14 +154,55 @@ describe('the standalone binary', () => {
     assert.equal(dir, path.join(root, id));
     assert.equal(fs.readFileSync(path.join(dir, 'dist', 'cli.js'), 'utf8'), 'console.log(1)\n');
     assert.ok(fs.existsSync(path.join(dir, '.complete')));
-    // An older version's image is removed when a new one is unpacked, and the image is read once.
-    assert.deepEqual(fs.readdirSync(root), [id]);
+    // An older version's image is removed when a new one is unpacked (the folder's own .git, not
+    // an image, stays), and the image is read once.
+    assert.deepEqual(fs.readdirSync(root).sort(), ['.git', id]);
     entry.ensureImage(root, id, read);
     assert.equal(reads, 1);
     if (hostPlatform() !== 'win32') {
       const mode = fs.statSync(path.join(dir, 'node_modules/@esbuild/linux-x64/bin/esbuild')).mode;
       assert.equal(mode & 0o777, 0o755);
     }
+  });
+
+  it('removes only its own images that nothing runs from, and replaces one left half done', async () => {
+    const image = lib.packImage(files());
+    const id = lib.imageId('0.3.16', image);
+    const root = await tempDir('roughbook-cache-');
+    const make = (relative: string, text = 'x') => {
+      fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+      fs.writeFileSync(path.join(root, relative), text);
+    };
+    // ROUGHBOOK_CACHE_DIR may name a folder that holds other things: they stay.
+    make('notes.txt');
+    make('pip/wheel.whl');
+    make('other.123.tmp/file');
+    const ended = spawnSync(process.execPath, ['-e', '']).pid;
+    // An older version still running (its process: this test's parent), and one that has ended.
+    make(`0.3.15-${'a'.repeat(16)}/.complete`);
+    make(`0.3.15-${'a'.repeat(16)}/.running/${process.ppid}`, '');
+    make(`0.3.14-${'b'.repeat(16)}/.complete`);
+    make(`0.3.14-${'b'.repeat(16)}/.running/${ended}`, '');
+    // Half-unpacked folders: one of a process that ended, one of a process still running.
+    make(`0.3.15-${'a'.repeat(16)}.${ended}.tmp/dist/cli.js`);
+    make(`0.3.15-${'a'.repeat(16)}.${process.ppid}.tmp/dist/cli.js`);
+    // This image's folder, left without its mark by a first run stopped half way.
+    make(`${id}/dist/half.js`);
+
+    const dir = entry.ensureImage(root, id, () => image);
+    assert.equal(fs.readFileSync(path.join(dir, 'dist', 'cli.js'), 'utf8'), 'console.log(1)\n');
+    assert.ok(fs.existsSync(path.join(dir, '.complete')));
+    assert.equal(fs.existsSync(path.join(dir, 'dist', 'half.js')), false);
+    assert.ok(fs.existsSync(path.join(dir, '.running', String(process.pid))));
+    assert.deepEqual(fs.readdirSync(root).sort(), [
+      '.git',
+      `0.3.15-${'a'.repeat(16)}`,
+      `0.3.15-${'a'.repeat(16)}.${process.ppid}.tmp`,
+      id,
+      'notes.txt',
+      'other.123.tmp',
+      'pip'
+    ]);
   });
 
   it('refuses an image that is not one, or that would write outside its folder', () => {
@@ -392,6 +433,42 @@ describe('the studio as the binary', () => {
         command: 'C:\\Users\\a\\AppData\\Local\\Programs\\roughbook\\roughbook.exe',
         args: ['mcp', '--dev-url', 'http://localhost:8000']
       }
+    );
+  });
+
+  it('registers the binary by the PATH’s link to it, which outlives an upgrade', async t => {
+    // Homebrew's layout: the binary in a folder per version, linked from bin/ on the PATH.
+    const root = await tempDir('roughbook-stable-');
+    const cellar = path.join(root, 'Cellar', 'roughbook', '0.3.16', 'bin');
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(cellar, { recursive: true });
+    fs.mkdirSync(bin);
+    const real = path.join(cellar, 'roughbook');
+    fs.writeFileSync(real, '');
+    try {
+      fs.symlinkSync(real, path.join(bin, 'roughbook'), 'file');
+    } catch {
+      t.skip('this machine cannot make a symbolic link');
+      return;
+    }
+    const pathKey = hostPlatform() === 'win32' ? 'Path' : 'PATH';
+    const platform = hostPlatform();
+    // Node.js names the binary by its real path; the PATH's link is what gets registered.
+    assert.equal(
+      stableBinaryPath({ [pathKey]: bin }, fs.realpathSync(real), platform),
+      path.join(bin, 'roughbook')
+    );
+    // Another roughbook first on the PATH, or none: the binary's own path.
+    const other = path.join(root, 'other');
+    fs.mkdirSync(other);
+    fs.writeFileSync(path.join(other, 'roughbook'), '');
+    assert.equal(
+      stableBinaryPath({ [pathKey]: other }, fs.realpathSync(real), platform),
+      fs.realpathSync(real)
+    );
+    assert.equal(
+      stableBinaryPath({ [pathKey]: cellar }, fs.realpathSync(real), platform),
+      fs.realpathSync(real)
     );
   });
 });

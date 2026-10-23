@@ -822,24 +822,8 @@ describe('an interrupted command', () => {
     assert.deepEqual(stopped.sort(), [101, 103], 'a stopped process is not stopped again');
   });
 
-  it('stops what the command started before the process exits', async () => {
-    const stopped: number[] = [];
-    trackProcess(fakeChild(201), fakeStop(stopped));
-    let atExit: number[] | null = null;
-    let exited!: () => void;
-    const exiting = new Promise<void>(resolve => (exited = resolve));
-    const { host, exits } = fakeHost(() => {
-      atExit = [...stopped];
-      exited();
-    });
-    // As main has it: the kept browser closed, and the processes started stopped.
-    const interrupts = catchInterrupts(host);
-    host.emit('SIGTERM');
-    await exiting;
-    assert.deepEqual(exits, [143]);
-    assert.deepEqual(atExit, [201], 'stopped before the exit');
-    interrupts.release();
-  });
+  // What main's own close does when interrupted (the processes stopped before the exit, nothing
+  // started after) is in interrupt.test.ts, since it holds for the rest of the process.
 
   /** Ports nothing listens on now, each its own. */
   async function freePorts(count: number): Promise<number[]> {

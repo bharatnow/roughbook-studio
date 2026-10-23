@@ -139,6 +139,26 @@ function ended(child: Stoppable): boolean {
 /** The processes started here that still run, each with how it is stopped. */
 const running = new Map<Stoppable, (child: Stoppable) => Promise<void>>();
 
+/** Set once the studio is interrupted: from then on nothing is started here. */
+let refused = false;
+
+/**
+ * Starts nothing more, for the rest of this process: an interrupted command's own steps go on
+ * until the studio exits, and a server one of them started then would run on in a group of its
+ * own, with nothing left to stop it. Each runner answers as if its command had been stopped.
+ */
+export function refuseNewProcesses(): void {
+  refused = true;
+}
+
+/** Whether the studio was interrupted, so that nothing new (a process, a browser) is started. */
+export function processesRefused(): boolean {
+  return refused;
+}
+
+/** What a runner says of a command it did not start because the studio was interrupted. */
+const NOT_STARTED = 'The studio was interrupted, so the command was not started.';
+
 /**
  * Keeps a started process in hand until it exits, so that the studio, interrupted, can stop it:
  * one in a group of its own (outside Windows) never sees the terminal's Ctrl+C, and a SIGTERM
@@ -205,6 +225,7 @@ export function runToEnd(
 ): Promise<{ code: number | null }> {
   const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
   if (!resolved) return Promise.resolve({ code: 1 });
+  if (refused) return Promise.resolve({ code: null });
   return new Promise(resolve => {
     const child = start(resolved.command, resolved.args, cwd);
     const timer = setTimeout(() => {
@@ -238,6 +259,7 @@ export function runCapture(
 ): Promise<{ code: number | null; output: string }> {
   const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
   if (!resolved) return Promise.resolve({ code: 1, output: 'The command is empty.' });
+  if (refused) return Promise.resolve({ code: null, output: NOT_STARTED });
   return new Promise(resolve => {
     let output = '';
     const keep = (chunk: Buffer) => {
@@ -281,6 +303,7 @@ export function runVisible(
 ): Promise<number> {
   const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
   if (!resolved) return Promise.resolve(1);
+  if (refused) return Promise.resolve(130);
   return new Promise(resolve => {
     const child = spawn(resolved.command, resolved.args, {
       cwd,
@@ -312,7 +335,7 @@ export async function serveUntil(
   options: { untilExit?: boolean } = {}
 ): Promise<Served | null> {
   const resolved = resolveCommandLine(line, undefined, undefined, undefined, shell);
-  if (!resolved) return null;
+  if (!resolved || refused) return null;
   const child = start(resolved.command, resolved.args, cwd);
   let failed = false;
   child.on('error', () => {

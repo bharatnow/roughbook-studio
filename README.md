@@ -471,7 +471,8 @@ asks the dev server about them as the studio would, takes screenshots at every v
 variant, changes
 the iteration and waits for the change to show, runs the production build and searches its output
 for the iteration (or serves production and expects 404), tries the preview from this machine's
-network address, checks that every setup file is in place and matches its template (and, after a
+network address (and says so when it refuses only by the name a request gives, which anyone on the
+network can send as `localhost`), checks that every setup file is in place and matches its template (and, after a
 setup run, that nothing else outside `rough/` changed), and takes its iterations away again. Each
 check passes, fails with what to fix, or is skipped with the reason. The renders check tells three failures apart: the dev server never sent the iteration, the
 app sent it but the page shows something else (a layout or wrapper that decides what to show by

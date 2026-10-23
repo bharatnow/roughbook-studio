@@ -86,6 +86,8 @@ function fakeTools(
     stale: boolean;
     leaks: boolean;
     exposed: boolean;
+    /** The preview refuses the network by the name it is asked by, which a request can set. */
+    hostOnly: boolean;
     overlay: boolean;
     noFixture: boolean;
     missingTool: string;
@@ -159,8 +161,10 @@ function fakeTools(
         }
         return new Response('home', { status: 200 });
       }
-      void init;
-      const page = pageFor(url);
+      const named = new Headers(init?.headers).get('host');
+      const page = pageFor(
+        faults.hostOnly && named ? new URL(`${url.protocol}//${named}${url.pathname}`) : url
+      );
       return new Response(page.body, { status: page.status });
     }) as typeof fetch,
     async probe({ url, overlays }) {
@@ -315,6 +319,24 @@ describe('roughbook doctor', () => {
       assert.equal(exitCodeFor(report.outcome), 1);
       assert.equal(doctorPage(repo), null, `${id} cleaned up`);
     }
+  });
+
+  it('says when the preview refuses the network only by the name a request gives', async () => {
+    const repo = await tempRepo();
+    const report = await runDoctor(repo, {
+      devUrl: DEV,
+      tools: fakeTools(repo, { hostOnly: true })
+    });
+    const loopback = report.checks.find(item => item.id === 'loopback')!;
+    assert.equal(loopback.status, 'pass');
+    assert.match(loopback.detail, /names this machine as localhost:3000.*on 127\.0\.0\.1 alone/s);
+    // One that refuses by address says nothing of the kind.
+    const other = await tempRepo();
+    const plain = await runDoctor(other, { devUrl: DEV, tools: fakeTools(other) });
+    assert.equal(
+      plain.checks.find(item => item.id === 'loopback')!.detail,
+      'From 192.168.1.20 the preview answered HTTP 404, showing nothing.'
+    );
   });
 
   it('names a layout that hides the route as the one failure, and skips what depends on it', async () => {
