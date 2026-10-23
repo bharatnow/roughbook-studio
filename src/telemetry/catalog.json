@@ -385,7 +385,7 @@
       }
     },
     "doctor.ran": {
-      "description": "roughbook doctor ran on a linked repo: how it went, the preview mode, the family of checks, the stack tokens, and the ids of the checks that failed.",
+      "description": "roughbook doctor ran on a linked repo: how it went, the preview mode, the family of checks, the stack tokens, the ids of the checks that failed, and the recipe that set the repo up (null for a setup an agent built with no recipe, or from a studio that does not say); when the run ended a setup run, whether that was roughbook setup or setup --fix and how many seconds it took from its start, both null otherwise.",
       "sentBy": "server",
       "props": {
         "outcome": {
@@ -428,6 +428,24 @@
             "kind": "token"
           },
           "max": 16
+        },
+        "recipe": {
+          "kind": "token",
+          "nullable": true
+        },
+        "setup": {
+          "kind": "enum",
+          "values": [
+            "setup",
+            "fix"
+          ],
+          "nullable": true
+        },
+        "setupSeconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 2592000,
+          "nullable": true
         }
       }
     },

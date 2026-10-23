@@ -702,7 +702,9 @@ describe('roughbook init on a repo with no recipe', () => {
       mode: 'live',
       family: 'markup-css',
       stack: ['laravel-13', 'blade', 'php-8'],
-      failed: []
+      failed: [],
+      // The team's own setup: no recipe, the verified tier. No setup run was open on the clone.
+      recipe: null
     });
     assert.deepEqual(tools.served, ['php artisan serve --env=production @ http://127.0.0.1:3999']);
     assert.deepEqual(tools.built, []);
@@ -756,6 +758,12 @@ describe('roughbook doctor on an agent-built setup', () => {
     assert.ok(record!.finishedAt);
     const told = requests.find(request => request.url.endsWith('/doctor'))!;
     assert.deepEqual((told.body as { failed: string[] }).failed, ['setup-files']);
+    // The doctor that ended the setup run tells the server its kind and how long it took, for
+    // analytics by stack; the recipe is none, since the agent built this setup.
+    const ended = told.body as { recipe: string | null; setup?: { kind: string; seconds: number } };
+    assert.equal(ended.recipe, null);
+    assert.equal(ended.setup?.kind, 'setup');
+    assert.ok(Number.isInteger(ended.setup?.seconds) && ended.setup!.seconds >= 0);
 
     // Listed with its template, the same file passes.
     write(repo, 'rough/setup/config/view.php', read(repo, 'config/view.php'));
@@ -765,6 +773,9 @@ describe('roughbook doctor on an agent-built setup', () => {
     );
     write(repo, 'rough/environment.md', environmentText);
     assert.equal(await run(['doctor', '--yes']), 0, io.lines.slice(-20).join('\n'));
+    // No setup run was open this time.
+    const again = requests.filter(request => request.url.endsWith('/doctor')).at(-1)!;
+    assert.equal((again.body as { setup?: unknown }).setup, undefined);
 
     // Uninstall takes exactly the listed files out and leaves the app's own files.
     assert.equal(await run(['uninstall', '--yes']), 0, io.errors.join('\n'));

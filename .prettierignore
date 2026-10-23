@@ -8,3 +8,4 @@ src/telemetry/catalog.json
 .claude
 # The conformance suite's fixture apps, written by scripts/fixtures.mjs from pinned scaffolds.
 conformance/fixtures
+release

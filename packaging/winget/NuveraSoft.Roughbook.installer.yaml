@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+# The standalone binary in its zip, installed as a portable command named roughbook.
+PackageIdentifier: NuveraSoft.Roughbook
+PackageVersion: __VERSION__
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: roughbook.exe
+    PortableCommandAlias: roughbook
+Installers:
+  - Architecture: x64
+    InstallerUrl: __URL_WINDOWS_X64__
+    InstallerSha256: __SHA256_WINDOWS_X64__
+ManifestType: installer
+ManifestVersion: 1.9.0

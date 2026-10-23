@@ -8,6 +8,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Shell } from '../environment/types.js';
+import { scriptNode } from './runtime.js';
 
 /** A command line as its arguments: split on spaces, with single and double quotes kept whole. */
 export function parseCommandLine(line: string): string[] {
@@ -33,12 +34,13 @@ export function parseCommandLine(line: string): string[] {
 }
 
 /**
- * Where npm's and npx's own scripts are, beside the Node.js running the studio: under its folder
- * on Windows, under ../lib on other systems. Null when not there (a Node.js installed another way).
+ * Where npm's and npx's own scripts are, beside the Node.js that runs scripts for the studio (the
+ * PATH's in the standalone binary): under its folder on Windows, under ../lib on other systems.
+ * Null when not there (a Node.js installed another way, or none).
  */
 export function npmScript(
   name: 'npm' | 'npx',
-  node: string = process.execPath,
+  node: string = scriptNode() ?? process.execPath,
   platform: NodeJS.Platform = process.platform,
   exists: (file: string) => boolean = fs.existsSync
 ): string | null {
@@ -90,7 +92,7 @@ export function programOf(line: string, shell: Shell): string[] {
  */
 export function resolveCommandLine(
   line: string,
-  node: string = process.execPath,
+  node: string = scriptNode() ?? process.execPath,
   platform: NodeJS.Platform = process.platform,
   exists: (file: string) => boolean = fs.existsSync,
   shell: Shell = 'none'

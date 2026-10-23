@@ -425,6 +425,31 @@ describe('the kept browser', () => {
     await browser.close();
   });
 
+  it('answers no screenshot, and does not crash, when the browser dies as it starts', async () => {
+    // Chromium with no usable sandbox (a container) exits at once, and its pipe breaks.
+    const spawn = () => {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      setImmediate(() => {
+        output.destroy(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+        input.destroy(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+      });
+      return { exitCode: null, stdio: [null, null, null, input, output], kill() {}, on() {} };
+    };
+    const browser = new KeptBrowser('/fake/chromium', { spawn, settleMs: 0 });
+    const dir = await tempDir('roughbook-browser-');
+    const shot = await takeScreenshot({
+      browser,
+      url: 'http://localhost:3000/rough-preview/home/hero/iteration-01',
+      file: path.join(dir, 'none.png'),
+      size: { width: 1440, height: 900, mobile: false },
+      overlays: []
+    });
+    assert.ok(!shot);
+    assert.ok(!fs.existsSync(path.join(dir, 'none.png')));
+    await browser.close();
+  });
+
   it('waits again for a page that reloads itself while it settles, as a loading screen does', async () => {
     const fake = fakeBrowser({ reloadOnce: true });
     const browser = new KeptBrowser('/fake/chrome', { spawn: fake.spawn, settleMs: 0 });

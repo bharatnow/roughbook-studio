@@ -12,6 +12,7 @@ import {
   type ServerCommand,
   type Where
 } from '../mcp/install.js';
+import { standaloneBinary } from '../launch/runtime.js';
 import { McpServer, serveStdio } from '../mcp/server.js';
 import { INSTRUCTIONS, studioTools } from '../mcp/tools.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -130,6 +131,7 @@ async function install(args: string[], context: CommandContext): Promise<number>
     platform: context.platform,
     node: process.execPath,
     ...thisStudio(),
+    binary: standaloneBinary(),
     devUrl: values['dev-url'] ? devUrl(values['dev-url'], context.env) : undefined,
     // The folder as resolved here, since an editor starts the server in a folder of its own.
     configDir: context.env.ROUGHBOOK_CONFIG_DIR ? context.configDir : undefined

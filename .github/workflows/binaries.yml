@@ -1,0 +1,37 @@
+# The standalone binaries (packaging/README.md), built on each system and kept as the run's
+# artifacts: the macOS ones need a Mac to be signed. Started by hand only; it publishes nothing.
+# The owner downloads the artifacts into one release/ folder, runs
+# `npm run binary -- --manifests`, and releases from there.
+name: Binaries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.targets }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            targets: linux-x64,linux-arm64
+          - os: windows-latest
+            targets: windows-x64
+          - os: macos-latest
+            targets: darwin-x64,darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run binary -- --target ${{ matrix.targets }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roughbook-${{ matrix.os }}
+          path: release/roughbook-*
+          if-no-files-found: error

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json
+# A template: npm run binary -- --manifests fills it into release/manifests/winget/, laid out as
+# microsoft/winget-pkgs keeps it (manifests/n/NuveraSoft/Roughbook/<version>/).
+PackageIdentifier: NuveraSoft.Roughbook
+PackageVersion: __VERSION__
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

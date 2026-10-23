@@ -173,6 +173,10 @@ class Pipe {
     private readonly output: Writable,
     input: Readable
   ) {
+    // A browser that dies, one that cannot start among them (Chromium with no usable sandbox),
+    // breaks the pipe: its calls fail, and nothing throws out of the studio's process.
+    input.on('error', () => this.dispose());
+    output.on('error', () => this.dispose());
     input.on('data', (chunk: Buffer) => {
       this.buffer += chunk.toString('utf8');
       let end: number;

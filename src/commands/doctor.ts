@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
+import type { DoctorResultBody } from '../api/types.js';
 import { exitCodeFor, redactedReport, renderReport, runDoctor } from '../doctor/run.js';
 import type { DoctorReport } from '../doctor/types.js';
 import { readEnvironment } from '../environment/read.js';
@@ -60,19 +61,36 @@ export async function runDoctorHere(
   );
 
   const setup = await openSetup(repoRoot);
+  let ended: DoctorResultBody['setup'];
   if (setup) {
+    const finishedAt = new Date();
     await saveSetup(repoRoot, {
       ...setup,
-      finishedAt: new Date().toISOString(),
+      finishedAt: finishedAt.toISOString(),
       doctor: report.outcome
     });
+    ended = { kind: setup.kind, seconds: setupSeconds(setup.startedAt, finishedAt) };
   }
-  await tellServer(context, link, report);
+  await tellServer(context, link, report, ended);
   return report;
 }
 
-/** Doctor's result goes to the server with the stack tokens (decision 15); quietly, as a courtesy. */
-async function tellServer(context: CommandContext, link: RepoLink, report: DoctorReport) {
+/** How long a setup run took, start to the doctor that ended it, in whole seconds (30 days at most). */
+export function setupSeconds(startedAt: string, finishedAt: Date): number {
+  const elapsed = Math.round((finishedAt.getTime() - Date.parse(startedAt)) / 1000);
+  return Number.isFinite(elapsed) ? Math.min(Math.max(elapsed, 0), 2_592_000) : 0;
+}
+
+/**
+ * Doctor's result goes to the server with the stack tokens (decision 15), the recipe or none, and
+ * the setup run it ended, for analytics by stack; quietly, as a courtesy.
+ */
+async function tellServer(
+  context: CommandContext,
+  link: RepoLink,
+  report: DoctorReport,
+  setup: DoctorResultBody['setup']
+) {
   try {
     const local = await readLocalLink(context.repoRoot!);
     const { api } = await openApi(context);
@@ -82,7 +100,9 @@ async function tellServer(context: CommandContext, link: RepoLink, report: Docto
       mode: report.environment.mode,
       family: report.environment.family,
       stack: report.environment.stack,
-      failed: report.checks.filter(check => check.status === 'fail').map(check => check.id)
+      failed: report.checks.filter(check => check.status === 'fail').map(check => check.id),
+      recipe: report.environment.recipe,
+      ...(setup ? { setup } : {})
     });
   } catch {
     // The report on the screen is what matters; the server hears about it next time.

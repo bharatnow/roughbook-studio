@@ -180,9 +180,10 @@ export function thisStudio(): { cli: string; tsx: string | null } {
 
 /**
  * How an editor starts this studio's server: this Node with this install's script, which needs
- * no shell or PATH on any OS; or npx, when this copy is npx's own temporary one. `configDir` is
- * the settings folder `ROUGHBOOK_CONFIG_DIR` gave this studio, when it gave one; without it the
- * server reads the default folder, as before.
+ * no shell or PATH on any OS; the standalone binary itself, which is its own runtime (its script
+ * lives in a cache folder that changes with each version); or npx, when this copy is npx's own
+ * temporary one. `configDir` is the settings folder `ROUGHBOOK_CONFIG_DIR` gave this studio,
+ * when it gave one; without it the server reads the default folder, as before.
  */
 export function serverCommand(options: {
   platform: NodeJS.Platform;
@@ -191,9 +192,12 @@ export function serverCommand(options: {
   tsx: string | null;
   devUrl?: string;
   configDir?: string;
+  /** This studio is the standalone binary, `node` its path. */
+  binary?: boolean;
 }): ServerCommand {
   const extra = options.devUrl ? ['--dev-url', options.devUrl] : [];
   const env = options.configDir ? { env: { ROUGHBOOK_CONFIG_DIR: options.configDir } } : {};
+  if (options.binary) return { command: options.node, args: ['mcp', ...extra], ...env };
   if (/[\\/]_npx[\\/]/.test(options.cli)) {
     // npx is a .cmd script on Windows, which only a shell can start.
     const npx = ['npx', '-y', SERVER_NAME, 'mcp', ...extra];

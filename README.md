@@ -9,7 +9,8 @@ studio links a repo to a Roughbook project, writes each iteration's prompt into 
 to your agent, checks what came back, and lets you review, select and promote from a local UI.
 Your code stays on your machine: the server only ever sees ids, review decisions and run metadata.
 
-Runs on Windows, macOS and Linux, with Node 22 or later.
+Runs on Windows, macOS and Linux: from npm with Node 22 or later, or as a standalone binary that
+needs no Node.js.
 
 ## Install
 
@@ -23,6 +24,31 @@ roughbook start
 Installed once, `roughbook` runs as it is, with no version and no `npx`. `npm install -g
 roughbook@latest` updates it. `npx roughbook <command>` works without installing, but npx keeps
 its own copy and asks before fetching each new one.
+
+### Without Node.js
+
+PHP, Python, Ruby, Go, Flutter, iOS and Android teams often have no Node.js, so the studio also
+ships as one executable that carries its own runtime (decision 35 of the frameworks plan):
+
+```bash
+# macOS and Linux
+curl -fsSL https://github.com/bharatnow/roughbook-studio/releases/latest/download/install.sh | sh
+# Windows, in PowerShell
+irm https://github.com/bharatnow/roughbook-studio/releases/latest/download/install.ps1 | iex
+# or a package manager
+brew install bharatnow/roughbook/roughbook
+winget install NuveraSoft.Roughbook
+scoop bucket add roughbook https://github.com/bharatnow/scoop-roughbook
+scoop install roughbook
+```
+
+The binaries are for Windows x64, macOS (Apple silicon and Intel) and Linux x64 and arm64 with
+glibc (not Alpine). The first run unpacks the same files `npm install -g roughbook` would put down
+into a cache folder (`~/.cache/roughbook`, `~/Library/Caches/roughbook` or
+`%LOCALAPPDATA%\roughbook\cache`; `ROUGHBOOK_CACHE_DIR` names another), once per version. The
+binary runs everything the npm package does; npm, npx and an agent's npm-installed script, which
+are not inside it, run on the Node.js on the PATH when a stack needs them. `packaging/README.md`
+says how the binaries are built and released.
 
 ## Commands
 
@@ -414,6 +440,23 @@ folder with the stack's own scaffold. In the launch order:
 
 Each has a fixture in the conformance suite (below). Shopify's previews need a store you signed in
 to; SwiftUI's need a Mac.
+
+### Support tiers
+
+What the site, the install page and these docs promise, from one list, `src/recipes/support.json`,
+which the web carries byte for byte:
+
+| Tier       | Stacks                                                                                               | Means                                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recipe     | Next.js, Vite with React, WordPress themes, Laravel with Blade, Expo, Vue with Nuxt, Jetpack Compose | The conformance suite passes on Windows and Linux (macOS is not run yet)                                                                                 |
+| Unverified | Shopify themes, Flutter, SwiftUI                                                                     | The recipe is written and tested without a real run (no development store signed in, no Flutter SDK, no Mac), so `new` and `init` say so; doctor decides |
+| Verified   | Any other stack your coding agent can write                                                          | No recipe: the setup run's agent builds the preview setup, and `roughbook doctor` proves it on your repo                                                 |
+
+Prerequisites per stack are the programs its commands and scaffold run, as doctor's step 0 looks
+for them: Git everywhere; Node.js for Next.js, Vite, WordPress (with Docker), Shopify (with the
+Shopify CLI), Laravel (with PHP 8 and Composer), Expo and Nuxt; the Flutter SDK; Xcode on a Mac for
+SwiftUI; a Java runtime for Compose (and Gradle to start a new app). Screenshots and doctor need
+Chrome, Chromium or Edge.
 
 ## Doctor
 

@@ -24,7 +24,8 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "quiet-budget": "tsx src/tests/quiet-budget.ts",
     "fixtures": "node scripts/fixtures.mjs",
-    "conformance": "node conformance/run.mjs"
+    "conformance": "node conformance/run.mjs",
+    "binary": "node scripts/binary.mjs"
   },
   "repository": {
     "type": "git",

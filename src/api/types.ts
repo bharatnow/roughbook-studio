@@ -69,6 +69,10 @@ export type DoctorResultBody = {
   family: string;
   stack: string[];
   failed: string[];
+  /** The recipe the setup came from, or null for one the designer's agent built (the verified tier). */
+  recipe: string | null;
+  /** The setup run this doctor ended, if one was open: its kind and how long it took. */
+  setup?: { kind: 'setup' | 'fix'; seconds: number };
 };
 
 /** An iteration as the server records it: metadata only, never its code. */

@@ -156,7 +156,14 @@ describe('roughbook new', () => {
       io.lines.some(line => /^ {2}1\. Next\.js/.test(line)),
       io.lines.join('\n')
     );
-    assert.ok(io.lines.some(line => /^ {2}2\. Vite with React/.test(line)));
+    assert.ok(io.lines.some(line => /^ {2}2\. Vite with React \(vite\)$/.test(line)));
+    // A recipe not yet proven says so in the list (support.json), and a passing one says nothing.
+    assert.ok(
+      io.lines.some(line =>
+        /^ {2}7\. Flutter \(flutter\), not yet proven: .*roughbook doctor decides/.test(line)
+      ),
+      io.lines.join('\n')
+    );
     assert.match(ran[0]!.line, /create-vite@9 shop-app/);
   });
 

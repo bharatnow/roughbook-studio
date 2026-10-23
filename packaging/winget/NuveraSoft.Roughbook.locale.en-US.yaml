@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: NuveraSoft.Roughbook
+PackageVersion: __VERSION__
+PackageLocale: en-US
+Publisher: NuveraSoft
+PublisherUrl: https://github.com/bharatnow
+PackageName: Roughbook
+PackageUrl: https://github.com/bharatnow/roughbook-studio
+License: Apache-2.0
+LicenseUrl: https://github.com/bharatnow/roughbook-studio/blob/main/LICENSE
+ShortDescription: Design iterations inside your own repo, with the coding agent and editor you already use.
+Description: |-
+  The Roughbook studio: a command, roughbook, with a local UI built in. It links your app's
+  repository to a Roughbook project, has your coding agent write design iterations in the app's
+  own stack, previews them through the app, and keeps the reviews on the Roughbook site. This is
+  the standalone binary, with its own Node.js runtime.
+Moniker: roughbook
+Tags:
+  - cli
+  - design
+  - design-tools
+  - developer-tools
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

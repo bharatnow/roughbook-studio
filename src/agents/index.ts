@@ -1,5 +1,6 @@
 import os from 'node:os';
 import { hostPlatform } from '../launch/platform.js';
+import { scriptNode } from '../launch/runtime.js';
 import type { Lookup } from '../launch/which.js';
 import type { RunAgent } from '../runs/types.js';
 import { antigravityCli } from './antigravityCli.js';
@@ -26,7 +27,12 @@ export function adapterFor(id: RunAgent): AgentAdapter {
 
 /** Where to look for agents on this machine. */
 export function hostLookup(env: NodeJS.ProcessEnv): Lookup {
-  return { env, platform: hostPlatform(), home: os.homedir(), node: process.execPath };
+  return {
+    env,
+    platform: hostPlatform(),
+    home: os.homedir(),
+    node: scriptNode(env) ?? process.execPath
+  };
 }
 
 /** What each agent is on this machine: found or not, its version, sign-in, and headless rule. */

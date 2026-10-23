@@ -14,6 +14,7 @@ import { currentOs } from '../launch/platform.js';
 import { runVisible } from '../launch/processes.js';
 import { findProgramOnPath } from '../launch/which.js';
 import { RECIPES, recipeFor } from '../recipes/index.js';
+import { supportNote } from '../recipes/support.js';
 import { installHint } from '../recipes/tools.js';
 import type { Recipe, ScaffoldStep } from '../recipes/types.js';
 import { gitInit } from '../repo/git.js';
@@ -59,7 +60,10 @@ async function chooseRecipe(context: CommandContext, named: string | undefined):
     return recipe;
   }
   io.out('Which stack is the new app on?');
-  all.forEach((recipe, index) => io.out(`  ${index + 1}. ${recipe.name} (${recipe.id})`));
+  all.forEach((recipe, index) => {
+    const note = supportNote(recipe.id);
+    io.out(`  ${index + 1}. ${recipe.name} (${recipe.id})${note ? `, ${note}` : ''}`);
+  });
   const answer = (await io.ask('Stack: '))?.trim().toLowerCase();
   if (!answer) throw new Error('Name the stack: roughbook new <recipe> <folder>.');
   const chosen = /^\d+$/.test(answer)
@@ -146,6 +150,8 @@ export const create: Command = {
     const windows = currentOs(context.platform) === 'windows';
     const steps = scaffold.steps(name);
     io.out(`A ${recipe.name} app in ${dir}, with ${scaffold.tool}:`);
+    const note = supportNote(recipe.id);
+    if (note) io.out(`  The ${recipe.name} recipe is ${note}.`);
     for (const step of steps) {
       const run = resolved(step, windows);
       io.out(

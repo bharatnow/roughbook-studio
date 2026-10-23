@@ -6,6 +6,7 @@ import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironment } from '../enviro
 import { confirm, type Io } from '../io.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
 import { RECIPES, fallbackRecipe, recipeFor } from '../recipes/index.js';
+import { supportNote } from '../recipes/support.js';
 import { changedLines } from '../repo/diff.js';
 import { gitInit } from '../repo/git.js';
 import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../repo/link.js';
@@ -236,6 +237,8 @@ export const init: Command = {
       );
     } else if (recipe) {
       io.out(`The ${recipe.name} recipe fits: init writes its preview setup.`);
+      const note = supportNote(recipe.id);
+      if (note) io.out(`The ${recipe.name} recipe is ${note}.`);
     } else {
       io.out(
         `No recipe fits${detected.guess ? ` ${detected.guess}` : ''}: your agent builds the preview setup in a setup run (roughbook setup), and roughbook doctor checks it.`
