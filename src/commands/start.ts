@@ -98,7 +98,13 @@ async function startApp(
     io.out(`${where}. Start the app there: ${command}`);
     return;
   }
-  const approved = await approveEnvironment(context, repoRoot, environment, false);
+  const approved = await approveEnvironment(
+    context,
+    repoRoot,
+    environment,
+    false,
+    'Run roughbook doctor in a terminal and approve them, or roughbook doctor --yes once you have read them.'
+  );
   if (!approved) {
     io.out(`${where}. Start the app there yourself: ${command}`);
     return;

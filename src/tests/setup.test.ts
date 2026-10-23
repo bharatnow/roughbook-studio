@@ -350,6 +350,33 @@ describe('command approval', () => {
     );
   });
 
+  it('with nobody to answer (no terminal), approves nothing and says how; --yes approves', async () => {
+    const repo = await setupRepo({ applied: true });
+    const tools = fakeDoctorTools(repo);
+    const environment = readEnvironmentSync(repo, LINK);
+    // No answers: the recorder answers null, as the terminal does when stdin is not a TTY.
+    const { io, run } = await studio(repo, {}, { doctorTools: tools });
+    await run(['doctor']);
+    assert.equal(unapprovedCommands(environment, await readApprovals(repo)).length, 2);
+    assert.ok(
+      io.lines.some(line =>
+        /Nobody can answer here \(no terminal\), so none is approved.*--yes/.test(line)
+      ),
+      io.lines.join('\n')
+    );
+    assert.deepEqual(tools.served, [], 'doctor ran no unapproved command');
+    assert.deepEqual(tools.built, []);
+
+    // setup --apply: the templates are in place already, and nobody answers for the commands.
+    assert.equal(await run(['setup', '--apply']), 0, io.errors.join('\n'));
+    assert.equal(unapprovedCommands(environment, await readApprovals(repo)).length, 2);
+    assert.equal(io.questions.filter(question => /^Approve them here\?/.test(question)).length, 2);
+
+    // The flag is the explicit approval, with or without a terminal.
+    assert.equal(await run(['setup', '--apply', '--yes']), 0, io.errors.join('\n'));
+    assert.deepEqual(unapprovedCommands(environment, await readApprovals(repo)), []);
+  });
+
   it('starts a declared shell by name with the line as its one command, never the machine’s default', () => {
     assert.deepEqual(shellInvocation('bash', 'php artisan serve'), {
       command: 'bash',
@@ -660,6 +687,27 @@ describe('roughbook init on a repo with no recipe', () => {
     for (const request of requests) {
       assert.ok(!JSON.stringify(request.body ?? {}).includes(repo.replace(/\\/g, '/')));
     }
+  });
+
+  it('with nobody to answer the last question, opens no agent', async () => {
+    const repo = await setupRepo();
+    fs.rmSync(path.join(repo, 'rough'), { recursive: true });
+    fs.rmSync(path.join(repo, 'composer.json'));
+    fs.rmSync(path.join(repo, 'artisan'));
+    write(repo, 'Gemfile', 'source "https://rubygems.org"\ngem "rails", "~> 8.0"\n');
+    const { io, plans, run } = await studio(
+      repo,
+      {
+        'GET /projects': projectsRoute,
+        [`POST /orgs/${ORG}/links`]: linkRoute,
+        [`GET /orgs/${ORG}/projects/site/setup-prompt`]: () => ok(SETUP_PROMPT)
+      },
+      // The project, commit rough/ and apply; then nobody answers whether to start the run.
+      { answers: ['1', '', ''] }
+    );
+    assert.equal(await run(['init']), 0, io.errors.join('\n'));
+    assert.equal(plans.length, 0);
+    assert.ok(io.lines.some(line => /Next, run roughbook setup/.test(line)));
   });
 
   it('on a clone with the environment and templates, applies them, approves the commands and runs doctor when the app answers', async () => {

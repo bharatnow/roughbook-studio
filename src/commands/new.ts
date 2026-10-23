@@ -9,7 +9,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { hostLookup } from '../agents/index.js';
 import type { Shell } from '../environment/types.js';
-import { confirm } from '../io.js';
+import { askYesNo, NOBODY_ANSWERS } from '../io.js';
 import { currentOs } from '../launch/platform.js';
 import { runVisible } from '../launch/processes.js';
 import { findProgramOnPath } from '../launch/which.js';
@@ -161,9 +161,16 @@ export const create: Command = {
       );
     }
     io.out('  then git init, and roughbook init to link it and write its preview setup.');
-    if (!values.yes && !(await confirm(io, 'Make it?', true))) {
-      io.out('Nothing was made.');
-      return 0;
+    if (!values.yes) {
+      const make = await askYesNo(io, 'Make it?', true);
+      if (make === null) {
+        io.err(`${NOBODY_ANSWERS}, so nothing was made. Run it again with --yes to make it.`);
+        return 1;
+      }
+      if (!make) {
+        io.out('Nothing was made.');
+        return 0;
+      }
     }
 
     for (const step of steps) {

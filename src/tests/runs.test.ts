@@ -13,7 +13,8 @@ import { createSlot, finishingSection, handoffLine, isPlaceholder } from '../run
 import { revertFile } from '../runs/snapshot.js';
 import { listRuns, namesRun, readRun } from '../runs/store.js';
 import type { Check, StartRunRequest, StartedRun } from '../runs/types.js';
-import { watchedPath } from '../runs/watch.js';
+import { hostPlatform } from '../launch/platform.js';
+import { watchRepo, watchedPath } from '../runs/watch.js';
 import { fakeFetch, ok, refused, tempDir, type RecordedRequest } from './helpers.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -450,3 +451,119 @@ describe('checks and scope', () => {
     assert.equal(watchedPath('src\\app\\page.tsx'), 'src/app/page.tsx');
   });
 });
+
+describe('the watcher behind the open UI', () => {
+  /** A repo with dependencies, the app, the studio's state and screenshots, and one iteration. */
+  async function watchedRepo(dependencies = 60): Promise<string> {
+    const repo = await tempDir('roughbook-watch-');
+    for (let index = 0; index < dependencies; index++) {
+      write(repo, `node_modules/pkg-${index % 40}/lib/${index}/file.js`, '');
+    }
+    write(repo, 'src/app/page.tsx', '');
+    write(repo, 'rough/roughbook.json', '{}');
+    write(repo, 'rough/environment.md', '---\ncontract: 1\n---\n');
+    write(repo, 'rough/.roughbook/runs/x.json', '{}');
+    write(repo, 'rough/.screenshots/home/hero/iteration-01/light.png', '');
+    write(repo, 'rough/vendor/kept.txt', '');
+    write(repo, 'rough/home/hero/iteration-01/index.tsx', '');
+    return repo;
+  }
+
+  async function seen(changes: string[], file: string): Promise<void> {
+    for (let tries = 0; tries < 200 && !changes.includes(file); tries++) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.ok(changes.includes(file), `${file} was not reported; reported: ${changes.join(', ')}`);
+  }
+
+  for (const os of ['linux', 'macos', 'windows'] as const) {
+    it(`watches rough/ only, never the app or its dependencies, and honours the ignore list (${os})`, async () => {
+      const repo = await watchedRepo();
+      const watched: [string, boolean][] = [];
+      const changes: string[] = [];
+      const stop = watchRepo(repo, file => changes.push(file), ['node_modules', 'rough/vendor'], {
+        os,
+        watch: (dir, options, listener) => {
+          watched.push([
+            path.relative(repo, dir).split(path.sep).join('/'),
+            Boolean(options.recursive)
+          ]);
+          return fs.watch(dir, options, listener);
+        }
+      });
+      try {
+        // Linux watches folder by folder (Node's recursive watch there opens one inotify watch
+        // per file and folder of the tree); the others watch rough/ natively, in one.
+        assert.deepEqual(
+          watched.sort(),
+          os === 'linux'
+            ? [
+                ['rough', false],
+                ['rough/home', false],
+                ['rough/home/hero', false],
+                ['rough/home/hero/iteration-01', false]
+              ]
+            : [['rough', true]]
+        );
+        write(repo, 'rough/home/hero/iteration-01/index.tsx', 'export default 1;\n');
+        await seen(changes, 'rough/home/hero/iteration-01/index.tsx');
+        // A new iteration's folder is watched as it appears, and what is already in it reported.
+        write(repo, 'rough/home/hero/iteration-02/index.tsx', 'export default 2;\n');
+        await seen(changes, 'rough/home/hero/iteration-02/index.tsx');
+        write(repo, 'rough/environment.md', '---\ncontract: 1\nrecipe: next\n---\n');
+        await seen(changes, 'rough/environment.md');
+        write(repo, 'src/app/page.tsx', 'changed');
+        write(repo, 'node_modules/pkg-1/lib/1/file.js', 'changed');
+        write(repo, 'rough/.roughbook/runs/x.json', '{"changed":true}');
+        write(repo, 'rough/.screenshots/home/hero/iteration-01/light.png', 'changed');
+        write(repo, 'rough/vendor/kept.txt', 'changed');
+        write(repo, 'rough/home/hero/iteration-01/marker.txt', '');
+        await seen(changes, 'rough/home/hero/iteration-01/marker.txt');
+        assert.deepEqual(
+          changes.filter(file => !file.startsWith('rough/home') && file !== 'rough/environment.md'),
+          [],
+          'nothing outside rough/, and nothing ignored'
+        );
+        if (os === 'linux') {
+          assert.ok(watched.some(([dir]) => dir === 'rough/home/hero/iteration-02'));
+          assert.ok(
+            !watched.some(([dir]) => /node_modules|\.roughbook|\.screenshots|vendor/.test(dir))
+          );
+        }
+      } finally {
+        stop();
+      }
+    });
+  }
+
+  it(
+    'puts a few inotify watches on a repo with big dependencies, not one per file (Linux)',
+    { skip: hostPlatform() === 'linux' ? false : 'inotify is Linux only' },
+    async () => {
+      // Kernels before 5.11 allow 8192 watches per user, shared with the app's own dev server.
+      const repo = await watchedRepo(3000);
+      const before = inotifyWatches();
+      const stop = watchRepo(repo, () => {}, ['node_modules']);
+      try {
+        const added = inotifyWatches() - before;
+        assert.ok(added > 0 && added <= 8, `${added} inotify watches for rough/'s folders`);
+      } finally {
+        stop();
+      }
+    }
+  );
+});
+
+/** The inotify watches this process holds, from its file descriptors' info (Linux only). */
+function inotifyWatches(): number {
+  let count = 0;
+  for (const fd of fs.readdirSync('/proc/self/fdinfo')) {
+    try {
+      const info = fs.readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8');
+      count += info.split('\n').filter(line => line.startsWith('inotify wd:')).length;
+    } catch {
+      // A descriptor closed while it was read.
+    }
+  }
+  return count;
+}

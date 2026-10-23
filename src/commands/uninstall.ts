@@ -44,11 +44,19 @@ export const uninstall: Command = {
       const text = fs.readFileSync(file, 'utf8');
       return withoutSnippet(text, snippet.text) !== text.replace(/\r\n/g, '\n');
     });
+    // A recipe's edits inside the app's own files, each with the file as it was before it.
+    const recipeEdits = (recipe?.edits?.(repoRoot, link) ?? []).flatMap(edit => {
+      const file = path.join(repoRoot, ...edit.file.split('/'));
+      if (!fs.existsSync(file)) return [];
+      const before = edit.undo(fs.readFileSync(file, 'utf8'));
+      return before === null ? [] : [{ file: edit.file, before }];
+    });
     const listed = [
       ...environment.setupFiles.map(file =>
         file.kind === 'snippet' ? `the snippet in ${file.path}` : file.path
       ),
-      ...recipeSnippets.map(snippet => `the recipe's lines in ${snippet.file}`)
+      ...recipeSnippets.map(snippet => `the recipe's lines in ${snippet.file}`),
+      ...recipeEdits.map(edit => `the recipe's edit in ${edit.file}`)
     ];
     if (!listed.length && !recipeFiles.length) {
       io.out(
@@ -70,6 +78,10 @@ export const uninstall: Command = {
       const file = path.join(repoRoot, ...snippet.file.split('/'));
       fs.writeFileSync(file, withoutSnippet(fs.readFileSync(file, 'utf8'), snippet.text));
       removal.removed.push(`the recipe's lines in ${snippet.file}`);
+    }
+    for (const edit of recipeEdits) {
+      fs.writeFileSync(path.join(repoRoot, ...edit.file.split('/')), edit.before);
+      removal.removed.push(`the recipe's edit in ${edit.file}`);
     }
     for (const file of recipeFiles) {
       fs.rmSync(path.join(repoRoot, ...file.split('/')), { force: true });

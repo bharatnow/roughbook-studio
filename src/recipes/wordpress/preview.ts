@@ -10,19 +10,55 @@
 //
 // Nothing of it is in the theme: a production site has neither the plugin nor its mapping, and
 // with WP_ENVIRONMENT_TYPE set to production the plugin answers its address with 404 anyway.
+//
+// rough/ itself is in the theme's folder, committed, so a deploy of the theme puts it on the live
+// site, where the web server may be asked for its files directly. There it is inert: every PHP
+// file starts with GUARD, which stops it outside WordPress (the plugin includes them inside), and
+// rough/.htaccess refuses the folder on Apache and LiteSpeed. A release zip leaves it out
+// (.distignore), and doctor's gate asks the theme's copy of it for the sample's own files.
 import fs from 'node:fs';
 import path from 'node:path';
+import { covers } from '../../repo/plan.js';
 import { ROUGH_DIR } from '../../repo/root.js';
 
 export const PLUGIN_FILE = `${ROUGH_DIR}/preview-plugin.php`;
 export const OVERRIDE_FILE = '.wp-env.override.json';
 export const PRODUCTION_CONFIG = '.wp-env.rough-production.json';
 export const WRAPPER = `${ROUGH_DIR}/preview.php`;
+export const DENY_FILE = `${ROUGH_DIR}/.htaccess`;
+export const RELEASE_LIST = '.distignore';
 export const ENTRY = 'index.php';
 export const FIXTURE = 'preview.json';
 export const PORT = 8888;
 export const PRODUCTION_PORT = 8891;
 const MARKER = 'Roughbook preview';
+
+/** The first statement of every PHP file in rough/: outside WordPress, the file does nothing. */
+export const GUARD = "defined( 'ABSPATH' ) || exit;";
+
+/** rough/.htaccess: Apache 2.4 and 2.2, and LiteSpeed, refuse every file in rough/. */
+export const DENY = `# Written by Roughbook. rough/ holds design iterations, never part of the live site: a web
+# server that reads this file refuses everything in the folder.
+<IfModule mod_authz_core.c>
+	Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+	Order allow,deny
+	Deny from all
+</IfModule>
+`;
+
+export function isOurDeny(text: string | null): boolean {
+  return Boolean(text?.startsWith('# Written by Roughbook.'));
+}
+
+/** A theme's .distignore with rough/ in it, in the file's own line endings; null when it is. */
+export function withRoughReleased(text: string): string | null {
+  if (text.split(/\r?\n/).some(line => line.trim() && covers(line, ROUGH_DIR))) return null;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const body = text.length && !/\r?\n$/.test(text) ? `${text}${eol}` : text;
+  return `${body}${ROUGH_DIR}${eol}`;
+}
 
 /** Where wp-env puts the plugin and rough/ inside WordPress. */
 export const MAPPINGS = {
@@ -35,6 +71,7 @@ export const PREVIEW_PLUGIN = `<?php
  * Plugin Name: ${MARKER}
  * Description: Development only, not committed (see .gitignore). wp-env maps it into wp-content/mu-plugins/ (${OVERRIDE_FILE}), with ${ROUGH_DIR}/ at wp-content/rough/. It shows one iteration at /?rough_preview=<page>/<component>/<iteration>, only when WordPress runs in the local environment. Written by roughbook init from the WordPress recipe, which rewrites it (roughbook setup --upgrade).
  */
+${GUARD}
 
 /** A page that says what went wrong, and posts it to the Roughbook studio (rough/CONTRACT.md, point 3). */
 function roughbook_preview_failed( int $status, string $key, string $message ): void {
@@ -59,7 +96,8 @@ add_action(
 		if ( 'local' !== wp_get_environment_type() ) {
 			roughbook_preview_failed( 404, $key, 'Not found.' );
 		}
-		// Loopback only: a site reachable on the network shows nothing from ${ROUGH_DIR}/ (contract point 5).
+		// Asked by another name than this machine's, it shows nothing from ${ROUGH_DIR}/ (contract point 5). A
+		// request can name localhost, and wp-env serves every interface: this holds against a browser only.
 		$host = strtolower( preg_replace( '/:\\d+$/', '', (string) ( $_SERVER['HTTP_HOST'] ?? '' ) ) );
 		if ( ! in_array( $host, array( 'localhost', '127.0.0.1', '[::1]' ), true ) ) {
 			roughbook_preview_failed( 404, $key, 'The preview answers this machine only.' );
@@ -117,7 +155,9 @@ export const PREVIEW_WRAPPER = `<?php
  * have them (block_template_part( 'header' )).
  *
  * In scope: $iteration (the iteration, rendered), $key, and $variant (scheme, dir, lang, large).
+ * Its first statement keeps it inert where a live site's web server is asked for it directly.
  */
+${GUARD}
 ?><!DOCTYPE html>
 <html lang="<?php echo esc_attr( $variant['lang'] ? $variant['lang'] : get_bloginfo( 'language' ) ); ?>" dir="<?php echo esc_attr( $variant['dir'] ); ?>" class="<?php echo 'dark' === $variant['scheme'] ? 'dark' : ''; ?>" style="color-scheme: <?php echo esc_attr( $variant['scheme'] ); ?>;<?php echo $variant['large'] ? ' font-size: 125%;' : ''; ?>">
 <head>
@@ -171,6 +211,25 @@ export function productionConfig(repo: string): string {
   config.config = { ...(own.config ?? {}), WP_ENVIRONMENT_TYPE: 'production', WP_DEBUG: false };
   config.mappings = { ...(own.mappings ?? {}), ...MAPPINGS };
   return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+/**
+ * The theme's folder under wp-content/themes/ in wp-env's WordPress, which names a local theme by
+ * its folder: the repo's, when the repo is the theme (wp-env's default, or "." in its themes).
+ * Null when .wp-env.json names other themes only.
+ */
+export function themeFolder(repo: string): string | null {
+  let themes: unknown;
+  try {
+    themes = (JSON.parse(fs.readFileSync(path.join(repo, '.wp-env.json'), 'utf8')) as WpEnvConfig)
+      .themes;
+  } catch {
+    themes = undefined;
+  }
+  const isRepo = (entry: unknown) =>
+    typeof entry === 'string' && path.resolve(repo, entry) === path.resolve(repo);
+  if (Array.isArray(themes) && !themes.some(isRepo)) return null;
+  return path.basename(path.resolve(repo));
 }
 
 /** Whether a wp-env file is the recipe's own: it maps the preview plugin. */

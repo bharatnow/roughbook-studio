@@ -4,6 +4,7 @@
 // say how a preview is started, gated and checked, and as `roughbook new` scaffolds each. The
 // stacks' own tools do not run here: each recipe's fixture runs them in the conformance suite.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -502,6 +503,84 @@ describe('the WordPress recipe', () => {
       read(repo, '.wp-env.rough-production.json'),
       /"WP_ENVIRONMENT_TYPE": "production"/
     );
+  });
+
+  it('keeps rough/ inert on a live site: its PHP exits outside WordPress, the folder is refused, and a release leaves it out', async t => {
+    const parent = await tempDir('roughbook-wp-');
+    const repo = writeScaffold(wordpress, parent, 'harbor-theme');
+    write(repo, '.git/HEAD', 'ref: refs/heads/main\n');
+    // A theme's own release list, without rough/ in it, in the theme's own line endings.
+    write(repo, '.distignore', 'node_modules\r\nroughness-notes\r\n');
+    const files = prepare(repo, wordpress);
+    assert.ok(files.includes('rough/.htaccess'), files.join(', '));
+    assert.ok(files.includes('.distignore'), files.join(', '));
+    const htaccess = read(repo, 'rough/.htaccess');
+    assert.match(htaccess, /Require all denied/);
+    assert.match(htaccess, /Deny from all/);
+    assert.equal(read(repo, '.distignore'), 'node_modules\r\nroughness-notes\r\nrough\r\n');
+    // Committed with rough/, so it goes wherever the theme goes.
+    assert.ok(!ignoredLines(repo).some(line => /htaccess/.test(line)));
+    // A theme with no release list of its own is not given one.
+    const bare = writeScaffold(wordpress, parent, 'bare-theme');
+    fs.rmSync(path.join(bare, '.distignore'));
+    write(bare, '.git/HEAD', 'ref: refs/heads/main\n');
+    assert.ok(!prepare(bare, wordpress).includes('.distignore'));
+    assert.ok(!exists(bare, '.distignore'));
+
+    // Every PHP file the studio writes in rough/: the wrapper, the plugin, a new slot's
+    // placeholder and doctor's samples; and the rules ask the same of the agent's iterations.
+    const guard = /^<\?php\s+(?:\/\*\*[\s\S]*?\*\/\s+)?defined\( 'ABSPATH' \) \|\| exit;/;
+    const samples = wordpress.doctorSamples({
+      marker: 'roughbook-doctor-abc',
+      fixtureNote: 'fixture-1',
+      key: 'doctor-check/sample/iteration-01'
+    });
+    write(repo, 'rough/home/hero/iteration-01/index.php', wordpress.placeholder('index.php'));
+    write(repo, 'rough/doctor/sample/iteration-01/index.php', samples.good['index.php']!);
+    write(repo, 'rough/doctor/sample/iteration-02/index.php', samples.broken['index.php']!);
+    const php = [
+      'rough/preview.php',
+      'rough/preview-plugin.php',
+      'rough/home/hero/iteration-01/index.php',
+      'rough/doctor/sample/iteration-01/index.php',
+      'rough/doctor/sample/iteration-02/index.php'
+    ];
+    for (const file of php) assert.match(read(repo, file), guard, file);
+    assert.match(
+      wordpress.agentRules(wordpress.environment(null)),
+      /<\?php defined\( 'ABSPATH' \) \|\| exit; \?>/
+    );
+
+    if (spawnSync('php', ['-v']).error) {
+      t.skip('PHP is not on the PATH');
+      return;
+    }
+    // Run directly, as a web server runs a PHP file it is asked for: nothing, and no error.
+    for (const file of php) {
+      const direct = spawnSync('php', [path.join(repo, ...file.split('/'))], { encoding: 'utf8' });
+      assert.equal(direct.status, 0, `${file}: ${direct.stdout}${direct.stderr}`);
+      assert.equal(direct.stdout, '', file);
+    }
+    // Included by WordPress, as the plugin includes an iteration: as written.
+    write(
+      parent,
+      'wordpress.php',
+      "<?php\ndefine( 'ABSPATH', __DIR__ . '/' );\nfunction esc_html( $text ) { return htmlspecialchars( (string) $text ); }\n$note = 'fixture-1';\ninclude $argv[1];\n"
+    );
+    const included = (file: string) => {
+      const ran = spawnSync(
+        'php',
+        [path.join(parent, 'wordpress.php'), path.join(repo, ...file.split('/'))],
+        { encoding: 'utf8' }
+      );
+      return `${ran.stdout}${ran.stderr}`;
+    };
+    assert.match(
+      included('rough/doctor/sample/iteration-01/index.php'),
+      /roughbook-doctor-abc[\s\S]*fixture-1/
+    );
+    assert.ok(included('rough/home/hero/iteration-01/index.php').includes(PLACEHOLDER_LINE));
+    assert.match(included('rough/doctor/sample/iteration-02/index.php'), /fails on purpose/);
   });
 });
 

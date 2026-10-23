@@ -34,7 +34,12 @@ import {
   type Stoppable
 } from '../launch/processes.js';
 import type { PtyModule } from '../launch/pty.js';
-import { approveCommands, environmentCommands } from '../repo/approvals.js';
+import {
+  approveCommands,
+  environmentCommands,
+  readApprovals,
+  unapprovedCommands
+} from '../repo/approvals.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
 import { saveRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
@@ -1249,5 +1254,23 @@ start: my-dev-server @ http://localhost:3458
     assert.equal(recipe.code, 0, recipe.io.errors.join('\n'));
     assert.equal(recipe.spawned.length, 1);
     assert.deepEqual(recipe.spawned[0]!.args.slice(-2), ['run', 'dev']);
+  });
+
+  it('with nobody to answer (no terminal), starts nothing and says how to approve the command', async () => {
+    const environment = `---
+contract: 1
+recipe: next
+start: my-dev-server @ http://localhost:3459
+---
+`;
+    const { code, io, spawned, repo } = await studio({ environment });
+    assert.equal(code, 0, io.errors.join('\n'));
+    assert.equal(spawned.length, 0, 'an IDE task or an agent’s shell approved nothing');
+    assert.ok(
+      io.lines.some(line => /no terminal/.test(line) && /roughbook doctor --yes/.test(line)),
+      io.lines.join('\n')
+    );
+    const pending = unapprovedCommands(readEnvironmentSync(repo, LINK), await readApprovals(repo));
+    assert.ok(pending.some(item => item.command === 'my-dev-server'));
   });
 });

@@ -17,6 +17,7 @@ import {
   currentPreviewRegistry,
   detectRouterDir,
   isOurPreviewFile,
+  dependsOn,
   previewRoute,
   previewRouteFile,
   writePreviewRegistry
@@ -67,47 +68,132 @@ const styles = StyleSheet.create({
 });
 `;
 
-/** What the root layout gains: the preview route shown alone, in development only. */
-const LAYOUT_IMPORT = `import { Slot as RoughbookSlot, useSegments as useRoughbookSegments } from "expo-router";`;
-const LAYOUT_LINES = `  // Roughbook, development only: the preview route shows alone, not inside this layout's navigator,
-  // which would send an address it does not know back home (rough/CONTRACT.md, point 2).
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  if (__DEV__ && useRoughbookSegments()[0] === "${PREVIEW_ROUTE}") return <RoughbookSlot />;
-`;
+// What the root layout gains: the preview route shown alone, in development only. A navigator such
+// as the template's tabs sends an address it has no tab for back to the first one, so the route
+// would never show inside it. The layout's own function stays as it is, only no longer the default
+// export; the new default export calls its one hook on every render, then renders the preview
+// route alone or the layout as a component of its own, so every hook of both keeps its order
+// whichever route is open (an early return before the layout's own hooks would break that).
+const WRAPPER_NAME = 'RoughbookRootLayout';
+const NAMESPACE = 'RoughbookRouter';
+
+/** The layout's own default export, as the edit finds it and as uninstall puts it back. */
+const DEFAULT_FUNCTION = /^export default function ([A-Za-z_$][\w$]*)\s*\(/;
+
+/** The edit's import, in the file's own quotes. */
+const layoutImport = (quote: string) =>
+  `import * as ${NAMESPACE} from ${quote}expo-router${quote};`;
+const LAYOUT_IMPORT_LINE = `import \\* as ${NAMESPACE} from ['"]expo-router['"];?[ \\t]*(?:\\r?\\n|$)`;
+
+function layoutWrapper(name: string, quote: string, eol: string): string {
+  return [
+    "// Roughbook, development only: the preview route shows alone, not inside this layout's navigator,",
+    `// which would send an address it does not know back home (rough/CONTRACT.md, point 2). ${name}`,
+    '// renders as a component of its own, so its hooks keep their order on every route; roughbook',
+    '// uninstall puts this file back as it was.',
+    `export default function ${WRAPPER_NAME}() {`,
+    `  const segment = (${NAMESPACE}.useSegments() as readonly string[])[0];`,
+    `  if (__DEV__ && segment === ${quote}${PREVIEW_ROUTE}${quote}) return <${NAMESPACE}.Slot />;`,
+    `  return <${name} />;`,
+    '}'
+  ].join(eol);
+}
+
+/** From the wrapper's first comment line to its closing brace, at the end of the file. */
+const LAYOUT_WRAPPER = new RegExp(
+  `(?:\\r?\\n)?// Roughbook, development only: the preview route shows alone[^\\n]*\\r?\\n(?://[^\\n]*\\r?\\n)*export default function ${WRAPPER_NAME}\\(\\)[\\s\\S]*?\\breturn <([A-Za-z_$][\\w$]*) ?/>;?\\s*\\r?\\n\\}[ \\t]*(?:\\r?\\n)?$`
+);
+
+// F6's edit, never released: an early return first in the layout, which made its hooks conditional.
+const F6_IMPORT = `import { Slot as RoughbookSlot, useSegments as useRoughbookSegments } from "expo-router";`;
+const F6_LINES = [
+  "  // Roughbook, development only: the preview route shows alone, not inside this layout's navigator,",
+  '  // which would send an address it does not know back home (rough/CONTRACT.md, point 2).',
+  '  // eslint-disable-next-line react-hooks/rules-of-hooks',
+  `  if (__DEV__ && useRoughbookSegments()[0] === "${PREVIEW_ROUTE}") return <RoughbookSlot />;`
+];
+
+/** The layout without F6's edit, or null when it does not have it. */
+function withoutF6Edit(text: string): string | null {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = `${F6_LINES.join(eol)}${eol}`;
+  if (!text.includes(`${F6_IMPORT}${eol}`) || !text.includes(lines)) return null;
+  return text.replace(`${F6_IMPORT}${eol}`, '').replace(lines, '');
+}
+
+/** The quote the file's imports use most, which its formatter keeps. */
+function quoteOf(text: string): string {
+  const count = (quote: string) =>
+    (
+      text.match(new RegExp(`^import\\b[^\\n]*${quote}[^${quote}\\n]+${quote};?[ \\t]*$`, 'gm')) ??
+      []
+    ).length;
+  return count("'") > count('"') ? "'" : '"';
+}
+
+/** The last line of an import statement: one on a single line, or the closing line of a long one. */
+const IMPORT_END = /^(?:import\b[^\n]*|\}\s*from\s+)['"][^'"\n]+['"];?\s*$/;
+
+/** The root layout with the preview route let through; null when its default export is not found. */
+export function editLayout(text: string): string | null {
+  // The file's own line endings, kept.
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.split(/\r?\n/);
+  const opening = lines.findIndex(line => DEFAULT_FUNCTION.test(line));
+  if (opening === -1) return null;
+  const name = DEFAULT_FUNCTION.exec(lines[opening]!)![1]!;
+  const quote = quoteOf(text);
+  // The import after the file's last import, the wrapper after everything else.
+  let lastImport = -1;
+  lines.forEach((line, index) => {
+    if (index < opening && IMPORT_END.test(line)) lastImport = index;
+  });
+  const edited = [
+    ...lines.slice(0, lastImport + 1),
+    layoutImport(quote),
+    ...(lastImport === -1 ? [''] : []),
+    ...lines.slice(lastImport + 1, opening),
+    lines[opening]!.slice('export default '.length),
+    ...lines.slice(opening + 1)
+  ].join(eol);
+  return `${edited}${eol}${layoutWrapper(name, quote, eol)}${eol}`;
+}
+
+/** The root layout as it was before the recipe's edit (or F6's), or null when it has neither. */
+export function undoLayout(text: string): string | null {
+  const f6 = withoutF6Edit(text);
+  if (f6 !== null) return f6;
+  const wrapper = LAYOUT_WRAPPER.exec(text);
+  if (!wrapper) return null;
+  const name = wrapper[1]!;
+  let rest = text.slice(0, wrapper.index);
+  // At the very top, the import came with a blank line after it.
+  const top = new RegExp(`^${LAYOUT_IMPORT_LINE}(?:\\r?\\n)?`);
+  rest = top.test(rest)
+    ? rest.replace(top, '')
+    : rest.replace(new RegExp(`^${LAYOUT_IMPORT_LINE}`, 'm'), '');
+  const own = new RegExp(`^function ${name.replace(/\$/g, '\\$')}\\s*\\(`, 'm');
+  if (!own.test(rest)) return null;
+  return rest.replace(own, match => `export default ${match}`);
+}
+
+const isLayoutEdited = (text: string) =>
+  new RegExp(`^export default function ${WRAPPER_NAME}\\(`, 'm').test(text);
 
 /**
- * The root layout with the preview route let through: a navigator such as the template's tabs
- * sends an address it has no tab for back to the first one, so the route would never show. The
- * line is inside __DEV__, which a production bundle drops. Null when it is there already; a manual
- * step when the layout's default export cannot be found.
+ * The root layout's edit as `init` plans it: null when it is there already; F6's early return
+ * replaced by it; a manual step when the layout's default export cannot be found.
  */
 export function planLayout(repo: string, appDir: string): PrepChange | { manual: string } | null {
   const file = `${appDir}/_layout.tsx`;
   const text = read(repo, file);
-  if (text === null) return null;
-  if (text.includes('useRoughbookSegments')) return null;
-  // The file's own line endings, kept.
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  const lines = text.split(/\r?\n/);
-  const opening = lines.findIndex(line => /^export\s+default\s+function\b[^{]*\{\s*$/.test(line));
-  if (opening === -1) {
+  if (text === null || isLayoutEdited(text)) return null;
+  const after = editLayout(withoutF6Edit(text) ?? text);
+  if (after === null) {
     return {
-      manual: `${file}: let the preview route through in development, so it shows alone: return <Slot /> from the root layout when useSegments()[0] is "${PREVIEW_ROUTE}", inside if (__DEV__).`
+      manual: `${file}: let the preview route through in development, so it shows alone. Make the layout's own function a plain one, and export as the default a layout that calls useSegments() first, then returns <Slot /> when __DEV__ and its first segment is "${PREVIEW_ROUTE}", and the layout otherwise.`
     };
   }
-  // The import after the file's last import line, the lines first in the layout's body.
-  let lastImport = -1;
-  lines.forEach((line, index) => {
-    if (index < opening && /^import\b.*;\s*$/.test(line)) lastImport = index;
-  });
-  const after = [
-    ...lines.slice(0, lastImport + 1),
-    LAYOUT_IMPORT,
-    ...(lastImport === -1 ? [''] : []),
-    ...lines.slice(lastImport + 1, opening + 1),
-    ...LAYOUT_LINES.trimEnd().split('\n'),
-    ...lines.slice(opening + 1)
-  ].join(eol);
   return {
     file,
     action: 'edit',
@@ -133,7 +219,7 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const layout = planLayout(repo, appDir);
   if (layout && 'manual' in layout) manual.push(layout.manual);
   else if (layout) changes.push(layout);
-  const route = previewRoute(appDir);
+  const route = previewRoute(appDir, { splash: dependsOn(repo, 'expo-splash-screen') });
   const routeDir = `${appDir}/${PREVIEW_ROUTE}`;
   ignoredFromBuild.push(routeDir);
   gitWanted.push(`/${routeDir}/`);
@@ -199,14 +285,15 @@ a theme the app keeps itself should read the roughbook-scheme parameter in the w
 export const expo: Recipe = {
   id: 'expo',
   name: 'Expo',
-  version: 1,
+  // 2: the root layout's edit keeps every hook on every render, and uninstall reverses it.
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {
     return {
       contract: 1,
       recipe: 'expo',
-      recipeVersion: 1,
+      recipeVersion: 2,
       stack: link?.stack ?? [],
       family: 'react-like',
       mode: 'live',
@@ -255,6 +342,9 @@ export const expo: Recipe = {
   },
   planPreview,
   setupFiles: (_repo, link) => (link.appDir ? [previewRouteFile(link.appDir)] : []),
+  // The root layout's edit, which uninstall reverses exactly.
+  edits: (_repo, link) =>
+    link.appDir ? [{ file: `${link.appDir}/_layout.tsx`, undo: undoLayout }] : [],
   agentRules:
     environment => `- \`${environment.entry}\` is a React Native component, shown through the app's Expo Router on
   its web target in the studio and on a device for final review, so it must run on both: View,

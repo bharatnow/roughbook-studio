@@ -34,8 +34,28 @@ export function previewRouteFile(appDir: string): string {
   return `${appDir}/${PREVIEW_ROUTE}/[...key].tsx`;
 }
 
-/** The route, its imports climbing from <app>/rough-preview/ to the repo root. */
-export function previewRoute(appDir: string): { file: string; content: string } {
+/** Whether the app's package.json depends on a package. */
+export function dependsOn(repo: string, name: string): boolean {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return Boolean(manifest.dependencies?.[name] ?? manifest.devDependencies?.[name]);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The route, its imports climbing from <app>/rough-preview/ to the repo root. With `splash`, the
+ * app has expo-splash-screen, whose screen its root layout keeps up until the layout's own content
+ * hides it; the route shows without that content, so it hides the screen itself.
+ */
+export function previewRoute(
+  appDir: string,
+  options: { splash?: boolean } = {}
+): { file: string; content: string } {
   const up = '../'.repeat(appDir.split('/').length + 1);
   return {
     file: previewRouteFile(appDir),
@@ -43,19 +63,20 @@ export function previewRoute(appDir: string): { file: string; content: string } 
 // Renders one iteration from ${ROUGH_DIR}/ inside this app's root layout, fonts and theme: on the web
 // target in the Roughbook studio's frame, and on a device or simulator for final review.
 import { DarkTheme, DefaultTheme, ThemeProvider, useLocalSearchParams } from "expo-router";
-import { Component, useEffect, useState, type ComponentType, type ReactNode } from "react";
-import { Appearance, Platform, StyleSheet, Text, View } from "react-native";
+import { Component, useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { Appearance, Platform, StyleSheet, Text, View } from "react-native";${
+      options.splash ? '\nimport * as SplashScreen from "expo-splash-screen";' : ''
+    }
+// The registry holds the iterations only under __DEV__, which a production bundle folds to nothing,
+// and ${ROUGH_DIR}/ with it (the build gate). It is imported as it is: Metro's server render loses track of
+// a conditional import here once the iterations change, and the app's own pages would answer 500.
+import * as registryModule from "${up}${ROUGH_DIR}/preview-registry";
 
 type Registry = {
   Preview: ComponentType<{ children: ReactNode }> | null;
   loaders: Record<string, () => { default: ComponentType<Record<string, unknown>> }>;
   fixtures: Record<string, () => Record<string, unknown>>;
 };
-
-// The registry holds the iterations only under __DEV__, which a production bundle folds to nothing,
-// and ${ROUGH_DIR}/ with it (the build gate). It is imported as it is: Metro's server render loses track of
-// a conditional import here once the iterations change, and the app's own pages would answer 500.
-import * as registryModule from "${up}${ROUGH_DIR}/preview-registry";
 
 const registry = registryModule as unknown as Registry;
 
@@ -93,12 +114,20 @@ function Missing({ id, why }: { id: string; why: string }) {
   return <Text style={styles.message}>{why}</Text>;
 }
 
+/** In place of rough/preview.tsx, when the registry has none. */
+function Bare({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+}
+
+/** Where it renders never changes, so there is nothing to subscribe to. */
+const noChanges = () => () => {};
+
 /** The iteration itself, inside the boundary, so one that throws as it loads fails its own preview. */
 function Shown({ registry, id }: { registry: Registry; id: string }) {
   const Iteration = registry.loaders[id]!().default;
   // An iteration's ${FIXTURE}, when it has one, holds its inputs (the preview contract, point 2).
   const fixture = registry.fixtures[id]?.() ?? {};
-  const Preview = registry.Preview ?? (({ children }: { children: ReactNode }) => <>{children}</>);
+  const Preview = registry.Preview ?? Bare;
   return (
     <Preview>
       <Iteration {...fixture} />
@@ -126,9 +155,17 @@ export default function RoughPreview() {
       Appearance.setColorScheme?.(scheme);
     }
   }, [scheme, dir, lang]);
-  // The iteration runs on the client only: the dev server's own render never runs its code.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The iteration runs on the client only (true there): the dev server's own render (false) never
+  // runs its code.
+  const mounted = useSyncExternalStore(noChanges, () => true, () => false);${
+    options.splash
+      ? `
+  // The app's splash screen stays up until its root layout's content hides it, which a preview skips.
+  useEffect(() => {
+    void SplashScreen.hideAsync().catch(() => {});
+  }, []);`
+      : ''
+  }
   // Answers this machine only, so a dev server reachable on the network shows nothing from ${ROUGH_DIR}/ (point 5).
   if (Platform.OS === "web" && typeof window !== "undefined" && !LOOPBACK.test(window.location.hostname)) {
     return <Missing id={key} why="The preview answers this machine only." />;

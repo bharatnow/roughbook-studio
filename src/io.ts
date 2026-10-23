@@ -24,9 +24,25 @@ export function terminalIo(): Io {
   };
 }
 
-/** Asks a yes or no question; `fallback` when the answer is empty or nobody can answer. */
-export async function confirm(io: Io, question: string, fallback: boolean): Promise<boolean> {
+/** How a refusal starts when nobody could answer: an agent's shell, CI, an IDE task. */
+export const NOBODY_ANSWERS = 'Nobody can answer here (no terminal)';
+
+/**
+ * Asks a yes or no question: `fallback` when the answer is empty, null when nobody can answer.
+ * Nobody answering is never a yes (decision 18).
+ */
+export async function askYesNo(
+  io: Io,
+  question: string,
+  fallback: boolean
+): Promise<boolean | null> {
   const answer = await io.ask(`${question} ${fallback ? '[Y/n]' : '[y/N]'} `);
+  if (answer === null) return null;
   if (!answer) return fallback;
   return /^y(es)?$/i.test(answer);
+}
+
+/** Asks a yes or no question; `fallback` when the answer is empty, no when nobody can answer. */
+export async function confirm(io: Io, question: string, fallback: boolean): Promise<boolean> {
+  return (await askYesNo(io, question, fallback)) ?? false;
 }

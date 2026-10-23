@@ -9,7 +9,7 @@ import {
   readEnvironment
 } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { confirm } from '../io.js';
+import { askYesNo, NOBODY_ANSWERS } from '../io.js';
 import { manualCommand, planTerminal, sessionTitle, type Session } from '../launch/terminal.js';
 import { detectStack } from '../recipes/detect.js';
 import { recipeFor } from '../recipes/index.js';
@@ -114,13 +114,15 @@ export async function applyTemplates(
 
 /**
  * Shows the environment's commands not yet approved on this machine, with their shell, and asks
- * (decision 18). Returns whether every command is approved afterwards.
+ * (decision 18). With nobody to answer, nothing is approved and `unattended` says how to approve
+ * them instead. Returns whether every command is approved afterwards.
  */
 export async function approveEnvironment(
   context: CommandContext,
   repoRoot: string,
   environment: RepoEnvironment,
-  yes: boolean
+  yes: boolean,
+  unattended = 'Run it again in a terminal to approve them, or with --yes once you have read them.'
 ): Promise<boolean> {
   const { io } = context;
   const pending = unapprovedCommands(environment, await readApprovals(repoRoot));
@@ -130,11 +132,17 @@ export async function approveEnvironment(
   );
   for (const item of pending) io.out(`  ${describeCommand(item)}`);
   if (!yes) {
-    const approved = await confirm(
+    const approved = await askYesNo(
       io,
       'Approve them here? The approval is kept in rough/.roughbook/ and asked again if a command changes.',
       true
     );
+    if (approved === null) {
+      io.out(
+        `${NOBODY_ANSWERS}, so none is approved and the studio runs none of them. ${unattended}`
+      );
+      return false;
+    }
     if (!approved) {
       io.out(
         'Not approved. The studio runs none of them until you approve them (roughbook doctor asks again).'

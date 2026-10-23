@@ -141,7 +141,9 @@ line as their one command), never the machine's default shell, one at a time per
 after you have approved it on this machine: `init`, `setup --apply` and `doctor` show each command
 with its shell and ask, and keep the approval by its hash in `rough/.roughbook/approvals.json`, so
 a command changed by a commit is asked again and a committed file never runs code on a teammate's
-machine unseen.
+machine unseen. With no terminal to ask in (an agent's shell, CI, an IDE task), nothing is
+approved: `init`, `setup --apply` and `doctor` approve only with `--yes`, `start` runs no command
+until one is approved, and `new` makes nothing without `--yes`.
 
 `setupFiles` lists every file the setup adds or changes outside `rough/`, each with its template in
 `rough/setup/`: a whole file at `rough/setup/<path>`, or lines added to a file the app already has
@@ -413,11 +415,23 @@ network.
 
 The Expo recipe previews live through the app's web target (`npx expo start --localhost`): a route
 under Expo Router that loads the iterations only under `__DEV__`, which the root layout lets through
-in development; `rough/snapshots.mjs` renders final-review snapshots on an attached Android device
-or emulator (adb) or a booted iOS simulator, and opens a key there. The Flutter recipe mirrors
-iterations into `lib/rough/` with a registry of them, previews live through the web target
-(`flutter run -d web-server -t lib/rough_preview.dart`), and renders snapshots with a widget test
-(`flutter test test/rough_snapshot_test.dart`).
+in development. `init` makes the layout's own function a plain one and adds a default export that
+calls `useSegments()` on every render and shows the route alone, or the layout as a component of its
+own, so the layout's hooks keep their order on every route and the edit gives `expo lint` nothing to
+report; `uninstall` puts the layout back as it was. `rough/snapshots.mjs` renders final-review snapshots on
+an attached Android device or emulator (adb) or a booted iOS simulator, and opens a key there.
+
+A WordPress theme keeps `rough/` in its own folder, so a deploy of the theme can put it on the live
+site. There it is inert: every PHP file the studio writes in `rough/` starts with
+`<?php defined( 'ABSPATH' ) || exit; ?>` (the agent's rules ask the same of its iterations), so the
+web server runs nothing of it outside WordPress; `rough/.htaccess` refuses the folder on Apache and
+LiteSpeed; `init` adds `rough` to the theme's `.distignore`, if it has one, for its release zip; and
+doctor's runtime gate asks the production WordPress for the sample iteration's own files in the
+theme's folder. On nginx, refuse the folder in the site's config or deploy the theme without it.
+
+The Flutter recipe mirrors iterations into `lib/rough/` with a registry of them, previews live
+through the web target (`flutter run -d web-server -t lib/rough_preview.dart`), and renders snapshots
+with a widget test (`flutter test test/rough_snapshot_test.dart`).
 
 ## Recipes
 

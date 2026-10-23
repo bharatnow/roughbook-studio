@@ -656,6 +656,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       let published = false;
       /** What the runtime gate found, when production answered with a page of its own, not 404. */
       let runtimeHeld: string | null = null;
+      /** What production answered where a deploy puts rough/, for each of the sample's files. */
+      const deployedHeld: string[] = [];
       // A standalone preview is the studio's, so what the served site must not hand out is rough/.
       const servesSite = environment.mode === 'standalone';
       if (environment.gate === 'build' || environment.gate === 'both') {
@@ -751,6 +753,36 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
                   runtimeHeld = `In production mode the preview answers HTTP ${answer.status} with a page of the app’s own, never the iteration.`;
                 }
               }
+              // Where a deploy of the repo as it is puts rough/ on the site (a theme's folder):
+              // neither the sample's own file nor its fixture may come back as written.
+              const deployed = recipe?.deployedAt?.(repoRoot);
+              const files: [string, string][] = [
+                [environment.entry, changed],
+                ...(environment.fixture
+                  ? [[environment.fixture, fixtureNote] as [string, string]]
+                  : [])
+              ];
+              for (const at of deployed?.paths ?? []) {
+                for (const [file, text] of files) {
+                  const where = `${at}/${goodFolder}/${file}`;
+                  const found = await ask(tools, `${production.url}${where}`, previewMs);
+                  if (
+                    found &&
+                    !(found.status >= 200 && found.status < 300 && found.text.includes(text))
+                  ) {
+                    deployedHeld.push(
+                      `${where} answered HTTP ${found.status}${found.status < 300 ? ' without the sample' : ''}`
+                    );
+                  } else {
+                    problems.push(
+                      found
+                        ? `In production mode the site served the sample iteration's ${file} at ${where}, where a deploy puts ${ROUGH_DIR}/.`
+                        : `In production mode nothing answered at ${where}, so ${ROUGH_DIR}/ cannot be shown to stay off the site there.`
+                    );
+                    if (deployed && !fixes.includes(deployed.fix)) fixes.push(deployed.fix);
+                  }
+                }
+              }
             } finally {
               await served.stop();
             }
@@ -758,23 +790,27 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
         }
       }
       const said = held.join(', and ');
+      const passed =
+        published || servesSite
+          ? `${said.charAt(0).toUpperCase()}${said.slice(1)}.`
+          : environment.gate === 'build'
+            ? 'The production build passed and holds nothing from rough/.'
+            : environment.gate === 'runtime'
+              ? (runtimeHeld ?? 'In production mode the preview answers 404.')
+              : `The production build holds nothing from rough/, and ${
+                  runtimeHeld
+                    ? runtimeHeld.charAt(0).toLowerCase() + runtimeHeld.slice(1)
+                    : 'in production mode the preview answers 404.'
+                }`;
       checks.push(
         problems.length
           ? result('gate', 'fail', problems.join(' '), fixes.join(' '))
           : result(
               'gate',
               'pass',
-              published || servesSite
-                ? `${said.charAt(0).toUpperCase()}${said.slice(1)}.`
-                : environment.gate === 'build'
-                  ? 'The production build passed and holds nothing from rough/.'
-                  : environment.gate === 'runtime'
-                    ? (runtimeHeld ?? 'In production mode the preview answers 404.')
-                    : `The production build holds nothing from rough/, and ${
-                        runtimeHeld
-                          ? runtimeHeld.charAt(0).toLowerCase() + runtimeHeld.slice(1)
-                          : 'in production mode the preview answers 404.'
-                      }`
+              deployedHeld.length
+                ? `${passed} Where a deploy puts ${ROUGH_DIR}/, the sample's own files stay off the site: ${deployedHeld.join(', and ')}.`
+                : passed
             )
       );
     }

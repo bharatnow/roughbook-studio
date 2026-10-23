@@ -9,6 +9,7 @@ import { findSentinel } from '../doctor/sentinel.js';
 import { readEnvironmentSync } from '../environment/read.js';
 import { parseCommandLine, resolveCommandLine } from '../launch/processes.js';
 import { next } from '../recipes/next/index.js';
+import { themeFiles, wordpress } from '../recipes/wordpress/index.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
 import { pageSetup } from '../screenshot/browser.js';
@@ -158,6 +159,29 @@ function fakeTools(
           }
           if (faults.production === 'elsewhere') return new Response('home', { status: 200 });
           return new Response('x', { status: 404 });
+        }
+        // A host serving the repo as a theme's folder, as Apache with PHP does: a folder whose
+        // .htaccess denies it is refused, a PHP file runs outside WordPress (a guarded one stops at
+        // once, any other prints its markup up to its first PHP), anything else is a file.
+        const theme = `/wp-content/themes/${path.basename(repo)}/`;
+        if (url.pathname.startsWith(theme)) {
+          const relative = url.pathname.slice(theme.length);
+          const file = path.join(repo, ...relative.split('/'));
+          if (!fs.existsSync(file)) return new Response('none', { status: 404 });
+          const htaccess = path.join(repo, 'rough', '.htaccess');
+          if (
+            relative.startsWith('rough/') &&
+            fs.existsSync(htaccess) &&
+            /Require all denied/.test(fs.readFileSync(htaccess, 'utf8'))
+          ) {
+            return new Response('Forbidden', { status: 403 });
+          }
+          const text = fs.readFileSync(file, 'utf8');
+          if (!file.endsWith('.php')) return new Response(text, { status: 200 });
+          return new Response(
+            text.includes("defined( 'ABSPATH' ) || exit;") ? '' : text.split('<?php')[0]!,
+            { status: 200 }
+          );
         }
         return new Response('home', { status: 200 });
       }
@@ -410,6 +434,62 @@ production: node server.js @ http://127.0.0.1:3999
     assert.equal(report.outcome, 'unverified');
     assert.equal(exitCodeFor(report.outcome), 2);
     assert.deepEqual(tools.built, []);
+  });
+
+  it('asks a theme’s live site for the sample’s own files where a deploy puts rough/, and fails when one is served', async () => {
+    const repo = await tempDir('roughbook-doctor-');
+    for (const [file, text] of Object.entries(themeFiles('harbor-theme'))) {
+      fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+      fs.writeFileSync(path.join(repo, file), text);
+    }
+    const link = {
+      version: 1 as const,
+      orgId: 'org-1',
+      project: 'site',
+      roughCommitted: true,
+      appDir: null
+    };
+    applyPrep(planPrep(repo, { link, recipe: wordpress }));
+    // The recipe's environment on the fake's addresses: the dev server, its route, production.
+    fs.writeFileSync(
+      path.join(repo, 'rough', 'environment.md'),
+      `---
+contract: 1
+recipe: wordpress
+runtime: local
+start: npx wp-env start @ ${DEV}
+preview: /rough-preview/{key}
+production: npx wp-env start --config .wp-env.rough-production.json @ http://127.0.0.1:3999
+---
+`
+    );
+    await approveCommands(repo, environmentCommands(readEnvironmentSync(repo, link)));
+
+    const kept = await runDoctor(repo, {
+      devUrl: DEV,
+      tools: fakeTools(repo, { production: 'ok' })
+    });
+    const gate = kept.checks.find(check => check.id === 'gate')!;
+    assert.equal(gate.status, 'pass', gate.detail);
+    assert.match(
+      gate.detail,
+      new RegExp(
+        `/wp-content/themes/${path.basename(repo)}/rough/doctor-check-[a-z0-9]+/sample/iteration-01/preview\\.json answered HTTP 403`
+      )
+    );
+
+    // A web server that reads no .htaccess (nginx): the guarded PHP prints nothing, but the
+    // fixture is handed out as a file.
+    fs.rmSync(path.join(repo, 'rough', '.htaccess'));
+    const served = await runDoctor(repo, {
+      devUrl: DEV,
+      tools: fakeTools(repo, { production: 'ok' })
+    });
+    const failed = served.checks.find(check => check.id === 'gate')!;
+    assert.equal(failed.status, 'fail');
+    assert.match(failed.detail, /served the sample iteration's preview\.json/);
+    assert.doesNotMatch(failed.detail, /index\.php/);
+    assert.match(failed.fix ?? '', /\.distignore/);
   });
 
   it('asks a production address that is already running, such as a store’s live theme, starting nothing', async () => {

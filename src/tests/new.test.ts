@@ -167,6 +167,13 @@ describe('roughbook new', () => {
     assert.match(ran[0]!.line, /create-vite@9 shop-app/);
   });
 
+  it('with nobody to answer (no terminal), runs no scaffold command and says to pass --yes', async () => {
+    const { io, run, ran } = await studio();
+    assert.equal(await run(['new', 'vite', 'shop-app', '--project', 'site']), 1);
+    assert.deepEqual(ran, []);
+    assert.match(io.errors.join(' '), /Nobody can answer here \(no terminal\).*--yes/);
+  });
+
   it('refuses an unknown recipe, naming the ones there are', async () => {
     const { io, run, ran } = await studio();
     assert.equal(await run(['new', 'rails', 'x', '--yes']), 1);

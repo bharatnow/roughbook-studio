@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { runDoctor } from '../doctor/run.js';
 import type { DoctorTools } from '../doctor/types.js';
 import { readEnvironmentSync } from '../environment/read.js';
@@ -22,7 +23,10 @@ import type { RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
 import { importsFromRough } from '../runs/checks.js';
-import { tempDir } from './helpers.js';
+import { main } from '../commands/index.js';
+import { recordingIo, tempDir } from './helpers.js';
+
+const studioRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const LINK: Omit<RepoLink, 'appDir'> = {
   version: 1,
@@ -153,6 +157,105 @@ describe('the Expo recipe', () => {
       ),
       []
     );
+  });
+
+  it('lets the preview route through the root layout with every hook on every render, and uninstall takes exactly that out', async () => {
+    const repo = await expoApp();
+    // The template's own root layout (create-expo-app 5, SDK 58), as the conformance fixture has it.
+    const template = fs.readFileSync(
+      path.join(studioRoot, 'conformance', 'fixtures', 'expo', 'src', 'app', '_layout.tsx'),
+      'utf8'
+    );
+    write(repo, 'src/app/_layout.tsx', template);
+    const body = /export default function TabLayout\(\) (\{[\s\S]*\n\})/.exec(template)![1]!;
+    applyPrep(planPrep(repo, { link: LINK, recipe: expo }));
+    const edited = read(repo, 'src/app/_layout.tsx');
+    // The layout's own function is as it was, its hooks in their order, only no longer the
+    // default export; nothing returns before them.
+    assert.ok(edited.includes(`\nfunction TabLayout() ${body}\n`), edited);
+    assert.doesNotMatch(edited, /eslint-disable|useRoughbookSegments/);
+    // In the file's own quotes, beside its imports.
+    assert.match(
+      edited,
+      /^import AppTabs from '@\/components\/app-tabs';\nimport \* as RoughbookRouter from 'expo-router';$/m
+    );
+    // The new default export calls its one hook on every render, then renders the layout as a
+    // component of its own, or the preview route alone in development.
+    const wrapper = /export default function RoughbookRootLayout\(\) \{\n([\s\S]*?)\n\}\n$/.exec(
+      edited
+    );
+    assert.ok(wrapper, edited);
+    assert.deepEqual(
+      wrapper[1]!.split('\n').map(line => line.trim()),
+      [
+        'const segment = (RoughbookRouter.useSegments() as readonly string[])[0];',
+        "if (__DEV__ && segment === 'rough-preview') return <RoughbookRouter.Slot />;",
+        'return <TabLayout />;'
+      ]
+    );
+    assert.equal(
+      (edited.match(/\buse[A-Z]\w*\(/g) ?? []).length,
+      2,
+      'useSegments and the layout’s useColorScheme'
+    );
+    // Planned again, nothing changes; doctor and uninstall know the edit.
+    assert.deepEqual(planPrep(repo, { link: LINK, recipe: expo }).changes, []);
+    assert.deepEqual(
+      expo.edits!(repo, { ...LINK, appDir: 'src/app' }).map(edit => edit.file),
+      ['src/app/_layout.tsx']
+    );
+
+    // The route is lint-clean under the React Compiler's rules too (expo lint on the designer's
+    // machine): no component made while rendering, no state set in an effect, imports first.
+    const plain = read(repo, 'src/app/rough-preview/[...key].tsx');
+    assert.doesNotMatch(plain, /\?\? \(\(\{ children \}/);
+    assert.doesNotMatch(plain, /useEffect\(\(\) => set[A-Z]/);
+    assert.match(plain, /useSyncExternalStore\(noChanges, \(\) => true, \(\) => false\)/);
+    assert.doesNotMatch(plain.slice(plain.indexOf('\ntype Registry')), /^import /m);
+
+    // The splash screen the layout keeps up until its overlay hides it: the preview route, which
+    // shows without that overlay, hides it, where the app has expo-splash-screen.
+    assert.doesNotMatch(plain, /expo-splash-screen/);
+    const manifest = JSON.parse(read(repo, 'package.json')) as {
+      dependencies: Record<string, string>;
+    };
+    manifest.dependencies['expo-splash-screen'] = '~58.0.11';
+    write(repo, 'package.json', JSON.stringify(manifest));
+    applyPrep(planPrep(repo, { link: LINK, recipe: expo }));
+    const route = read(repo, 'src/app/rough-preview/[...key].tsx');
+    assert.match(route, /^import \* as SplashScreen from "expo-splash-screen";$/m);
+    assert.match(route, /useEffect\(\(\) => \{\n\s+void SplashScreen\.hideAsync\(\)/);
+
+    // Uninstall: the layout as the template had it, byte for byte.
+    const io = recordingIo();
+    assert.equal(
+      await main(['uninstall', '--yes'], { cwd: repo, env: {}, io }),
+      0,
+      io.errors.join('\n')
+    );
+    assert.ok(
+      io.lines.some(line => /the recipe's edit in src\/app\/_layout\.tsx/.test(line)),
+      io.lines.join('\n')
+    );
+    assert.equal(read(repo, 'src/app/_layout.tsx'), template);
+
+    // A layout F6's line went into is put right: the line out, the wrapper in.
+    const old = template
+      .replace(
+        "import AppTabs from '@/components/app-tabs';\n",
+        'import AppTabs from \'@/components/app-tabs\';\nimport { Slot as RoughbookSlot, useSegments as useRoughbookSegments } from "expo-router";\n'
+      )
+      .replace(
+        'export default function TabLayout() {\n',
+        'export default function TabLayout() {\n  // Roughbook, development only: the preview route shows alone, not inside this layout\'s navigator,\n  // which would send an address it does not know back home (rough/CONTRACT.md, point 2).\n  // eslint-disable-next-line react-hooks/rules-of-hooks\n  if (__DEV__ && useRoughbookSegments()[0] === "rough-preview") return <RoughbookSlot />;\n'
+      );
+    write(repo, 'src/app/_layout.tsx', old);
+    applyPrep(planPrep(repo, { link: LINK, recipe: expo }));
+    assert.equal(read(repo, 'src/app/_layout.tsx'), edited);
+    // And uninstall takes F6's line out too.
+    write(repo, 'src/app/_layout.tsx', old);
+    assert.equal(await main(['uninstall', '--yes'], { cwd: repo, env: {}, io }), 0);
+    assert.equal(read(repo, 'src/app/_layout.tsx'), template);
   });
 
   it('keeps the registry up with the iterations, with their fixtures', async () => {

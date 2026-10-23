@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
 import type { OrgProjects } from '../api/types.js';
 import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
-import { confirm, type Io } from '../io.js';
+import { askYesNo, confirm, type Io } from '../io.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
 import { RECIPES, fallbackRecipe, recipeFor } from '../recipes/index.js';
 import { supportNote } from '../recipes/support.js';
@@ -251,11 +251,14 @@ export const init: Command = {
     else if (existing) committed = existing.roughCommitted;
     else if (values.yes) committed = true;
     else {
-      committed = await confirm(
-        io,
-        'Commit rough/ to git? It is the only record of your iterations.',
-        true
-      );
+      // A choice, not an approval: with nobody to answer it keeps the default, and nothing is
+      // written without the yes to apply below.
+      committed =
+        (await askYesNo(
+          io,
+          'Commit rough/ to git? It is the only record of your iterations.',
+          true
+        )) ?? true;
     }
     if (!committed) {
       io.out('rough/ will be ignored by git, so nothing backs up its iterations.');

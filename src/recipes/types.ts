@@ -44,6 +44,16 @@ export type Scaffold = {
 /** Lines a recipe appends to a file the app already has, and takes out again on uninstall. */
 export type RecipeSnippet = { file: string; text: string };
 
+/**
+ * A change a recipe makes inside a file the app already has that is more than lines appended (a
+ * root layout's default export wrapped), which uninstall reverses exactly.
+ */
+export type RecipeEdit = {
+  file: string;
+  /** The file's text as it was before the edit, or null when the edit is not in it. */
+  undo(text: string): string | null;
+};
+
 /** What a recipe's preview setup adds to `init`'s plan. */
 export type PreviewPlan = {
   changes: PrepChange[];
@@ -78,6 +88,8 @@ export type Recipe = {
    * file's test dependencies), which uninstall takes out by their exact text. None for most.
    */
   snippets?(repo: string, link: RepoLink): RecipeSnippet[];
+  /** The edits the preview setup makes inside the app's own files, which uninstall reverses. */
+  edits?(repo: string, link: RepoLink): RecipeEdit[];
   /** The stack's own rules in rough/AGENTS.md, after the rules every stack shares. */
   agentRules(environment: RepoEnvironment): string;
   /** rough/tsconfig.json, or null when the repo has no TypeScript settings to extend. */
@@ -133,6 +145,13 @@ export type Recipe = {
     good: Record<string, string>;
     broken: Record<string, string>;
   };
+  /**
+   * Where a deploy of the repo as it is puts the repo's folder on the live site, as paths from the
+   * site's root (a theme's folder), and how to keep rough/ off there: doctor's runtime gate asks
+   * the production app for the sample iteration's own files under each. None for most stacks,
+   * whose deploy is a build or a document root that holds no rough/.
+   */
+  deployedAt?(repo: string): { paths: string[]; fix: string };
   /**
    * `init --scratch`: a minimal app of this stack written without the network, kept for the
    * fallback recipe; `roughbook new` runs the scaffold below instead.

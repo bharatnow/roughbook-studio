@@ -10,8 +10,11 @@ import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import {
+  DENY,
+  DENY_FILE,
   ENTRY,
   FIXTURE,
+  GUARD,
   OVERRIDE,
   OVERRIDE_FILE,
   PLUGIN_FILE,
@@ -20,10 +23,14 @@ import {
   PREVIEW_WRAPPER,
   PRODUCTION_CONFIG,
   PRODUCTION_PORT,
+  RELEASE_LIST,
   WRAPPER,
   isOurConfig,
+  isOurDeny,
   isOurPlugin,
-  productionConfig
+  productionConfig,
+  themeFolder,
+  withRoughReleased
 } from './preview.js';
 
 /** The wp-env release the scaffold pins; the conformance fixture pins the same. */
@@ -52,6 +59,13 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
         content: productionConfig(repo),
         summary: 'Describe the same WordPress in production mode, for the runtime gate.',
         ours: isOurConfig
+      },
+      {
+        file: DENY_FILE,
+        content: DENY,
+        summary:
+          'Refuse rough/ on a live site that reads .htaccess: it ships in the theme’s folder.',
+        ours: isOurDeny
       }
     ];
   for (const item of own) {
@@ -61,7 +75,9 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
       manual.push(
         item.file === OVERRIDE_FILE
           ? `${OVERRIDE_FILE} is your own, so it was left alone: add to its "mappings" "wp-content/mu-plugins/rough-preview.php": "./${PLUGIN_FILE}" and "wp-content/rough": "./${ROUGH_DIR}", and to its "config" "WP_ENVIRONMENT_TYPE": "local".`
-          : `${item.file} exists and was not written by Roughbook, so it was left alone.`
+          : item.file === DENY_FILE
+            ? `${DENY_FILE} is your own, so it was left alone: it must refuse every file in ${ROUGH_DIR}/ (Require all denied).`
+            : `${item.file} exists and was not written by Roughbook, so it was left alone.`
       );
       continue;
     }
@@ -78,6 +94,18 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
       action: 'create',
       summary: "Add the wrapper with the theme's styles.",
       after: PREVIEW_WRAPPER
+    });
+  }
+  // A theme's own release list leaves rough/ out of the zip; a theme without one gets none, since
+  // a new .distignore would change what its release takes.
+  const release = read(repo, RELEASE_LIST);
+  const released = release === null ? null : withRoughReleased(release);
+  if (released !== null) {
+    changes.push({
+      file: RELEASE_LIST,
+      action: 'edit',
+      summary: `Leave ${ROUGH_DIR}/ out of the theme's release zip.`,
+      after: released
     });
   }
   if (read(repo, 'package.json') === null || !/@wordpress\/env/.test(read(repo, 'package.json')!)) {
@@ -100,10 +128,13 @@ wp-content/rough, setting the local environment. At /?rough_preview=<page>/<comp
 the iteration's ${ENTRY} (PHP and block markup, run through do_blocks) with its ${FIXTURE} keys as
 variables, inside ${WRAPPER} (wp_head and wp_footer, so the theme's styles and theme.json presets apply),
 answers 404 for a key with no iteration and 500 for one that fails, posting the error message, and
-answers this machine only; anywhere but the local environment it answers 404. ${PRODUCTION_CONFIG} is the
+refuses a request whose Host is not this machine's name (wp-env serves every interface, and a request can
+name localhost, so that holds against a browser only); anywhere but the local environment it answers 404. ${PRODUCTION_CONFIG} is the
 same WordPress in production mode on port ${PRODUCTION_PORT} (gate: runtime, started with npx wp-env start
---config ${PRODUCTION_CONFIG}; stop it after with npx wp-env stop --config ${PRODUCTION_CONFIG}). Nothing of it
-is in the theme; keep rough/ out of the theme's release zip (.distignore). PHP reads a changed iteration on
+--config ${PRODUCTION_CONFIG}; stop it after with npx wp-env stop --config ${PRODUCTION_CONFIG}). rough/ is in
+the theme's folder, so a deploy can put it on the live site, where it stays inert: every PHP file in it starts
+with <?php ${GUARD} ?>, ${DENY_FILE} refuses the folder on Apache, a .distignore leaves it out of the release
+zip, and doctor's gate asks the production WordPress for the sample's own files there. PHP reads a changed iteration on
 the next request, so the studio reloads the frame (reload: studio). Start from that setup; change it only
 where this theme needs it: its header and footer template parts belong in the wrapper, and a theme that
 runs on another local WordPress (Local, ddev, Lando) needs the plugin copied into that site's mu-plugins
@@ -231,14 +262,15 @@ Docker at http://localhost:${PORT} (wp-env; Docker must be running). Designs liv
 export const wordpress: Recipe = {
   id: 'wordpress',
   name: 'WordPress themes',
-  version: 1,
+  // 2: rough/ is inert on a live site (the guard, rough/.htaccess, .distignore).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
     return {
       contract: 1,
       recipe: 'wordpress',
-      recipeVersion: 1,
+      recipeVersion: 2,
       stack: link?.stack ?? [],
       family: 'markup-css',
       mode: 'live',
@@ -299,10 +331,12 @@ export const wordpress: Recipe = {
   become a pattern, with the theme.json presets (\`has-accent-color\`, \`var(--wp--preset--…)\`);
   plain HTML where they cannot. Its \`${FIXTURE}\` keys are PHP variables; escape each as you print it
   (\`esc_html( $heading ?? '' )\`).
+- Start every PHP file you write with \`<?php ${GUARD} ?>\` on its first line. rough/ ships in the
+  theme's folder, and the line keeps a file inert where a live site's web server runs it directly.
 `,
   roughTsconfig: () => null,
-  placeholder:
-    () => `<div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; text-align: center; font-family: system-ui, sans-serif; color: #5b6274; background: #f6f8fa;">
+  placeholder: () => `<?php ${GUARD} ?>
+<div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; text-align: center; font-family: system-ui, sans-serif; color: #5b6274; background: #f6f8fa;">
 	<p>${PLACEHOLDER_LINE}</p>
 </div>
 `,
@@ -322,9 +356,17 @@ export const wordpress: Recipe = {
     usage: 'its slug, as a block editor inserts it'
   },
   craft: familyCraft('markup-css'),
+  deployedAt: repo => {
+    const theme = themeFolder(repo);
+    return {
+      paths: theme ? [`/wp-content/themes/${theme}`] : [],
+      fix: `Keep ${ROUGH_DIR}/ off the live site: start every PHP file in it with <?php ${GUARD} ?>, keep ${DENY_FILE} (roughbook setup --upgrade writes it) for Apache, refuse the folder in nginx (location ~ /${ROUGH_DIR}/ { deny all; }), or deploy the theme without it (${RELEASE_LIST}).`
+    };
+  },
   doctorSamples: ({ marker, fixtureNote }) => ({
     good: {
-      [ENTRY]: `<section data-roughbook="doctor">
+      [ENTRY]: `<?php ${GUARD} ?>
+<section data-roughbook="doctor">
 	<p>${marker}</p>
 	<p><?php echo esc_html( $note ?? '' ); ?></p>
 </section>
@@ -333,6 +375,7 @@ export const wordpress: Recipe = {
     },
     broken: {
       [ENTRY]: `<?php
+${GUARD}
 throw new RuntimeException( 'roughbook doctor: this iteration fails on purpose' );
 `
     }
