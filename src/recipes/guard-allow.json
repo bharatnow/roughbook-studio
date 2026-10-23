@@ -15,6 +15,11 @@
     "reason": "The detector is a markup-css and react-like family check, for the same reason."
   },
   {
+    "file": "src/runs/markup.ts",
+    "rule": "extensions",
+    "reason": "How the markup-css family's two checks read a template: Blade, Vue, Liquid, PHP and HTML by their extensions, so those stacks' iterations are checked rather than passed in silence (decision 23)."
+  },
+  {
     "file": "src/runs/pull.ts",
     "rule": "extensions",
     "reason": "Web sketches are React with Tailwind in the sandbox (decision 14), so the files the backend sends for one are named by those extensions."

@@ -1,6 +1,8 @@
 // The detector (ROUGHBOOK-METHODS-PLAN.md, D7), as the backend's utils/compile/detector.ts checks
 // it: the model tells a source scan can see, read from the files on this machine. Each tell found
-// is named once per file and is a warning, never a failure.
+// is named once per file and is a warning, never a failure. A template (markup.ts) is read as
+// markup, with the CSS in its <style> blocks and style attributes.
+import { MARKUP, MARKUP_ATTRS, markupClassLists } from './markup.js';
 import type { Finding } from './types.js';
 
 /** The tells this detector can see, in the order it reports them. */
@@ -38,6 +40,12 @@ const ROUNDED = /(?:^|\s)rounded(?:-[\w[\].]+)?(?=\s|$)/;
 const SHADOW = /(?:^|\s)shadow(?:-[\w[\].]+)?(?=\s|$)/;
 const MAPPED_ELEMENT =
   /\.map\(\s*(?:\([^)]*\)|\w+)\s*=>\s*\(?\s*<[\w.]+\b[^>]*?className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g;
+/** A template's loop, and the tag it repeats: Blade's @foreach, Liquid's {% for %}, PHP's foreach. */
+const LOOPED_TAG = new RegExp(
+  String.raw`(?:@(?:foreach|forelse|for)\s*\((?:[^()]|\([^()]*\))*\)|\{%-?\s*for\b[^%]*%\}|\b(?:foreach|for|while)\s*\((?:[^()]|\([^()]*\))*\)\s*[:{]\s*\?>)\s*<[\w.-]+\b(${MARKUP_ATTRS})>`,
+  'g'
+);
+const TAG = new RegExp(String.raw`<[\w.-]+\b(${MARKUP_ATTRS})>`, 'g');
 const NUMBERING = /(?:>|['"`])\s*(0[1-9])\.?\s*(?:<|['"`])/g;
 const MIDDLE_DOT = /\S[ \t]+(?:·|&middot;|•)[ \t]+\S/g;
 const CLIPPED_TEXT_CSS = /(?:-webkit-)?background-clip\s*:\s*text/g;
@@ -63,6 +71,17 @@ function classNames(text: string): string[] {
   );
 }
 
+/** The class list of each tag a template repeats in a loop, or with Vue's v-for. */
+function loopedClassNames(text: string): string[] {
+  const looped = [
+    ...[...text.matchAll(LOOPED_TAG)].map(match => match[1]!),
+    ...[...text.matchAll(TAG)]
+      .map(match => match[1]!)
+      .filter(attributes => /(?<![\w:@.-])v-for\s*=/.test(attributes))
+  ];
+  return looped.flatMap(attributes => markupClassLists(attributes).slice(0, 1));
+}
+
 /** The default fonts a file loads or names, less those the Design System chose. */
 function defaultFonts(text: string, chosen: string[]): string[] {
   const allowed = new Set(chosen.map(words));
@@ -74,12 +93,21 @@ function defaultFonts(text: string, chosen: string[]): string[] {
   );
 }
 
-function codeFindings(file: string, text: string, options: DetectorOptions): Finding[] {
+function codeFindings(
+  file: string,
+  text: string,
+  options: DetectorOptions,
+  markup: boolean
+): Finding[] {
   const on = (tell: string) => options.tells.includes(tell);
-  const classes = classNames(text);
+  const classes = markup
+    ? markupClassLists(text).map(item => item.trim().replace(/\s+/g, ' '))
+    : classNames(text);
+  /** How often a CSS rule appears in a template's <style> blocks and style attributes. */
+  const css = (pattern: RegExp) => (markup ? [...text.matchAll(pattern)].length : 0);
   const findings: Finding[] = [];
 
-  const purple = classes.filter(item => PURPLE_TO_BLUE.test(item)).length;
+  const purple = classes.filter(item => PURPLE_TO_BLUE.test(item)).length + css(CSS_PURPLE_TO_BLUE);
   if (on('purple-gradient') && purple) {
     findings.push({
       code: 'TELL_PURPLE_GRADIENT',
@@ -92,10 +120,12 @@ function codeFindings(file: string, text: string, options: DetectorOptions): Fin
       if (ROUNDED.test(item) && SHADOW.test(item)) cards.set(item, (cards.get(item) ?? 0) + 1);
     }
     const repeated = Math.max(0, ...cards.values());
-    const mapped = [...text.matchAll(MAPPED_ELEMENT)].some(match => {
-      const item = match[1] ?? match[2] ?? match[3] ?? '';
-      return ROUNDED.test(item) && SHADOW.test(item);
-    });
+    const mapped = markup
+      ? loopedClassNames(text).some(item => ROUNDED.test(item) && SHADOW.test(item))
+      : [...text.matchAll(MAPPED_ELEMENT)].some(match => {
+          const item = match[1] ?? match[2] ?? match[3] ?? '';
+          return ROUNDED.test(item) && SHADOW.test(item);
+        });
     if (repeated >= 3) {
       findings.push({
         code: 'TELL_IDENTICAL_CARDS',
@@ -126,14 +156,17 @@ function codeFindings(file: string, text: string, options: DetectorOptions): Fin
   }
   const clipped =
     classes.filter(item => item.includes('bg-clip-text') && item.includes('text-transparent'))
-      .length + [...text.matchAll(CLIPPED_TEXT_STYLE)].length;
+      .length +
+    [...text.matchAll(CLIPPED_TEXT_STYLE)].length +
+    css(CLIPPED_TEXT_CSS);
   if (on('gradient-text') && clipped) {
     findings.push({
       code: 'TELL_GRADIENT_TEXT',
       message: `${file} fills text with a gradient ${times(clipped)}.`
     });
   }
-  const glows = classes.filter(item => GLOW.test(item) && ROUND_FULL.test(item)).length;
+  const glows =
+    classes.filter(item => GLOW.test(item) && ROUND_FULL.test(item)).length + css(CSS_GLOW);
   if (on('ambient-backgrounds') && glows) {
     findings.push({
       code: 'TELL_GLOW_BLOB',
@@ -189,7 +222,8 @@ function fontFindings(file: string, text: string, options: DetectorOptions): Fin
 export function detectorFindings(files: Map<string, string>, options: DetectorOptions): Finding[] {
   const findings: Finding[] = [];
   for (const [file, text] of files) {
-    if (CODE.test(file)) findings.push(...codeFindings(file, text, options));
+    if (CODE.test(file)) findings.push(...codeFindings(file, text, options, false));
+    else if (MARKUP.test(file)) findings.push(...codeFindings(file, text, options, true));
     else if (CSS.test(file)) findings.push(...cssFindings(file, text, options));
   }
   return findings;

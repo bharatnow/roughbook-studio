@@ -54,6 +54,46 @@ const files = (tsx: string, css: string) =>
   ]);
 const everyTell = { tells: DETECTED_TELLS, fonts: [] };
 
+// A template is read as markup (decision 23 of the frameworks plan): its class="…" lists, the CSS
+// in its <style> blocks, and the tag a loop repeats, as .map( is read in JSX.
+const sloppyVue = `<template>
+  <section class="relative overflow-hidden">
+    <div class="absolute h-96 w-96 rounded-full bg-violet-600/30 blur-3xl"></div>
+    <h1 class="bg-gradient-to-r from-purple-500 to-blue-500 bg-clip-text text-transparent">Ship faster</h1>
+    <p>Pottery · Glazes · Workshops</p>
+    <div v-for="step in steps" :key="step.id" class="rounded-2xl bg-white p-6 shadow-sm">
+      <span>01</span><h3>{{ step.title }}</h3>
+    </div>
+    <span>02</span>
+  </section>
+</template>
+
+<style scoped>
+h1 { font-family: 'Inter', sans-serif; }
+</style>
+`;
+const sloppyBlade = `<section class="hero">
+  @foreach ($steps as $step)
+    <article class="rounded-xl p-6 shadow-md">{{ $step->title }}</article>
+  @endforeach
+</section>
+<style>
+  .hero { background: linear-gradient(135deg, purple, blue); }
+  .hero h1 { -webkit-background-clip: text; color: transparent; }
+  .hero .glow { filter: blur(80px); }
+</style>
+`;
+const sloppyLiquid = `<div class="grid">
+  {%- for block in section.blocks -%}
+    <div class="rounded-lg p-4 shadow" {{ block.shopify_attributes }}>{{ block.settings.title }}</div>
+  {%- endfor -%}
+</div>
+`;
+const sloppyPhp = `<?php foreach ( $cards as $card ) : ?>
+  <article class="rounded-2xl shadow-lg"><?php echo esc_html( $card['title'] ); ?></article>
+<?php endforeach; ?>
+`;
+
 describe('the detector', () => {
   it('names each model tell it finds, once per file', () => {
     const findings = detectorFindings(files(sloppy, sloppyCss), everyTell);
@@ -85,6 +125,38 @@ describe('the detector', () => {
       codes(DETECTED_TELLS, []).filter(code => code !== 'TELL_GRADIENT_TEXT')
     );
     assert.ok(!codes(DETECTED_TELLS, ['Inter']).includes('TELL_DEFAULT_SANS'));
+  });
+
+  it('reads Blade, Vue, Liquid and PHP as markup', () => {
+    const codes = (file: string, text: string) =>
+      detectorFindings(new Map([[file, text]]), everyTell).map(finding => finding.code);
+    assert.deepEqual(codes('Hero.vue', sloppyVue), [
+      'TELL_PURPLE_GRADIENT',
+      'TELL_IDENTICAL_CARDS',
+      'TELL_DECORATIVE_NUMBERING',
+      'TELL_MIDDLE_DOT_META',
+      'TELL_GRADIENT_TEXT',
+      'TELL_GLOW_BLOB',
+      'TELL_DEFAULT_SANS'
+    ]);
+    assert.deepEqual(codes('hero.blade.php', sloppyBlade), [
+      'TELL_PURPLE_GRADIENT',
+      'TELL_IDENTICAL_CARDS',
+      'TELL_GRADIENT_TEXT',
+      'TELL_GLOW_BLOB'
+    ]);
+    assert.deepEqual(codes('cards.liquid', sloppyLiquid), ['TELL_IDENTICAL_CARDS']);
+    assert.deepEqual(codes('cards.php', sloppyPhp), ['TELL_IDENTICAL_CARDS']);
+    assert.match(
+      detectorFindings(new Map([['cards.php', sloppyPhp]]), everyTell)[0]!.message,
+      /^cards\.php renders one rounded, shadowed card for every item in a list/
+    );
+    // Vue's bound :class is an expression, not a class list; a React file reads only className=.
+    assert.deepEqual(
+      codes('Hero.vue', `<h1 :class="{ 'bg-clip-text text-transparent': on }">Hi</h1>`),
+      []
+    );
+    assert.deepEqual(codes('index.tsx', '<h1 class="bg-clip-text text-transparent">Hi</h1>'), []);
   });
 
   it('runs as a check the backend sends, as warnings only, and an agent can read it', () => {
