@@ -58,7 +58,7 @@ if (pinned.store && !store) {
 const dist = file => import(pathToFileURL(path.join(root, 'dist', file)).href);
 const { planPrep, applyPrep } = await dist('repo/prep.js');
 const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
-const { serveUntil } = await dist('launch/processes.js');
+const { serveUntil, stopStartedProcesses } = await dist('launch/processes.js');
 const { closeKeptBrowsers } = await dist('screenshot/browser.js');
 const { recipeFor } = await dist('recipes/index.js');
 const recipe = recipeFor(name);
@@ -114,20 +114,17 @@ function prepareMachine(work) {
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), `roughbook-conformance-${name}-`));
 console.log(`Fixture ${name} in ${work}`);
-let serving = null;
-let served = null;
 let code = 2;
 let cleaning = null;
 
 /**
- * Takes everything down, once: doctor's browser, the dev server with everything it started (one
- * still starting is waited for), what the dev command started outside it, and the copy.
+ * Takes everything down, once: doctor's browser, every process the studio's code started with
+ * everything it started (the dev server, even one still starting, and the app doctor starts
+ * itself with --speed), what the dev command started outside it, and the copy.
  */
 function cleanUp() {
   cleaning ??= (async () => {
-    await closeKeptBrowsers();
-    const server = served ?? (await serving?.catch(() => null));
-    if (server) await server.stop();
+    await Promise.all([closeKeptBrowsers(), stopStartedProcesses()]);
     // What the dev command started outside its own process (wp-env's containers).
     for (const command of pinned.down ?? []) {
       try {
@@ -209,7 +206,8 @@ try {
     console.log(`\nDoctor starts the dev server itself at ${devUrl} (--speed)`);
   } else if (live) {
     console.log(`\nStarting the dev server at ${devUrl}`);
-    serving = serveUntil(
+    // Stopped in cleanUp with everything else the studio's code started.
+    const served = await serveUntil(
       devCommand,
       work,
       `${devUrl}/`,
@@ -218,7 +216,6 @@ try {
       // A container is brought up by a command that exits once the app in it is set up.
       { untilExit: environment.runtime.kind === 'container' }
     );
-    served = await serving;
     if (!served) {
       throw new Error(`The dev server did not answer within ${environment.timeouts.start} s.`);
     }

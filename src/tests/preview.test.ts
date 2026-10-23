@@ -25,6 +25,14 @@ import {
   withVariant
 } from '../environment/variants.js';
 import { hostPlatform } from '../launch/platform.js';
+import {
+  runCapture,
+  runToEnd,
+  serveUntil,
+  stopStartedProcesses,
+  trackProcess,
+  type Stoppable
+} from '../launch/processes.js';
 import type { PtyModule } from '../launch/pty.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { renderRepoLink, type RepoLink } from '../repo/link.js';
@@ -783,6 +791,121 @@ describe('an interrupted command', () => {
     assert.equal(closed, 0);
     assert.deepEqual(exits, []);
     interrupts.release();
+  });
+
+  /** A started process as the studio keeps it in hand: a pid nothing signals, and its exit. */
+  function fakeChild(pid: number) {
+    return Object.assign(new EventEmitter(), { pid, exitCode: null as number | null, kill() {} });
+  }
+
+  /** Stands in for stopProcess, so no real pid is signalled: the process is noted, and exits. */
+  function fakeStop(stopped: number[]) {
+    return async (child: Stoppable) => {
+      stopped.push(child.pid!);
+      const fake = child as ReturnType<typeof fakeChild>;
+      fake.exitCode = 1;
+      fake.emit('exit');
+    };
+  }
+
+  it('stops the processes the command started that still run, each once', async () => {
+    const stopped: number[] = [];
+    const stop = fakeStop(stopped);
+    trackProcess(fakeChild(101), stop);
+    const ended = trackProcess(fakeChild(102), stop);
+    trackProcess(fakeChild(103), stop);
+    ended.exitCode = 0;
+    ended.emit('exit');
+    await stopStartedProcesses();
+    assert.deepEqual(stopped.sort(), [101, 103]);
+    await stopStartedProcesses();
+    assert.deepEqual(stopped.sort(), [101, 103], 'a stopped process is not stopped again');
+  });
+
+  it('stops what the command started before the process exits', async () => {
+    const stopped: number[] = [];
+    trackProcess(fakeChild(201), fakeStop(stopped));
+    let atExit: number[] | null = null;
+    let exited!: () => void;
+    const exiting = new Promise<void>(resolve => (exited = resolve));
+    const { host, exits } = fakeHost(() => {
+      atExit = [...stopped];
+      exited();
+    });
+    // As main has it: the kept browser closed, and the processes started stopped.
+    const interrupts = catchInterrupts(host);
+    host.emit('SIGTERM');
+    await exiting;
+    assert.deepEqual(exits, [143]);
+    assert.deepEqual(atExit, [201], 'stopped before the exit');
+    interrupts.release();
+  });
+
+  /** Ports nothing listens on now, each its own. */
+  async function freePorts(count: number): Promise<number[]> {
+    const servers = Array.from({ length: count }, () => http.createServer());
+    await Promise.all(
+      servers.map(server => new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)))
+    );
+    const ports = servers.map(server => (server.address() as AddressInfo).port);
+    await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve))));
+    return ports;
+  }
+
+  /** A server of its own, as an app's start command runs one, answering at `port`. */
+  const serverLine = (port: number) =>
+    `node -e "require('node:http').createServer((q, s) => s.end('up')).listen(${port}, '127.0.0.1')"`;
+
+  async function answers(url: string): Promise<boolean> {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      await response.body?.cancel();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it('stops a server serveUntil started, while its address is waited for and once it answers', async () => {
+    const cwd = await tempDir('roughbook-serve-');
+    const [side, never, own] = await freePorts(3);
+    try {
+      // Up at once at an address of its own, while the one waited for never answers.
+      const waiting = serveUntil(serverLine(side!), cwd, `http://127.0.0.1:${never}/`, 60_000);
+      let up = false;
+      for (let tries = 0; !up && tries < 40; tries += 1) {
+        up = await answers(`http://127.0.0.1:${side}/`);
+        if (!up) await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      assert.ok(up, 'the server came up');
+      await stopStartedProcesses();
+      assert.equal(await answers(`http://127.0.0.1:${side}/`), false, 'stopped while it started');
+      const stoppedAt = Date.now();
+      assert.equal(await waiting, null);
+      assert.ok(Date.now() - stoppedAt < 15_000, 'the wait ended with the server');
+
+      const served = await serveUntil(serverLine(own!), cwd, `http://127.0.0.1:${own}/`, 20_000);
+      assert.ok(served, 'served');
+      await stopStartedProcesses();
+      assert.equal(await answers(`http://127.0.0.1:${own}/`), false, 'stopped once it answered');
+      const stopAt = Date.now();
+      await served.stop();
+      assert.ok(Date.now() - stopAt < 2000, 'a server already stopped is not waited for');
+    } finally {
+      await stopStartedProcesses();
+    }
+  });
+
+  it('stops a command run to its end, such as a build or the snapshot command', async () => {
+    const cwd = await tempDir('roughbook-run-');
+    const line = `node -e "setTimeout(() => {}, 60000)"`;
+    const started = Date.now();
+    const build = runToEnd(line, cwd, 120_000);
+    const snapshot = runCapture(line, cwd, 120_000);
+    await stopStartedProcesses();
+    assert.deepEqual(await build, { code: 1 });
+    assert.equal((await snapshot).code, 1);
+    assert.ok(Date.now() - started < 15_000, 'ended with the stop, not at the timeout');
   });
 });
 

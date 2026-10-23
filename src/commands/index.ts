@@ -8,6 +8,7 @@ import type { Io } from '../io.js';
 import { copyText } from '../launch/clipboard.js';
 import { launchDetached, openUrl } from '../launch/open.js';
 import { hostPlatform } from '../launch/platform.js';
+import { stopStartedProcesses } from '../launch/processes.js';
 import { launchTerminal } from '../launch/terminal.js';
 import { closeKeptBrowsers } from '../screenshot/browser.js';
 import { askPreview, screenshotIteration } from '../screenshot/iteration.js';
@@ -122,14 +123,23 @@ export type InterruptHost = {
 };
 
 /**
+ * What a command leaves behind when it ends or is interrupted: the browser kept for its
+ * screenshots, and the processes it started that still run (a server doctor started itself).
+ */
+async function closeStarted(): Promise<void> {
+  await Promise.all([closeKeptBrowsers(), stopStartedProcesses()]);
+}
+
+/**
  * Ctrl+C and SIGTERM, in hand while a command runs. A command waiting for a stop (start, mcp)
  * has its wait ended, and stops itself. Any other is ended here, once the browser kept for its
- * screenshots has exited and its profile is gone: dying at once would leave the profile in the
- * OS temp folder. Another signal while that closes ends the process at once.
+ * screenshots has exited and its profile is gone, and the processes it started have been stopped:
+ * dying at once would leave the profile in the OS temp folder, and a server started in a group of
+ * its own running from the repo. Another signal while that closes ends the process at once.
  */
 export function catchInterrupts(
   host: InterruptHost = process,
-  close: () => Promise<void> = closeKeptBrowsers
+  close: () => Promise<void> = closeStarted
 ): { waitForStop(): Promise<void>; release(): void } {
   let stopWaiting: (() => void) | null = null;
   let closing = false;
@@ -222,8 +232,9 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     await reportFailure(context, error);
     return 1;
   } finally {
-    // The browser kept for screenshots would otherwise keep the process alive.
-    await closeKeptBrowsers();
+    // The browser kept for screenshots, or a process still running, would otherwise keep the
+    // process alive.
+    await closeStarted();
     interrupts.release();
   }
 }

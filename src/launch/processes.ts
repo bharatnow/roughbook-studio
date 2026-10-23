@@ -3,7 +3,8 @@
 // the line is split into arguments here, npm and npx run through the Node.js that runs the studio
 // and anything else by name; with a named shell that shell is started by name with the line as its
 // one command. Never the machine's default shell. A process started here is stopped with
-// everything it started.
+// everything it started, and is kept in hand until it exits, for a command that ends or is
+// interrupted while it runs.
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -109,26 +110,62 @@ export function resolveCommandLine(
 }
 
 function start(command: string, args: string[], cwd: string): ChildProcess {
-  return spawn(command, args, {
-    cwd,
-    windowsHide: true,
-    // A group of its own, so the whole tree can be stopped at once outside Windows.
-    detached: process.platform !== 'win32',
-    stdio: ['ignore', 'ignore', 'ignore']
-  });
+  return trackProcess(
+    spawn(command, args, {
+      cwd,
+      windowsHide: true,
+      // A group of its own, so the whole tree can be stopped at once outside Windows.
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'ignore', 'ignore']
+    })
+  );
 }
 
 /** A started process as stopProcess needs it: a ChildProcess, or a stand-in in tests. */
 export type Stoppable = {
   pid?: number;
   exitCode: number | null;
+  /** The signal it ended by, outside Windows; its exit code is null then. */
+  signalCode?: NodeJS.Signals | null;
   once(event: 'exit', listener: () => void): unknown;
   kill(signal?: NodeJS.Signals): unknown;
 };
 
+/** Whether a started process has ended, with a code or by a signal. */
+function ended(child: Stoppable): boolean {
+  return child.exitCode !== null || Boolean(child.signalCode);
+}
+
+/** The processes started here that still run, each with how it is stopped. */
+const running = new Map<Stoppable, (child: Stoppable) => Promise<void>>();
+
+/**
+ * Keeps a started process in hand until it exits, so that the studio, interrupted, can stop it:
+ * one in a group of its own (outside Windows) never sees the terminal's Ctrl+C, and a SIGTERM
+ * reaches none, so a server doctor started would go on running from the repo. `stop` is a
+ * stand-in in tests.
+ */
+export function trackProcess<T extends Stoppable>(
+  child: T,
+  stop: (child: Stoppable) => Promise<void> = stopProcess
+): T {
+  if (ended(child) || child.pid === undefined) return child;
+  running.set(child, stop);
+  child.once('exit', () => running.delete(child));
+  return child;
+}
+
+/**
+ * Stops every process started here that still runs, each with everything it started: when a
+ * command ends or is interrupted, whatever it was waiting on.
+ */
+export async function stopStartedProcesses(): Promise<void> {
+  await Promise.all([...running].map(([child, stop]) => stop(child)));
+}
+
 /** Ends a process and everything it started, on every platform. */
 export async function stopProcess(child: Stoppable): Promise<void> {
-  if (child.exitCode !== null || child.pid === undefined) return;
+  if (ended(child) || child.pid === undefined) return;
   const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   if (process.platform === 'win32') {
     await new Promise<void>(resolve => {
@@ -207,13 +244,15 @@ export function runCapture(
       output += chunk.toString('utf8');
       if (output.length > CAPTURE_LIMIT) output = output.slice(-CAPTURE_LIMIT);
     };
-    const child = spawn(resolved.command, resolved.args, {
-      cwd,
-      env: { ...process.env, ...env },
-      windowsHide: true,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    const child = trackProcess(
+      spawn(resolved.command, resolved.args, {
+        cwd,
+        env: { ...process.env, ...env },
+        windowsHide: true,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+    );
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
     const timer = setTimeout(() => {
@@ -261,7 +300,8 @@ export type Served = { stop(): Promise<void> };
  * time. A command that starts its app in the background and exits with 0 (a container started by
  * its tool) is waited on until the address answers, as one still running is; one that fails is not.
  * With `untilExit`, the command is a container's bring-up, whose web server may answer long before
- * the app in it is set up: the address counts only once the command has finished, with 0.
+ * the app in it is set up: the address counts only once the command has finished, with 0. One
+ * ended by a signal (stopped when the studio was interrupted) is not waited on either.
  */
 export async function serveUntil(
   line: string,
@@ -281,13 +321,13 @@ export async function serveUntil(
   const served: Served = { stop: () => stopProcess(child) };
   const deadline = Date.now() + timeoutMs;
   if (options.untilExit) {
-    while (Date.now() < deadline && !failed && child.exitCode === null) {
+    while (Date.now() < deadline && !failed && !ended(child)) {
       await new Promise(resolve => setTimeout(resolve, 250));
     }
-    if (child.exitCode === null) await served.stop();
+    if (!ended(child)) await served.stop();
     if (failed || child.exitCode !== 0) return null;
   }
-  while (Date.now() < deadline && !failed && (child.exitCode ?? 0) === 0) {
+  while (Date.now() < deadline && !failed && !child.signalCode && (child.exitCode ?? 0) === 0) {
     try {
       // A server that is not up yet refuses at once; one that is up may hold its first request
       // while it renders the page (Metro renders on the server first), which is waited for.
