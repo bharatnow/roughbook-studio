@@ -12,6 +12,9 @@ import { LocalStudio } from '../server/studio.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 import { devUrl } from './done.js';
 import { readEnvironment } from '../environment/read.js';
+import { MAP_FILE } from '../map/file.js';
+import { countMap, refreshMap } from '../map/run.js';
+import { ROUGH_DIR } from '../repo/root.js';
 import { approveEnvironment } from './setup.js';
 
 const REGISTRY_EVERY_MS = 1500;
@@ -137,6 +140,16 @@ export const start: Command = {
     const link = await requireRepoLink(repoRoot);
     const environment = await readEnvironment(repoRoot, link);
     const api = await requireApi(context);
+    // The map again, when the app's sources changed since it was written (B1 of the brownfield plan).
+    try {
+      const refreshed = await refreshMap(repoRoot, environment, link);
+      if (refreshed?.changed)
+        io.out(`${ROUGH_DIR}/${MAP_FILE} refreshed: ${countMap(refreshed.map)}.`);
+    } catch (error) {
+      io.err(
+        `The map was not refreshed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     const settings = await readSettings(context.configDir);
     const saved = settings.localPort ?? DEFAULT_LOCAL_PORT;
     const port = values.port ? parsePort(values.port) : saved;

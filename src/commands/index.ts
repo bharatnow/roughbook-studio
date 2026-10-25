@@ -22,6 +22,7 @@ import { done } from './done.js';
 import { init } from './init.js';
 import { login } from './login.js';
 import { logout } from './logout.js';
+import { map } from './map.js';
 import { mcp } from './mcp.js';
 import { create } from './new.js';
 import { promote } from './promote.js';
@@ -42,6 +43,7 @@ export const COMMANDS: Command[] = [
   create,
   init,
   setup,
+  map,
   start,
   run,
   done,

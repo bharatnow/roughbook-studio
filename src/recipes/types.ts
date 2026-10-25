@@ -4,6 +4,7 @@
 // goes). The rest of the studio sees only this and the environment (ROUGHBOOK-FRAMEWORKS-PLAN.md,
 // decision 12). Modelled on the coding agents' adapters in src/agents.
 import type { EnvironmentOs, RepoEnvironment, Shell } from '../environment/types.js';
+import type { Discovered, DiscoverInput, MapComponent } from '../map/types.js';
 import type { RepoLink } from '../repo/link.js';
 import type { PrepChange } from '../repo/plan.js';
 import type { CraftWords } from './craft.js';
@@ -81,6 +82,22 @@ export type Recipe = {
   environment(link: RepoLink | null, os?: EnvironmentOs): RepoEnvironment;
   /** The preview setup for a repo, planned without writing anything. */
   planPreview(repo: string, link: RepoLink): PreviewPlan;
+  /**
+   * What the app already has (B1 of ROUGHBOOK-BROWNFIELD-PLAN.md): its pages, the sections each
+   * shows in order, the parts every page shares and the atoms, read from the files the stack
+   * declares, without installing, building or running anything. None for a stack whose structure
+   * only the map run can read.
+   */
+  discover?(input: DiscoverInput): Promise<Discovered>;
+  /**
+   * The files of an iteration that renders one of the app's own components as it is, from where
+   * `iterationDir` (repo-relative) puts it, with `fixture` as its fixture file's text: a pointer to
+   * the real file, never a copy (decision 2). Null when this component cannot be pointed at.
+   */
+  pointer?(
+    component: MapComponent,
+    input: { iterationDir: string; fixture: string | null }
+  ): Record<string, string> | null;
   /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
   setupFiles(repo: string, link: RepoLink): string[];
   /**

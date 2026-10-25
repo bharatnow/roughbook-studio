@@ -57,6 +57,7 @@ says how the binaries are built and released.
 | `roughbook login [--server <url>] [--no-browser]`        | Signs this machine in: shows a code to enter at the web's `/link` page and opens it                                                                                                                                                                                                                                                                                 |
 | `roughbook new [<recipe>] [<folder>]`                    | Starts an app of a recipe's stack in an empty folder with the stack's own scaffold (create-vite, `composer create-project`, …), starts git, then runs `init` in it; takes `init`'s `--project`, `--new`, `--org` and `--yes`                                                                                                                                        |
 | `roughbook init`                                         | In an app's repo: links it to a project and prepares it, showing every change first                                                                                                                                                                                                                                                                                 |
+| `roughbook map [--agent <id>] [--yes] [--json]`          | Maps the pages and components the app already has into `rough/map.md`, from its own files, with no agent and nothing sent; `--agent` then starts the map run, which names them, adds what was missed and writes fixtures                                                                                                                                            |
 | `roughbook start [--port <port>] [--dev-url <url>]`      | Opens the local UI in your browser: the project's components, their iterations live, compare, review, runs with the built-in terminal, Done and promote; starts the app with the environment's approved start command unless something answers at its address (`--no-app` leaves it to you)                                                                         |
 | `roughbook run <page>/<component> …`                     | Starts iterations: `--direction <idea>` (up to eight), `--fork <iteration>`, or `--refine <iteration> --intent <text>`; opens your agent in a terminal (`--agent claude-code`, `codex`, `antigravity-cli` or `cursor-cli`), `--headless` runs it unattended, and `--agent cursor` (or `vscode`, `antigravity`, `windsurf`, `other`) opens the prompt in that editor |
 | `roughbook done [<run or iteration>]`                    | Finishes a run: checks the iteration, lists files changed outside it and asks whether they were yours (`--mine <path>` names them), takes screenshots, reports it                                                                                                                                                                                                   |
@@ -106,6 +107,25 @@ app's commands; it never runs unattended. When it says the setup is ready, start
 `roughbook doctor`; `roughbook setup --fix` takes its findings back to the agent. On a teammate's
 clone, `init` finds `rough/environment.md`, shows the templates it is about to apply and the
 commands it is about to approve, applies and approves them, and runs `doctor` when the app answers.
+
+## The map
+
+`rough/map.md` is what the app already has (the brownfield plan's B1): its pages with their
+addresses, the sections each shows in order, the parts every page shares (Shared), and the atoms
+below them, with each component's source files, its export, its fixture and whether it renders
+alone. Like the environment it is a header the studio reads, then prose agents read, committed
+with `rough/`. `roughbook map` writes it from what the stack declares, reading only: Next.js's
+`app/` and `pages/` with each page's import graph (esbuild's metafile), Expo Router's `app/`, a Vite
+app's React Router routes, Nuxt's pages, layouts and components, Laravel's route files and Blade
+views, a WordPress theme's template hierarchy, and a Shopify theme's templates. A story's `args`
+become its component's fixture, in `rough/map/fixtures/`. What it could not place is listed with
+the reason (`missed`), and the component files nothing renders (`unplaced`). `init` maps an app that
+has any UI, and `start` maps again when the app's files changed. The map run (`roughbook map
+--agent <id>`) is an agent session like the setup run that writes only `rough/map.md` and fixtures;
+the next `roughbook map` keeps its work and names any file it changed besides. With a map,
+`roughbook doctor` adds three checks: each page answers at its address, each section and shared part
+renders alone through a pointer to its real file and says it is ready, and their screenshots come
+out clean. Nothing of the map reaches the server.
 
 ## The environment
 
@@ -566,6 +586,8 @@ src/
                 through esbuild)
   snapshot/     snapshot mode: the command's contract, rendering the changed keys, the device command
   environment/  rough/environment.md: its header's fields, read for this operating system
+  map/          rough/map.md: its reader and writer, the map built from the discoverers' results,
+                atoms told apart, the map run's prompt and record (the discoverers are recipes')
   standalone/   the standalone server: the page around an iteration, its files, who may ask
   doctor/       roughbook doctor: the contract, its checks (snapshot mode's apart), the sentinel search
   fs/           whole-file JSON writes and the lock the CLI and local server share

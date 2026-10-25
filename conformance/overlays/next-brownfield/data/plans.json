@@ -1,0 +1,5 @@
+[
+  { "name": "Free", "price": "$0" },
+  { "name": "Team", "price": "$12" },
+  { "name": "Business", "price": "$29" }
+]

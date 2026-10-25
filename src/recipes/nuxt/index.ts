@@ -1,6 +1,7 @@
 // Nuxt (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Recipes", 8th in the launch order): live, on the app's own
 // `nuxt dev`, through a local module that shows previews in development only, so `nuxt build`
 // holds nothing from rough/ (the build gate). Iterations are Vue single-file components.
+import path from 'node:path';
 import type { RepoEnvironment } from '../../environment/types.js';
 import type { RepoLink } from '../../repo/link.js';
 import { pascalCase } from '../../repo/names.js';
@@ -22,6 +23,8 @@ import {
   isOurFile,
   writeRegistry
 } from './preview.js';
+import type { MapComponent } from '../../map/types.js';
+import { discoverNuxt } from './discover.js';
 
 const PORT = 3000;
 
@@ -106,6 +109,32 @@ needs it: ${WRAPPER} is the place for the layout, providers and stylesheets an i
 must let /rough-preview through in development. Keep recipe: nuxt so the studio keeps the module up to
 date.`;
 
+/**
+ * An iteration that renders one of the app's components as it is (decision 2 of the brownfield
+ * plan): a component that imports the real one and hands it the fixture the preview passes in.
+ */
+export function vuePointer(
+  component: MapComponent,
+  input: { iterationDir: string; fixture: string | null }
+): Record<string, string> | null {
+  const source = component.files[0];
+  if (!source?.endsWith('.vue')) return null;
+  const relative = path.posix.relative(input.iterationDir, source);
+  const spec = relative.startsWith('.') ? relative : `./${relative}`;
+  return {
+    [ENTRY]: `<script setup lang="ts">
+// ${component.name}, as the app has it in ${source}: a pointer, never a copy.
+import Target from ${JSON.stringify(spec)};
+</script>
+
+<template>
+  <Target v-bind="$attrs" />
+</template>
+`,
+    ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+  };
+}
+
 export const nuxt: Recipe = {
   id: 'nuxt',
   name: 'Vue with Nuxt',
@@ -162,6 +191,8 @@ export const nuxt: Recipe = {
     };
   },
   planPreview,
+  discover: discoverNuxt,
+  pointer: vuePointer,
   setupFiles: () => [MODULE_FILE],
   agentRules:
     environment => `- \`${environment.entry}\` is a Vue single-file component, rendered by the app's own Nuxt on the

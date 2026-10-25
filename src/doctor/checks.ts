@@ -17,7 +17,10 @@ export const NAMES: Record<CheckId, string> = {
   gate: 'Nothing reaches production',
   loopback: 'The preview answers this machine only',
   'setup-files': 'The setup files are listed',
-  speed: 'The speed budgets hold'
+  speed: 'The speed budgets hold',
+  'map-pages': "The map's pages answer at their addresses",
+  'map-components': "The map's sections render alone and say so",
+  'map-screenshots': "The map's screenshots come out clean"
 };
 
 /** The same checks in snapshot mode, named for what they prove there. */
@@ -45,6 +48,12 @@ export const ORDER: CheckId[] = [
   'setup-files',
   'speed'
 ];
+
+/**
+ * The map's checks (B1 of the brownfield plan), after the contract's, in a repo with rough/map.md
+ * only: a repo that maps nothing gets the same report as before.
+ */
+export const MAP_ORDER: CheckId[] = ['map-pages', 'map-components', 'map-screenshots'];
 
 export function result(
   id: CheckId,

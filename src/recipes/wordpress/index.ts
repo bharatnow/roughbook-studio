@@ -32,6 +32,8 @@ import {
   themeFolder,
   withRoughReleased
 } from './preview.js';
+import type { MapComponent } from '../../map/types.js';
+import { discoverWordpress } from './discover.js';
 
 /** The wp-env release the scaffold pins; the conformance fixture pins the same. */
 const WP_ENV_VERSION = '11.17.0';
@@ -259,6 +261,34 @@ Docker at http://localhost:${PORT} (wp-env; Docker must be running). Designs liv
   };
 }
 
+/**
+ * An iteration that renders one of the theme's patterns or parts as it is (decision 2 of the
+ * brownfield plan), through the blocks or the template loader the theme's own pages use; its
+ * fixture's keys reach a classic part as its arguments.
+ */
+export function themePointer(
+  component: MapComponent,
+  input: { fixture: string | null }
+): Record<string, string> | null {
+  const [kind, slug] = component.export.split(' ') as [string, string | undefined];
+  if (!slug) return null;
+  let body: string;
+  if (kind === 'pattern') body = `<!-- wp:pattern ${JSON.stringify({ slug })} /-->`;
+  else if (kind === 'part' && component.files[0]?.endsWith('.html')) {
+    body = `<!-- wp:template-part ${JSON.stringify({ slug })} /-->`;
+  } else if (kind === 'part' || kind === 'sidebar') {
+    const part = kind === 'part' ? slug : `sidebar-${slug}`;
+    body = `<?php get_template_part( ${JSON.stringify(part).replace(/"/g, "'")}, null, get_defined_vars() ); ?>`;
+  } else return null;
+  return {
+    [ENTRY]: `<?php ${GUARD} ?>
+<?php /* ${component.name.replace(/\*\//g, '')}, as the theme has it: a pointer, never a copy. */ ?>
+${body}
+`,
+    ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+  };
+}
+
 export const wordpress: Recipe = {
   id: 'wordpress',
   name: 'WordPress themes',
@@ -317,6 +347,8 @@ export const wordpress: Recipe = {
     };
   },
   planPreview,
+  discover: discoverWordpress,
+  pointer: themePointer,
   // The override file only when it is the recipe's own as written, never one of the designer's.
   setupFiles: repo => [
     ...(read(repo, OVERRIDE_FILE)?.replace(/\r\n/g, '\n') === OVERRIDE ||

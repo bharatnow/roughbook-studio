@@ -18,7 +18,10 @@ export type CheckId =
   | 'gate'
   | 'loopback'
   | 'setup-files'
-  | 'speed';
+  | 'speed'
+  | 'map-pages'
+  | 'map-components'
+  | 'map-screenshots';
 
 /** `skip`: not checked, and the report says why (another phase's check, or `--skip-build`). */
 export type CheckStatus = 'pass' | 'fail' | 'skip';
@@ -71,6 +74,11 @@ export type Probe = {
    * HTML the server sent then holds none of the iteration, and this does.
    */
   text: string;
+  /**
+   * The path the page ended on: another than the one it landed on when the app's own code sent the
+   * browser on, as a sign-in guard does, which ends the wait at once. Absent when nothing loaded.
+   */
+  path?: string;
 };
 
 /** A process the runtime gate started, answering at its address until stopped. */
@@ -85,6 +93,8 @@ export type DoctorTools = {
     timeoutMs: number;
     /** Text the page must show once settled. */
     expect?: string;
+    /** At most how long to wait for the ready message: an app's own page never posts it. */
+    waitMs?: number;
   }): Promise<Probe>;
   screenshot(input: {
     url: string;
@@ -93,6 +103,8 @@ export type DoctorTools = {
     overlays: string[];
     /** The variant to photograph in: its scheme and locale emulated by the browser. */
     variant?: ResolvedVariant | null;
+    /** At most how long to wait for the ready message: an app's own page never posts it. */
+    waitMs?: number;
   }): Promise<boolean>;
   /** Runs a command to its end in `cwd`, in the declared shell; the exit code, or null when it timed out. */
   exec(

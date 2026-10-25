@@ -144,6 +144,13 @@ for (const name of wanted) {
     console.error(`No fixture named ${name} in conformance/fixtures.json.`);
     process.exit(2);
   }
+  // A brownfield fixture is another one's scaffold with its overlay: there is nothing to write.
+  if (fixture.from) {
+    console.log(
+      `\n== ${name}: the ${fixture.from} fixture with conformance/overlays/${fixture.overlay}/`
+    );
+    continue;
+  }
   await write(name, fixture, latest);
 }
 console.log(`\nWrote ${wanted.join(', ')} under conformance/fixtures/.`);

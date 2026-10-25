@@ -9,7 +9,9 @@ import { planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
 import { withSnippet } from '../../repo/setup.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
+import type { MapComponent } from '../../map/types.js';
 import type { PreviewPlan, Recipe } from '../types.js';
+import { discoverLaravel } from './discover.js';
 import {
   ENTRY,
   FIXTURE,
@@ -100,6 +102,42 @@ function bladeName(componentName: string): string {
   );
 }
 
+/**
+ * An iteration that renders one of the app's views or components as it is (decision 2 of the
+ * brownfield plan), with the fixture's keys as the view's variables, as the preview route passes
+ * them: a view included, a component given each key as an attribute, a Livewire component by name.
+ */
+export function bladePointer(
+  component: MapComponent,
+  input: { fixture: string | null }
+): Record<string, string> | null {
+  const [kind, name] = component.export.split(' ') as [string, string | undefined];
+  let keys: string[] = [];
+  if (input.fixture !== null) {
+    try {
+      const parsed = JSON.parse(input.fixture) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        keys = Object.keys(parsed).filter(key => /^[A-Za-z_]\w*$/.test(key));
+      }
+    } catch {
+      return null;
+    }
+  }
+  let body: string;
+  if (kind === 'view' && name) body = `@include('${name}')`;
+  else if (kind === 'livewire' && name) body = `@livewire('${name}')`;
+  else if (kind.startsWith('x-')) {
+    const attributes = keys.map(key => ` :${bladeName(key)}="$${key}"`).join('');
+    body = `<x-dynamic-component component="${kind.slice(2)}"${attributes} />`;
+  } else return null;
+  return {
+    [ENTRY]: `{{-- ${component.name}, as the app has it: a pointer, never a copy. --}}
+${body}
+`,
+    ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+  };
+}
+
 export const laravel: Recipe = {
   id: 'laravel',
   name: 'Laravel with Blade',
@@ -169,6 +207,8 @@ export const laravel: Recipe = {
     };
   },
   planPreview,
+  discover: discoverLaravel,
+  pointer: bladePointer,
   setupFiles: () => [ROUTE_FILE],
   snippets: () => [{ file: WEB_ROUTES, text: WEB_SNIPPET }],
   agentRules:

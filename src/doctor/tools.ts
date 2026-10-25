@@ -64,12 +64,12 @@ export function realTools(env: NodeJS.ProcessEnv, repoRoot = ''): DoctorTools {
       const host = new Headers(init?.headers).get('host');
       return host ? fetchAs(String(input), host, init?.signal) : fetch(input, init);
     },
-    probe: async ({ url, overlays, timeoutMs, expect }) =>
+    probe: async ({ url, overlays, timeoutMs, expect, waitMs }) =>
       browser
-        ? probePreview({ browser, url, overlays, timeoutMs, expect })
+        ? probePreview({ browser, url, overlays, timeoutMs, expect, waitMs })
         : { shows: false, ready: false, error: null, visibleOverlays: 0, exceptions: [], text: '' },
-    screenshot: async ({ url, file, size, overlays, variant }) =>
-      browser ? takeScreenshot({ browser, url, file, size, overlays, variant }) : false,
+    screenshot: async ({ url, file, size, overlays, variant, waitMs }) =>
+      browser ? takeScreenshot({ browser, url, file, size, overlays, variant, waitMs }) : false,
     exec: (command, cwd, timeoutMs, shell) =>
       queued(repoRoot || cwd, () => runToEnd(command, cwd, timeoutMs, shell)),
     snapshot: (command, cwd, timeoutMs, shell, variables) =>

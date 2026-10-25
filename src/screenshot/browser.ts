@@ -50,11 +50,21 @@ export const PAGE_SETUP = pageSetup(defaultEnvironment().overlays);
  * Resolves once the iteration has rendered and settled: the ready message has come (the page has
  * hydrated, which in a dev server compiling on first request can take seconds), and no finite
  * animation is still running, so text that fades in is in the shot. Each wait has a cap, so a page
- * without the route's ready message, or with an endless animation, is photographed anyway.
+ * without the route's ready message, or with an endless animation, is photographed anyway. A page
+ * that leaves `from`, the path it landed on, settles at once: the app's own code sent the browser
+ * on (a sign-in guard), and what it was asked for will never say ready.
  */
-export function settledScript(maxWaitMs: number): string {
+export function settledScript(maxWaitMs: number, from: string | null = null): string {
   return `new Promise(function (resolve) {
   var start = Date.now();
+  var from = ${JSON.stringify(from)};
+  function trimmed(path) {
+    while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
+    return path;
+  }
+  function left() {
+    return from !== null && trimmed(location.pathname) !== trimmed(from);
+  }
   function moving() {
     return document.getAnimations().some(function (animation) {
       var end = animation.effect && animation.effect.getComputedTiming().endTime;
@@ -62,6 +72,7 @@ export function settledScript(maxWaitMs: number): string {
     });
   }
   (function check() {
+    if (left()) return resolve(true);
     var waited = Date.now() - start;
     var ready = window.__roughbookReady === true || window.__roughbookError !== undefined || waited > ${maxWaitMs};
     if (ready && (!moving() || waited > ${maxWaitMs + 6000})) resolve(true);
@@ -597,6 +608,8 @@ function browserFor(browser: string | KeptBrowser): KeptBrowser {
  * (Motion's transforms run on requestAnimationFrame). A page that reloads itself while it settles
  * is waited for again, within the same time: a dev server's loading screen that reloads into the
  * page once it has compiled it, or a bundler's full reload after it optimized new dependencies.
+ * A page that leaves the path it landed on (after the server's redirects) is not waited for: the
+ * app's own code sent the browser on.
  */
 async function settle(
   page: PageSession,
@@ -607,6 +620,12 @@ async function settle(
   const started = Date.now();
   const left = () => Math.max(0, maxWaitMs - (Date.now() - started));
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  let landed: string | null = null;
+  page.on('Page.frameNavigated', params => {
+    const { frame } = params as { frame?: { parentId?: string; url?: string } };
+    if (landed !== null || !frame || frame.parentId || !/^https?:/.test(frame.url ?? '')) return;
+    landed = new URL(frame.url!).pathname;
+  });
   const loaded = page.event('Page.loadEventFired');
   await page.send('Page.navigate', { url });
   await loaded;
@@ -622,7 +641,7 @@ async function settle(
         awaitPromise: true
       });
       await page.send('Runtime.evaluate', {
-        expression: settledScript(left()),
+        expression: settledScript(left(), landed),
         awaitPromise: true
       });
       if (loads === seen) break;
@@ -643,7 +662,8 @@ export async function takeScreenshot({
   size,
   overlays = [],
   variant = null,
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  waitMs = 20_000
 }: {
   /** The browser's executable, or the kept browser itself. */
   browser: string | KeptBrowser;
@@ -655,10 +675,12 @@ export async function takeScreenshot({
   /** The variant the page is photographed in: its scheme and locale emulated here. */
   variant?: ResolvedVariant | null;
   timeoutMs?: number;
+  /** At most how long to wait for the page to say ready: an app's own page never does. */
+  waitMs?: number;
 }): Promise<boolean> {
   const kept = browserFor(browser);
   const taken = await kept.withPage({ size, overlays, variant, timeoutMs }, async page => {
-    await settle(page, url, 20000, kept.settleMs);
+    await settle(page, url, waitMs, kept.settleMs);
     const { data } = await page.send<{ data: string }>('Page.captureScreenshot', {
       format: 'png'
     });
@@ -679,12 +701,15 @@ export async function probePreview({
   url,
   overlays,
   timeoutMs = 60_000,
-  expect
+  expect,
+  waitMs
 }: {
   browser: string | KeptBrowser;
   url: string;
   overlays: string[];
   timeoutMs?: number;
+  /** At most how long to wait for the page to say ready, when not most of the timeout. */
+  waitMs?: number;
   /** Text the page must show once settled; what the server sent but the page hides does not count. */
   expect?: string;
 }): Promise<Probe> {
@@ -703,7 +728,8 @@ export async function probePreview({
     ready: window.__roughbookReady === true,
     error: window.__roughbookError === undefined ? null : String(window.__roughbookError),
     visibleOverlays: visible,
-    text: text.slice(0, 200000)
+    text: text.slice(0, 200000),
+    path: location.pathname
   });
 })()`;
   const kept = browserFor(browser);
@@ -722,7 +748,7 @@ export async function probePreview({
       await page.send('Runtime.enable');
       // A dev server compiling the page's client code on first request may take a while to
       // hydrate; the probe waits as long as the environment allows, less a margin for the rest.
-      await settle(page, url, Math.max(20_000, timeoutMs - 10_000), kept.settleMs);
+      await settle(page, url, waitMs ?? Math.max(20_000, timeoutMs - 10_000), kept.settleMs);
       const { result } = await page.send<{ result: { value?: string } }>('Runtime.evaluate', {
         expression,
         returnByValue: true

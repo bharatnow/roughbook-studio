@@ -9,6 +9,7 @@ import type {
   IssuedInstall,
   LinkBody,
   LinkResult,
+  MapPrompt,
   Me,
   OrgProjects,
   ProjectTree,
@@ -226,6 +227,11 @@ export class StudioApi {
   /** The setup run's prompt for this project, with the stand-ins the studio fills. */
   setupPrompt(orgId: string, project: string): Promise<SetupPrompt> {
     return this.request('GET', `${projectPath(orgId, project)}/setup-prompt`);
+  }
+
+  /** The map run's prompt for this project (B1 of the brownfield plan), with its stand-ins. */
+  mapPrompt(orgId: string, project: string): Promise<MapPrompt> {
+    return this.request('GET', `${projectPath(orgId, project)}/map-prompt`);
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */

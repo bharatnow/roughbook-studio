@@ -1,5 +1,5 @@
 {
-  "$comment": "The apps the conformance suite runs doctor against, one per recipe, written by scripts/fixtures.mjs from these pinned scaffolds. Regenerating a fixture is a deliberate commit; the weekly run uses the latest versions instead. runner is how the scaffold runs: npx (the default), composer (create-project), studio (the recipe's own scaffold, from dist/, its versions pinned in its files) or flutter (flutter create, with the SDK on the PATH). install runs in a copy of the fixture before doctor, dev serves it ({port} is a free port; the address is url, or http://localhost:{port}), down takes down what dev started outside its own process, store names the variable that must hold a store the designer signed in to, and header holds lines the copy's rough/environment.md gains over the recipe's.",
+  "$comment": "The apps the conformance suite runs doctor against, one per recipe, written by scripts/fixtures.mjs from these pinned scaffolds. Regenerating a fixture is a deliberate commit; the weekly run uses the latest versions instead. runner is how the scaffold runs: npx (the default), composer (create-project), studio (the recipe's own scaffold, from dist/, its versions pinned in its files) or flutter (flutter create, with the SDK on the PATH). install runs in a copy of the fixture before doctor, dev serves it ({port} is a free port; the address is url, or http://localhost:{port}), down takes down what dev started outside its own process, store names the variable that must hold a store the designer signed in to, and header holds lines the copy's rough/environment.md gains over the recipe's. overlay names a folder under conformance/overlays/ whose files the copy gains over the scaffold's (the pages an existing app has, for the brownfield plan's B1); map has the copy mapped as roughbook map maps it before doctor runs, so doctor's map checks run; from names the fixture a brownfield one is copied from, whose recipe it uses.",
   "fixtures": {
     "next": {
       "scaffold": "create-next-app",
@@ -21,6 +21,13 @@
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npm run dev -- --port {port}"
     },
+    "next-brownfield": {
+      "from": "next",
+      "overlay": "next-brownfield",
+      "map": true,
+      "install": ["npm ci --no-audit --no-fund"],
+      "dev": "npm run dev -- --port {port}"
+    },
     "vite": {
       "scaffold": "create-vite",
       "version": "9.3.1",
@@ -32,6 +39,8 @@
       "runner": "studio",
       "version": "1",
       "app": "harbor-theme",
+      "overlay": "wordpress",
+      "map": true,
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npx wp-env start",
       "url": "http://localhost:8888",
@@ -57,6 +66,8 @@
       "runner": "composer",
       "scaffold": "laravel/laravel",
       "version": "13.11.0",
+      "overlay": "laravel",
+      "map": true,
       "args": ["--prefer-dist", "--no-interaction", "--no-scripts", "--no-install"],
       "install": [
         "composer install --no-interaction --no-progress",

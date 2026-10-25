@@ -8,4 +8,6 @@ src/telemetry/catalog.json
 .claude
 # The conformance suite's fixture apps, written by scripts/fixtures.mjs from pinned scaffolds.
 conformance/fixtures
+# What the brownfield fixtures add over them (ROUGHBOOK-BROWNFIELD-PLAN.md, B1), in their stacks' own style.
+conformance/overlays
 release

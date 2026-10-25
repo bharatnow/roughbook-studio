@@ -34,8 +34,10 @@ import { screenshotIteration } from '../screenshot/iteration.js';
 import { siteFile } from '../standalone/files.js';
 import { startStandaloneServer, type StandaloneServer } from '../standalone/server.js';
 import { STUDIO_VERSION } from '../version.js';
-import { ORDER, result, rewrite, writeFiles } from './checks.js';
+import { hasMapFile } from '../map/file.js';
+import { MAP_ORDER, ORDER, result, rewrite, writeFiles } from './checks.js';
 import { buildGate } from './gate.js';
+import { mapChecks } from './map.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -120,16 +122,32 @@ function summarize(environment: RepoEnvironment): DoctorReport['environment'] {
 export async function runDoctor(repoRoot: string, options: DoctorOptions): Promise<DoctorReport> {
   const tools: DoctorTools = { ...realTools(process.env, repoRoot), ...options.tools };
   const checks: CheckResult[] = [];
+  // The map's checks are there only when the repo has a map (B1 of the brownfield plan).
+  const mapped = hasMapFile(repoRoot);
+  const order = mapped ? [...ORDER, ...MAP_ORDER] : ORDER;
   const skipFrom = (id: CheckId, detail: string) => {
-    for (const next of ORDER.slice(ORDER.indexOf(id))) checks.push(result(next, 'skip', detail));
+    for (const next of order.slice(order.indexOf(id))) checks.push(result(next, 'skip', detail));
   };
-  const report = (environment: RepoEnvironment): DoctorReport => ({
-    studio: STUDIO_VERSION,
-    // With --snapshots, what was checked is the snapshot command: the report says so.
-    environment: { ...summarize(environment), ...(options.snapshots ? { mode: 'snapshot' } : {}) },
-    outcome: outcomeOf(checks),
-    checks
-  });
+  const report = (environment: RepoEnvironment): DoctorReport => {
+    if (mapped && !checks.some(check => MAP_ORDER.includes(check.id))) {
+      for (const id of MAP_ORDER) {
+        checks.push(
+          result(id, 'skip', 'Not checked: the map is checked through the live preview.')
+        );
+      }
+    }
+    checks.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    return {
+      studio: STUDIO_VERSION,
+      // With --snapshots, what was checked is the snapshot command: the report says so.
+      environment: {
+        ...summarize(environment),
+        ...(options.snapshots ? { mode: 'snapshot' } : {})
+      },
+      outcome: outcomeOf(checks),
+      checks
+    };
+  };
 
   // 1. The environment, and the commands it names approved on this machine (decision 18).
   let environment: RepoEnvironment;
@@ -858,6 +876,14 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     // 8. The setup files: each listed one in place and matching its template, the recipe's own
     // files as the recipe writes them now, and nothing else changed outside rough/ by the setup run.
     checks.push(await setupFilesCheck(repoRoot, environment, recipe, link));
+
+    // The map's checks, with rough/map.md: its pages answer, its sections render alone, and their
+    // screenshots come out clean (src/doctor/map.ts). Reported after the contract's.
+    if (mapped) {
+      checks.push(
+        ...(await mapChecks({ repoRoot, environment, shown, recipe, tools, base, page, shotsDir }))
+      );
+    }
 
     // 9. The speed budgets, with --speed: a new iteration (as a finished run leaves one), warmed
     // once and timed until it shows and says ready; its screenshots at every viewport and

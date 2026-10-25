@@ -7,8 +7,10 @@
 // doctor starts the dev server itself with the environment's start command, as `roughbook start`
 // does, so the cold start is measured with the other budgets. Exit code: 0 pass, 1 fail, 2
 // unverified. With `--snapshots`, doctor checks the recipe's snapshot command (final review beside
-// a live preview) instead of the page. Needs `npm run build` first, since it runs the studio from
-// dist/.
+// a live preview) instead of the page. A fixture with an overlay gains its pages over the scaffold's,
+// and one marked map (or any, with `--map`) is mapped as `roughbook map` maps it before doctor, so
+// doctor's map checks run (ROUGHBOOK-BROWNFIELD-PLAN.md, B1). Needs `npm run build` first, since it
+// runs the studio from dist/.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -23,9 +25,10 @@ const skipBuild = args.includes('--skip-build');
 const speed = args.includes('--speed');
 const snapshots = args.includes('--snapshots');
 const keep = args.includes('--keep');
+const mapped = args.includes('--map');
 if (!name) {
   console.error(
-    'Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--snapshots] [--keep]'
+    'Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--snapshots] [--map] [--keep]'
   );
   process.exit(2);
 }
@@ -37,9 +40,17 @@ if (!pinned) {
   console.error(`No fixture named ${name} in conformance/fixtures.json.`);
   process.exit(2);
 }
-const fixture = path.join(root, 'conformance', 'fixtures', name);
+// A brownfield fixture is another one's scaffold with an overlay of its own (B1 of the brownfield
+// plan): the scaffold's recipe, the overlay's pages.
+const base = pinned.from ?? name;
+const fixture = path.join(root, 'conformance', 'fixtures', base);
 if (!fs.existsSync(fixture)) {
-  console.error(`No fixture ${name}: run npm run fixtures -- ${name} first.`);
+  console.error(`No fixture ${base}: run npm run fixtures -- ${base} first.`);
+  process.exit(2);
+}
+const overlay = pinned.overlay ? path.join(root, 'conformance', 'overlays', pinned.overlay) : null;
+if (overlay && !fs.existsSync(overlay)) {
+  console.error(`No overlay ${pinned.overlay} in conformance/overlays/.`);
   process.exit(2);
 }
 if (!fs.existsSync(path.join(root, 'dist', 'doctor', 'run.js'))) {
@@ -61,7 +72,10 @@ const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
 const { serveUntil, stopStartedProcesses } = await dist('launch/processes.js');
 const { closeKeptBrowsers } = await dist('screenshot/browser.js');
 const { recipeFor } = await dist('recipes/index.js');
-const recipe = recipeFor(name);
+const { mapRepo, describeMap, countMap } = await dist('map/run.js');
+const { readEnvironment } = await dist('environment/read.js');
+const { readRepoLink } = await dist('repo/link.js');
+const recipe = recipeFor(base);
 const environment = recipe.environment(null);
 
 function freePort() {
@@ -94,7 +108,7 @@ function phpHas(module, cwd) {
  * which a PHP without pdo_sqlite cannot open, so they go to files there, as F3 found.
  */
 function prepareMachine(work) {
-  if (name !== 'laravel') return;
+  if (base !== 'laravel') return;
   if (phpHas('pdo_sqlite', work)) {
     fs.writeFileSync(path.join(work, 'database', 'database.sqlite'), '');
     run('php artisan migrate --force --no-interaction', work);
@@ -167,6 +181,14 @@ try {
     recursive: true,
     filter: source => !source.split(path.sep).includes('node_modules')
   });
+  // The pages an existing app has, over the scaffold's (the brownfield plan's B1).
+  if (overlay) {
+    fs.cpSync(overlay, work, {
+      recursive: true,
+      filter: source => path.basename(source) !== 'ROUGHBOOK-OVERLAY.md'
+    });
+    console.log(`Overlaid conformance/overlays/${pinned.overlay}/`);
+  }
   // A wrapper script loses its mode on a checkout made on Windows.
   if (process.platform !== 'win32' && fs.existsSync(path.join(work, 'gradlew'))) {
     fs.chmodSync(path.join(work, 'gradlew'), 0o755);
@@ -193,7 +215,7 @@ try {
     // What this copy names over the recipe: a store's address, a start command through npx.
     fs.writeFileSync(
       path.join(work, 'rough', 'environment.md'),
-      `---\ncontract: 1\nrecipe: ${name}\n${pinned.header.map(fill).join('\n')}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
+      `---\ncontract: 1\nrecipe: ${base}\n${pinned.header.map(fill).join('\n')}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
     );
   }
   if (live && speed) {
@@ -201,7 +223,7 @@ try {
     // and time the cold start; the rest of the environment stays the recipe's.
     fs.writeFileSync(
       path.join(work, 'rough', 'environment.md'),
-      `---\ncontract: 1\nrecipe: ${name}\nstart: ${devCommand} @ ${devUrl}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
+      `---\ncontract: 1\nrecipe: ${base}\nstart: ${devCommand} @ ${devUrl}\n---\n\n# This repo\n\nThe conformance suite's copy of the ${name} fixture.\n`
     );
     console.log(`\nDoctor starts the dev server itself at ${devUrl} (--speed)`);
   } else if (live) {
@@ -221,6 +243,24 @@ try {
     }
   } else {
     console.log('\nNo dev server: doctor runs the snapshot command.');
+  }
+
+  // The map of what the copy already has, as roughbook map writes it with no agent: doctor's map
+  // checks then ask its pages and render its sections (the brownfield plan's B1).
+  if (pinned.map || mapped) {
+    const started = performance.now();
+    const result = await mapRepo(work, await readEnvironment(work), await readRepoLink(work));
+    const ms = Math.round(performance.now() - started);
+    if (result) {
+      console.log(
+        `\nMapped in ${ms} ms (the discoverers alone: ${result.ms} ms): ${countMap(result.map)}.`
+      );
+      for (const line of describeMap(result.map)) console.log(line);
+      for (const item of result.map.missed) console.log(`  missed ${item.what}: ${item.why}`);
+      for (const file of result.map.unplaced) console.log(`  unplaced ${file}`);
+    } else {
+      console.log('\nNo discoverer fits this recipe, so nothing was mapped.');
+    }
   }
 
   // The suite's own checkout: its commands are the recipe's, approved here as a CI owner would.

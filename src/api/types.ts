@@ -58,6 +58,12 @@ export type SetupPrompt = {
   placeholders: { contract: string; guess: string; recipeNotes: string; ruleFiles: string };
 };
 
+/** `GET /orgs/:orgId/projects/:project/map-prompt`: the map run's prompt, with its stand-ins. */
+export type MapPrompt = {
+  prompt: string;
+  placeholders: { discovered: string; fixtureFile: string; guess: string; doctor: string };
+};
+
 /**
  * `POST /orgs/:orgId/links/:linkId/doctor`: how doctor went on this repo, for ratings and
  * analytics by stack: the outcome, the mode, the family, the stack tokens and the ids of the checks

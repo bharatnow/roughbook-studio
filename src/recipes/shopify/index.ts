@@ -24,6 +24,7 @@ import {
   isOurTemplate,
   syncShopifyPreview
 } from './preview.js';
+import { discoverShopify } from './discover.js';
 
 const PORT = 9292;
 
@@ -142,6 +143,7 @@ export const shopify: Recipe = {
     };
   },
   planPreview,
+  discover: discoverShopify,
   // The template, and the snippets written for the iterations there are now, for uninstall.
   setupFiles: repo => [
     TEMPLATE,

@@ -23,6 +23,8 @@ import {
   writePreviewRegistry
 } from './preview.js';
 import { SNAPSHOT_SCRIPT, SNAPSHOT_SCRIPT_CONTENT, isOurSnapshotScript } from './snapshots.js';
+import { modulePointer } from '../modules/pointer.js';
+import { discoverExpo } from './discover.js';
 
 /** Metro's port, on this machine only (`--localhost` binds it to loopback). */
 const PORT = 8081;
@@ -341,6 +343,8 @@ export const expo: Recipe = {
     };
   },
   planPreview,
+  discover: discoverExpo,
+  pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
   setupFiles: (_repo, link) => (link.appDir ? [previewRouteFile(link.appDir)] : []),
   // The root layout's edit, which uninstall reverses exactly.
   edits: (_repo, link) =>

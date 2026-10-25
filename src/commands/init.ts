@@ -13,8 +13,10 @@ import { readLocalLink, readRepoLink, writeLocalLink, type RepoLink } from '../r
 import { applyPrep, checkRepo, planPrep, type PrepPlan } from '../repo/prep.js';
 import { ROUGH_DIR, appRoot } from '../repo/root.js';
 import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
+import { mapRepo } from '../map/run.js';
 import { openApi, type Command, type CommandContext } from './context.js';
 import { runDoctorHere } from './doctor.js';
+import { sayMap } from './map.js';
 import { applyTemplates, approveEnvironment, startSetupRun } from './setup.js';
 
 type Choice = { orgId: string; orgName: string; slug: string; name: string };
@@ -341,6 +343,16 @@ export const init: Command = {
     if (existingEnvironment || recipe) {
       const environment = existingEnvironment ?? recipe!.environment(link);
       await approveEnvironment(repoContext, repo, environment, Boolean(values.yes));
+      // What the app already has (B1 of the brownfield plan), when it has any UI: read from its
+      // files, written in rough/, nothing sent anywhere.
+      try {
+        const mapped = await mapRepo(repo, environment, link, { whenFound: true });
+        if (mapped?.written) sayMap(repoContext, mapped, { brief: true });
+      } catch (error) {
+        io.err(
+          `The map was not written: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       if (await appAnswers(context, environment.start.url)) {
         io.out(`The app answers at ${environment.start.url}; running roughbook doctor.`);
         await runDoctorHere(repoContext, repo, link, { yes: values.yes });
