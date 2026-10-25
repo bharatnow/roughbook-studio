@@ -197,6 +197,10 @@ describe('outbound requests (ground rule 2)', () => {
       ['PUT', /^\/telemetry$/, () => ok({ analyticsConsent: true })]
     ];
     const backend = fakeFetch(request => {
+      // Only the studio's API answers; anything else (the app's own dev server, which init and
+      // done ask after) is an unreachable host, whatever runs on this machine. Every request is
+      // recorded either way, so the check below still reads them all.
+      if (!new URL(request.url).pathname.startsWith('/v1/api/studio/')) return 'offline';
       const route = new URL(request.url).pathname.replace('/v1/api/studio', '');
       const found = routes.find(
         ([method, pattern]) => method === request.method && pattern.test(route)
