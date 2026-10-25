@@ -11,9 +11,10 @@ import path from 'node:path';
 import { defaultEnvironment, readEnvironment } from '../environment/read.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
 import { ROUGH_DIR, STATE_DIR, statePath } from '../repo/root.js';
+import { isBasePath } from './base.js';
 import { assertRunId, listRuns } from './store.js';
 
-/** Never recorded: the studio's own state and screenshots. */
+/** Never recorded: the studio's own state and screenshots (and, below, the kept bases). */
 const SKIPPED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
 
 /**
@@ -81,8 +82,9 @@ function gitBuffer(repoRoot: string, args: string[]): Promise<Buffer | null> {
   });
 }
 
+/** The studio's own folders, and every iteration's kept base, which no run writes (B3). */
 function skipped(file: string): boolean {
-  return SKIPPED.some(prefix => file.startsWith(prefix));
+  return SKIPPED.some(prefix => file.startsWith(prefix)) || isBasePath(file);
 }
 
 function walk(repoRoot: string, ignore: string[], dir = ''): string[] {
@@ -315,7 +317,8 @@ export type Revert = 'restored' | 'removed' | 'unchanged' | 'cannot';
 export async function revertFile(repoRoot: string, runId: string, file: string): Promise<Revert> {
   const snapshot = await readSnapshot(repoRoot, runId);
   if (!snapshot) return 'cannot';
-  if (file.split('/').includes('..') || path.isAbsolute(file)) return 'cannot';
+  // A kept base is the studio's record of the app at a fork, never a run's to put back.
+  if (file.split('/').includes('..') || path.isAbsolute(file) || isBasePath(file)) return 'cannot';
   const target = path.join(repoRoot, ...file.split('/'));
   const expected = snapshot.files[file];
   if (expected === undefined) {

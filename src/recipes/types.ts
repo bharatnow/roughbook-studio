@@ -8,6 +8,7 @@ import type { Discovered, DiscoverInput, MapComponent } from '../map/types.js';
 import type { RepoLink } from '../repo/link.js';
 import type { PrepChange } from '../repo/plan.js';
 import type { CraftWords } from './craft.js';
+import type { AppCopy, AppCopyInput } from './fromApp.js';
 
 /**
  * A command a scaffold runs, as one line in the shell it declares (decision 30), with its Windows
@@ -98,6 +99,13 @@ export type Recipe = {
     component: MapComponent,
     input: { iterationDir: string; fixture: string | null }
   ): Record<string, string> | null;
+  /**
+   * The starting files of a fork or refine whose parent is the app's own component (B3, decision
+   * 32): the component's files copied and laid out as the entry needs, rendering exactly as the
+   * pointer does, with relative imports pointed back at the app's real files where the stack has
+   * them, and the baseline's fixture carried over. Null when this component cannot be copied.
+   */
+  fromApp?(component: MapComponent, input: AppCopyInput): AppCopy | null;
   /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
   setupFiles(repo: string, link: RepoLink): string[];
   /**

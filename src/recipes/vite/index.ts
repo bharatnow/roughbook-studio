@@ -19,7 +19,7 @@ import {
   isOurPreviewFile,
   previewWrapper
 } from './preview.js';
-import { modulePointer } from '../modules/pointer.js';
+import { moduleFromApp, modulePointer } from '../modules/pointer.js';
 import { discoverVite } from './discover.js';
 
 const PORT = 5173;
@@ -167,6 +167,7 @@ export const vite: Recipe = {
   planPreview,
   discover: discoverVite,
   pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
+  fromApp: moduleFromApp({ entry: ENTRY, fixture: FIXTURE }),
   setupFiles: () => [PAGE],
   agentRules:
     environment => `- \`${environment.entry}\` renders in the browser through the app's own Vite dev server, so

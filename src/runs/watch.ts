@@ -3,13 +3,15 @@ import path from 'node:path';
 import { defaultEnvironment } from '../environment/read.js';
 import { currentOs, hostPlatform, type StudioOs } from '../launch/platform.js';
 import { ROUGH_DIR, STATE_DIR } from '../repo/root.js';
+import { isBasePath } from './base.js';
 
 /** Folders whose churn means nothing to any repo: the studio's own state and screenshots. */
 const IGNORED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
 
 /**
  * A watcher's file name as a repo-relative path with forward slashes, or null to ignore it: the
- * studio's state, and the folders the environment ignores (dependencies, git itself, build output).
+ * studio's state, the folders the environment ignores (dependencies, git itself, build output),
+ * and the iterations' kept bases.
  */
 export function watchedPath(
   filename: string | Buffer | null,
@@ -19,6 +21,8 @@ export function watchedPath(
   const file = String(filename).replace(/\\/g, '/');
   const folders = [...IGNORED, ...ignore.map(dir => `${dir.replace(/\/+$/, '')}/`)];
   if (folders.some(prefix => file.startsWith(prefix) || `${file}/` === prefix)) return null;
+  // An iteration's kept base is the app as it was at a fork: nothing to reload or retake (B3).
+  if (isBasePath(file)) return null;
   return file;
 }
 

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { fromTheApp, readBase, sha256 } from './base.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
 import { nativeFloorFindings, unescapeNative } from './nativeFloor.js';
@@ -62,6 +63,11 @@ export type CheckSubject = {
   iterationId: string;
   files: FolderFiles | null;
   parentFiles?: FolderFiles | null;
+  /**
+   * For a fork of the app's own component, whose parent is a pointer: the iteration's files as
+   * the studio wrote them from the kept base, by name, with their sha256 (`.base/base.json`).
+   */
+  parentHashes?: Map<string, string> | null;
 };
 
 export type CheckOutcome = { failure: Finding | null; warnings: Finding[] };
@@ -140,13 +146,18 @@ function parentFindings(parentId: string, subject: CheckSubject): Finding[] {
     });
   }
   const parent = subject.parentFiles;
-  if (parent) {
-    const same =
-      own.size === parent.size && [...own].every(([name, text]) => parent.get(name) === text);
+  const hashes = subject.parentHashes;
+  if (parent || hashes) {
+    const same = hashes
+      ? own.size === hashes.size &&
+        [...own].every(([name, text]) => hashes.get(name) === sha256(text))
+      : own.size === parent!.size && [...own].every(([name, text]) => parent!.get(name) === text);
     if (same) {
       findings.push({
         code: 'UNCHANGED_FROM_PARENT',
-        message: `Every file is identical to ${parentId}. The child was not changed from its parent.`
+        message: hashes
+          ? `Every file is identical to the copy of the app's own component (${parentId}). The child was not changed from the app.`
+          : `Every file is identical to ${parentId}. The child was not changed from its parent.`
       });
     }
   }
@@ -202,9 +213,22 @@ export function checkIteration(
 ): CheckOutcome {
   const dir = (id: string) =>
     path.join(repoRoot, ...iterationDir(run.page, run.component, id).split('/'));
+  // A fork of the app's own component is measured against the copy its kept base made, never the
+  // baseline's pointer; the checks read the copy alone, never .base/ (B3).
+  const base = fromTheApp(run)
+    ? readBase(repoRoot, iterationDir(run.page, run.component, run.iteration))
+    : null;
   return applyChecks(run.checks, {
     iterationId: run.iteration,
     files: readFolder(dir(run.iteration), sources),
-    parentFiles: run.parent ? readFolder(dir(run.parent), sources) : null
+    ...(base
+      ? {
+          parentHashes: new Map(
+            Object.entries(base.written).filter(
+              ([name]) => name !== 'meta.json' && hasExtension(name, sources)
+            )
+          )
+        }
+      : { parentFiles: run.parent ? readFolder(dir(run.parent), sources) : null })
   });
 }

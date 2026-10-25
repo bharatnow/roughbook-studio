@@ -8,7 +8,7 @@ import { OURS, planTailwindSource, read, type PrepChange } from '../../repo/plan
 import { ROUGH_DIR, STATE_DIR } from '../../repo/root.js';
 import { REACT_WEB_CRAFT } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
-import { modulePointer } from '../modules/pointer.js';
+import { moduleFromApp, modulePointer } from '../modules/pointer.js';
 import { discoverNext } from './discover.js';
 import { PLACEHOLDER_INDEX } from './placeholder.js';
 import {
@@ -218,6 +218,7 @@ export const next: Recipe = {
   planPreview,
   discover: discoverNext,
   pointer: modulePointer({ entry: 'index.tsx', fixture: FIXTURE }),
+  fromApp: moduleFromApp({ entry: 'index.tsx', fixture: FIXTURE }),
   setupFiles: (repo, link) =>
     link.appDir
       ? previewRouteFiles(link.appDir, { cacheComponents: usesCacheComponents(repo) }).map(

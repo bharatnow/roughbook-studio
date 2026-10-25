@@ -2,12 +2,14 @@
 // order): live, on WordPress run by wp-env in Docker, through a must-use plugin mapped in for
 // development only. The runtime gate is the same WordPress in production mode, where the plugin
 // answers its address with 404.
+import path from 'node:path';
 import type { RepoEnvironment } from '../../environment/types.js';
 import type { RepoLink } from '../../repo/link.js';
 import { read, type PrepChange } from '../../repo/plan.js';
 import { ROUGH_DIR } from '../../repo/root.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
+import { layOut, type AppCopy, type AppCopyInput } from '../fromApp.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import {
   DENY,
@@ -289,6 +291,58 @@ ${body}
   };
 }
 
+/** The tag WordPress wraps a template part in: its area's, from theme.json, else a div. */
+function partTag(themeJson: string | null, slug: string): string {
+  try {
+    const parts = (JSON.parse(themeJson ?? '{}') as { templateParts?: unknown }).templateParts;
+    const area = Array.isArray(parts)
+      ? (parts as { name?: unknown; area?: unknown }[]).find(part => part.name === slug)?.area
+      : undefined;
+    return area === 'header' || area === 'footer' ? area : 'div';
+  } catch {
+    return 'div';
+  }
+}
+
+/**
+ * A fork's starting files (B3): the pattern or part copied by its own name, and an entry that
+ * renders the copy as the pointer's block renders the theme's file. A pattern's output and a block
+ * part's markup go through the preview's do_blocks, the part inside the wrapper its block draws;
+ * a classic part is loaded as get_template_part loads it, with the same arguments. A copied PHP
+ * file gains the guard first, as every PHP file in rough/ starts; PHP needs no import rewritten.
+ */
+export function themeFromApp(component: MapComponent, input: AppCopyInput): AppCopy | null {
+  const [kind, slug] = component.export.split(' ') as [string, string | undefined];
+  const source = component.files[0];
+  if (!slug || !source || component.files.length !== 1) return null;
+  const text = input.read(source);
+  if (text === null) return null;
+  const copies = layOut([source], [ENTRY, FIXTURE]);
+  const copy = copies[source]!;
+  const file = `__DIR__ . '/${copy.replace(/'/g, "\\'")}'`;
+  let body: string;
+  if (kind === 'pattern' && source.endsWith('.php')) body = `<?php include ${file}; ?>`;
+  else if (kind === 'part' && source.endsWith('.html')) {
+    const tag = partTag(input.read('theme.json'), path.posix.basename(source, '.html'));
+    body = `<${tag} class="wp-block-template-part"><?php echo file_get_contents( ${file} ); ?></${tag}>`;
+  } else if ((kind === 'part' || kind === 'sidebar') && source.endsWith('.php')) {
+    body = `<?php load_template( ${file}, false, get_defined_vars() ); ?>`;
+  } else return null;
+  const guarded =
+    source.endsWith('.php') && !text.includes(GUARD) ? `<?php ${GUARD} ?>\n${text}` : text;
+  return {
+    files: {
+      [copy]: guarded,
+      [ENTRY]: `<?php ${GUARD} ?>
+<?php /* ${component.name.replace(/\*\//g, '')}, copied from ${source}: this iteration changes the copy, ${copy}. */ ?>
+${body}
+`,
+      ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+    },
+    copies
+  };
+}
+
 export const wordpress: Recipe = {
   id: 'wordpress',
   name: 'WordPress themes',
@@ -349,6 +403,7 @@ export const wordpress: Recipe = {
   planPreview,
   discover: discoverWordpress,
   pointer: themePointer,
+  fromApp: themeFromApp,
   // The override file only when it is the recipe's own as written, never one of the designer's.
   setupFiles: repo => [
     ...(read(repo, OVERRIDE_FILE)?.replace(/\r\n/g, '\n') === OVERRIDE ||

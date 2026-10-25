@@ -291,6 +291,12 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           description:
             'Files or folders changed outside the run\'s folder that the designer told you were their own work, so they are not counted against the run; "." for all of them. Never the files you wrote.'
         },
+        copied: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            "For a fork or refine of the app's own component: the app's other files you copied into the iteration to change them (a child component), by their repository paths, as your report names them. The studio keeps them for the promote."
+        },
         repo: REPO
       },
       additionalProperties: false
@@ -307,6 +313,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
         throw new Error('outcome is failed or cancelled, or left out when the iteration is ready.');
       }
       const mine = strings(args.mine, 'mine');
+      const copied = strings(args.copied, 'copied');
       const repos = await reposFor(context, text(args.repo, 'repo'), call);
       const { repoRoot, run } = await findRun(repos, text(args.run, 'run'));
       refuseUnattended(run);
@@ -324,7 +331,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           outboxFor(repoRoot),
           link,
           run.runId,
-          { outcome, mine, devUrl: options.devUrl, screenshots: true, by: 'agent' }
+          { outcome, mine, copied, devUrl: options.devUrl, screenshots: true, by: 'agent' }
         ));
       }
       const tell: string[] = [];
@@ -346,6 +353,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
         warnings: finished.warnings.map(item => item.message),
         changedOutsideFolder: finished.outOfScope,
         mine: finished.mine ?? [],
+        childrenCopied: finished.children ?? [],
         finishedBy: finished.finishedBy ?? null,
         screenshots: shots ? Object.values(shots.files) : [],
         reported: finished.reported,

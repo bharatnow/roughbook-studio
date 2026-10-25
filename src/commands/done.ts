@@ -140,6 +140,11 @@ export async function completeRun(
       `  ${count} file${count === 1 ? '' : 's'} changed outside the iteration ${count === 1 ? 'was' : 'were'} yours, not counted.`
     );
   }
+  if (finished.children?.length) {
+    io.out(
+      `  Copied in from the app to change, kept in its .base/ for the promote: ${finished.children.join(', ')}`
+    );
+  }
   if (shots) {
     const files = Object.values(shots.files);
     if (files.length) io.out(`  Screenshots: ${files.join(', ')}`);

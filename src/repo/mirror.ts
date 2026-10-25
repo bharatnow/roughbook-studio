@@ -19,12 +19,17 @@ const MARK_TEXT = `Written by Roughbook: a mirror of the iterations in ${ROUGH_D
 nothing outside its own source tree. Do not edit it; edit ${ROUGH_DIR}/. It is never committed.
 `;
 
+/** An iteration's kept base (src/runs/base.ts), named here so the mirror needs nothing of runs/. */
+const KEPT_BASE = '.base';
+
 export type MirrorResult = { mirror: string; written: number; removed: number };
 
+/** A folder's files, less an iteration's kept base, which a build must never compile (B3). */
 function filesUnder(dir: string, prefix = ''): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const relative = `${prefix}${entry.name}`;
+    if (entry.isDirectory() && relative === KEPT_BASE) return [];
     if (entry.isDirectory()) return filesUnder(path.join(dir, entry.name), `${relative}/`);
     return entry.isFile() ? [relative] : [];
   });

@@ -20,6 +20,14 @@ import { cleanStack, type RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { copyAssets } from './assets.js';
+import {
+  fillAppStandIns,
+  fromTheApp,
+  headCommit,
+  planAppSlot,
+  readBase,
+  recordChildren
+} from './base.js';
 import { checkIteration, importsFromRough } from './checks.js';
 import {
   assertTarget,
@@ -123,6 +131,13 @@ export async function startRuns(
   // A port's parent is a web sketch, which is never in the repo: its files are a reference only.
   if (request.kind === 'pull') assertTarget(request.page, request.component, request.sketch);
   const { environment, recipe } = await repoSetup(repoRoot, link);
+  // A fork or refine of the app's own component starts from a copy of its real files (B3): one
+  // that cannot be made here is refused before the backend allocates anything.
+  const fromApp = (request.kind === 'fork' || request.kind === 'refine') && fromTheApp(request);
+  if (fromApp) {
+    planAppSlot(repoRoot, recipe, environment, { ...request, iteration: 'iteration-01' });
+  }
+  const commit = fromApp ? await headCommit(repoRoot) : null;
   const stack = cleanStack(environment.stack);
   // This studio takes screenshots (roughbook screenshot), so the prompt says when to look (D7).
   // The family and entry file choose the checks the backend sends (decision 23); the stack's
@@ -180,23 +195,33 @@ export async function startRuns(
     };
     // A port starts from the placeholder like a new direction: its parent is the sketch, which
     // is not one of the repo's iterations to copy.
-    createSlot(repoRoot, request.kind === 'pull' ? { ...record, parent: null } : record, {
-      file: environment.entry,
-      content: recipe
-        ? recipe.placeholder(
-            environment.entry,
-            `${request.page}/${request.component}/${run.iteration}`
-          )
-        : genericPlaceholder(),
-      ...(recipe?.retarget ? { retarget: recipe.retarget.bind(recipe) } : {})
-    });
+    createSlot(
+      repoRoot,
+      request.kind === 'pull' ? { ...record, parent: null } : record,
+      {
+        file: environment.entry,
+        content: recipe
+          ? recipe.placeholder(
+              environment.entry,
+              `${request.page}/${request.component}/${run.iteration}`
+            )
+          : genericPlaceholder(),
+        ...(recipe?.retarget ? { retarget: recipe.retarget.bind(recipe) } : {})
+      },
+      fromApp && fromTheApp(record)
+        ? { ...planAppSlot(repoRoot, recipe, environment, record), commit }
+        : undefined
+    );
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
-    const prompt = fillEnvironment(
+    let prompt = fillEnvironment(
       run.prompt.replaceAll(standIn, () => assetOrigin),
       environment,
       run.placeholders ?? {},
       { hasEnvironmentFile: hasEnvironmentFile(repoRoot) }
     );
+    // The component's files and its kept base, which only this machine knows, as promote's paths.
+    const base = fromTheApp(record) ? readBase(repoRoot, record.targetFolder) : null;
+    if (base) prompt = fillAppStandIns(prompt, base, record.targetFolder, run.placeholders);
     // A stack whose previews load nothing over the network gets the asset files in its folder.
     if (environment.assets.copy) {
       await copyAssets(repoRoot, api, link, record.targetFolder, prompt);
@@ -297,6 +322,11 @@ export type FinishOptions = {
   mine?: string[];
   /** Who is finishing it, kept on the record. */
   by?: FinishedBy;
+  /**
+   * For a fork or refine of the app's own component: the app's files the agent says it copied in
+   * to change them, by repository path (decision 32). Those it copied without a word are found too.
+   */
+  copied?: string[];
   now?: Date;
 };
 
@@ -326,6 +356,12 @@ export async function finishRun(
   const codes = [
     ...new Set([...(failure ? [failure.code] : []), ...warnings.map(item => item.code)])
   ];
+  // The child components it copied in, kept in .base/ for B4; nothing of them is sent.
+  let children: string[] | undefined;
+  if (fromTheApp(run) && outcome !== 'cancelled') {
+    await recordChildren(repoRoot, run, options.copied ?? []);
+    children = readBase(repoRoot, run.targetFolder)?.children.map(child => child.path);
+  }
 
   let reported: RunRecord['reported'];
   try {
@@ -352,7 +388,8 @@ export async function finishRun(
     outOfScope,
     mine,
     finishedBy: options.by,
-    reported
+    reported,
+    ...(children?.length ? { children } : {})
   };
   await saveRun(repoRoot, finished);
   syncIterations(repoRoot, (await repoSetup(repoRoot, link)).environment);

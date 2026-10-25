@@ -9,6 +9,7 @@ import { planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
 import { withSnippet } from '../../repo/setup.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
+import { layOut, type AppCopy, type AppCopyInput } from '../fromApp.js';
 import type { MapComponent } from '../../map/types.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import { discoverLaravel } from './discover.js';
@@ -102,6 +103,19 @@ function bladeName(componentName: string): string {
   );
 }
 
+/** The fixture's keys a view can take as variables; null when the fixture is not JSON. */
+function fixtureKeys(fixture: string | null): string[] | null {
+  if (fixture === null) return [];
+  try {
+    const parsed = JSON.parse(fixture) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? Object.keys(parsed).filter(key => /^[A-Za-z_]\w*$/.test(key))
+      : [];
+  } catch {
+    return null;
+  }
+}
+
 /**
  * An iteration that renders one of the app's views or components as it is (decision 2 of the
  * brownfield plan), with the fixture's keys as the view's variables, as the preview route passes
@@ -112,17 +126,8 @@ export function bladePointer(
   input: { fixture: string | null }
 ): Record<string, string> | null {
   const [kind, name] = component.export.split(' ') as [string, string | undefined];
-  let keys: string[] = [];
-  if (input.fixture !== null) {
-    try {
-      const parsed = JSON.parse(input.fixture) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        keys = Object.keys(parsed).filter(key => /^[A-Za-z_]\w*$/.test(key));
-      }
-    } catch {
-      return null;
-    }
-  }
+  const keys = fixtureKeys(input.fixture);
+  if (!keys) return null;
   let body: string;
   if (kind === 'view' && name) body = `@include('${name}')`;
   else if (kind === 'livewire' && name) body = `@livewire('${name}')`;
@@ -135,6 +140,45 @@ export function bladePointer(
 ${body}
 `,
     ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+  };
+}
+
+/**
+ * A fork's starting files (B3): a view the app includes is copied as the entry itself, which the
+ * preview renders with the fixture's keys as its variables, as the include does. An anonymous
+ * component is copied by its own name and included with the attributes and the empty slot the
+ * pointer's tag gives it. A class or Livewire component is not copied: its PHP class would be
+ * declared twice.
+ */
+export function bladeFromApp(component: MapComponent, input: AppCopyInput): AppCopy | null {
+  const [kind, name] = component.export.split(' ') as [string, string | undefined];
+  const source = component.files[0];
+  if (component.files.length !== 1 || !source?.endsWith('.blade.php')) return null;
+  const keys = fixtureKeys(input.fixture);
+  const text = input.read(source);
+  if (!keys || text === null) return null;
+  const fixture: Record<string, string> =
+    input.fixture !== null ? { [FIXTURE]: input.fixture } : {};
+  if (kind === 'view' && name) {
+    return { files: { [ENTRY]: text, ...fixture }, copies: { [source]: ENTRY } };
+  }
+  if (!kind.startsWith('x-')) return null;
+  const copies = layOut([source], [ENTRY, FIXTURE]);
+  const copy = copies[source]!;
+  const view = `rough::${input.iterationDir
+    .split('/')
+    .slice(1)
+    .join('.')}.${copy.replace(/\.blade\.php$/, '')}`;
+  const attributes = keys.map(key => `'${bladeName(key)}' => $${key}`).join(', ');
+  return {
+    files: {
+      [copy]: text,
+      [ENTRY]: `{{-- ${component.name}, copied from ${source}: this iteration changes the copy, ${copy}. --}}
+@include('${view}', ['attributes' => new \\Illuminate\\View\\ComponentAttributeBag([${attributes}]), 'slot' => new \\Illuminate\\Support\\HtmlString('')])
+`,
+      ...fixture
+    },
+    copies
   };
 }
 
@@ -209,6 +253,7 @@ export const laravel: Recipe = {
   planPreview,
   discover: discoverLaravel,
   pointer: bladePointer,
+  fromApp: bladeFromApp,
   setupFiles: () => [ROUTE_FILE],
   snippets: () => [{ file: WEB_ROUTES, text: WEB_SNIPPET }],
   agentRules:

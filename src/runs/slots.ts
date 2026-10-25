@@ -6,6 +6,7 @@ import { PLACEHOLDER_LINE } from './placeholder.js';
 import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { assertRunId } from './store.js';
+import { fromTheApp, writeAppSlot, type AppSlot } from './base.js';
 
 export { isPlaceholder } from './placeholder.js';
 
@@ -102,12 +103,16 @@ export function iterationExists(repoRoot: string, page: string, component: strin
 
 /**
  * Makes a run's folder: the placeholder for a new direction, or a copy of the parent for a fork
- * or refinement, which the agent then changes. An existing iteration is never written over.
+ * or refinement, which the agent then changes. A fork or refinement of the app's own component
+ * (its baseline) starts from `app`, a copy of the real files with the originals kept in `.base/`,
+ * never from the baseline's pointer (B3 of the brownfield plan). An existing iteration is never
+ * written over.
  */
 export function createSlot(
   repoRoot: string,
   slot: { page: string; component: string; iteration: string; parent: string | null },
-  placeholder: Placeholder = defaultPlaceholder()
+  placeholder: Placeholder = defaultPlaceholder(),
+  app?: AppSlot & { commit: string | null }
 ): string {
   assertTarget(slot.page, slot.component, slot.iteration);
   const relative = iterationDir(slot.page, slot.component, slot.iteration);
@@ -115,7 +120,15 @@ export function createSlot(
   if (filesIn(dir).length) {
     throw new Error(`${relative} already exists. An existing iteration is never written over.`);
   }
-  if (slot.parent) {
+  if (slot.parent && fromTheApp(slot)) {
+    assertTarget(slot.page, slot.component, slot.parent);
+    if (!app) {
+      throw new Error(
+        `${iterationDir(slot.page, slot.component, slot.parent)} is the app's own component: its fork starts from a copy of the real files, which was not made.`
+      );
+    }
+    writeAppSlot(repoRoot, relative, app, { parent: slot.parent, commit: app.commit });
+  } else if (slot.parent) {
     assertTarget(slot.page, slot.component, slot.parent);
     const from = toDisk(repoRoot, iterationDir(slot.page, slot.component, slot.parent));
     const files = filesIn(from);

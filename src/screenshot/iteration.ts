@@ -9,6 +9,7 @@ import { baselineSources } from '../map/adopt.js';
 import { isApproved, readApprovals } from '../repo/approvals.js';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { BASE_DIR } from '../runs/base.js';
 import { describeResult, renderSnapshots, type SnapshotExec } from '../snapshot/render.js';
 import { findBrowser, takeScreenshot } from './browser.js';
 
@@ -127,6 +128,8 @@ export function iterationHash(
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const relative = `${prefix}${entry.name}`;
+      // A fork's kept base is the app as it was, which its pictures do not show (B3).
+      if (entry.isDirectory() && relative === BASE_DIR) continue;
       if (entry.isDirectory()) walk(path.join(folder, entry.name), `${relative}/`);
       else if (entry.isFile()) {
         hash.update(`${relative}\0`);

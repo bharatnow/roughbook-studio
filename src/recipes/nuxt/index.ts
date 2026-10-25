@@ -8,6 +8,7 @@ import { pascalCase } from '../../repo/names.js';
 import { planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
+import { copiedFiles, layOut, readAll, type AppCopy, type AppCopyInput } from '../fromApp.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import {
   ENTRY,
@@ -109,6 +110,19 @@ needs it: ${WRAPPER} is the place for the layout, providers and stylesheets an i
 must let /rough-preview through in development. Keep recipe: nuxt so the studio keeps the module up to
 date.`;
 
+/** The entry that renders `spec`'s component with the fixture the preview passes in. */
+function vueEntry(note: string, spec: string): string {
+  return `<script setup lang="ts">
+// ${note}
+import Target from ${JSON.stringify(spec)};
+</script>
+
+<template>
+  <Target v-bind="$attrs" />
+</template>
+`;
+}
+
 /**
  * An iteration that renders one of the app's components as it is (decision 2 of the brownfield
  * plan): a component that imports the real one and hands it the fixture the preview passes in.
@@ -122,16 +136,35 @@ export function vuePointer(
   const relative = path.posix.relative(input.iterationDir, source);
   const spec = relative.startsWith('.') ? relative : `./${relative}`;
   return {
-    [ENTRY]: `<script setup lang="ts">
-// ${component.name}, as the app has it in ${source}: a pointer, never a copy.
-import Target from ${JSON.stringify(spec)};
-</script>
-
-<template>
-  <Target v-bind="$attrs" />
-</template>
-`,
+    [ENTRY]: vueEntry(
+      `${component.name}, as the app has it in ${source}: a pointer, never a copy.`,
+      spec
+    ),
     ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+  };
+}
+
+/**
+ * A fork's starting files (B3): the component's files copied by their own names, the relative
+ * imports in their scripts pointed back at the app, and the pointer's entry importing the copy.
+ */
+export function vueFromApp(component: MapComponent, input: AppCopyInput): AppCopy | null {
+  const source = component.files[0];
+  if (!source?.endsWith('.vue')) return null;
+  const texts = readAll(component, input);
+  if (!texts) return null;
+  const copies = layOut(component.files, [ENTRY, FIXTURE]);
+  const copy = copies[source]!;
+  return {
+    files: {
+      ...copiedFiles(texts, copies, input.iterationDir),
+      [ENTRY]: vueEntry(
+        `${component.name}, copied from ${source}: this iteration changes the copy, ${copy}.`,
+        `./${copy}`
+      ),
+      ...(input.fixture !== null ? { [FIXTURE]: input.fixture } : {})
+    },
+    copies
   };
 }
 
@@ -193,6 +226,7 @@ export const nuxt: Recipe = {
   planPreview,
   discover: discoverNuxt,
   pointer: vuePointer,
+  fromApp: vueFromApp,
   setupFiles: () => [MODULE_FILE],
   agentRules:
     environment => `- \`${environment.entry}\` is a Vue single-file component, rendered by the app's own Nuxt on the

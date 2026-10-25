@@ -91,6 +91,9 @@ export type StartedRun = {
     preview?: string;
     craft?: string;
     primitives?: string;
+    /** For a fork or refine of the app's own component: its files, and its kept base (B3). */
+    appFiles?: string;
+    base?: string;
   };
   checks: Check[];
 };
@@ -130,4 +133,9 @@ export type RunRecord = {
   finishedBy?: FinishedBy;
   /** Whether the result reached the backend, or waits in the outbox. */
   reported: 'sent' | 'queued' | null;
+  /**
+   * For a fork or refine of the app's own component: the app's other files the agent copied in to
+   * change them, by repository path, kept in the iteration's .base/ for B4 (decision 32).
+   */
+  children?: string[];
 };
