@@ -19,10 +19,15 @@ const TOKEN = 'rbi_installtoken';
 
 type Route = (request: RecordedRequest) => ReturnType<typeof ok> | 'offline';
 
-/** A fake backend: answers by "METHOD /path" under /v1/api/studio, and 404s anything else. */
+/**
+ * A fake backend: answers by "METHOD /path" under /v1/api/studio, and 404s any other route there.
+ * Anything outside the studio's API, such as the app's own address, is unreachable, so init
+ * never thinks an app is up and runs a real doctor.
+ */
 function backend(routes: Record<string, Route>) {
   return fakeFetch(request => {
     const url = new URL(request.url);
+    if (!url.pathname.startsWith('/v1/api/studio/')) return 'offline';
     const key = `${request.method} ${url.pathname.replace('/v1/api/studio', '')}`;
     const route = routes[key];
     return route ? route(request) : refused('NOT_FOUND', 404);
