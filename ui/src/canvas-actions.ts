@@ -17,6 +17,7 @@ export type SelectionActionId =
   | 'refine'
   | 'pick'
   | 'compare'
+  | 'compare-app'
   | 'promote'
   | 'done'
   | 'stop'
@@ -121,6 +122,24 @@ function compareAction(page: string, component: string, ids: string[]): StudioAc
     : [];
 }
 
+/**
+ * The candidate Compare shows as the app's own (B3): the baseline, when it is among the ids of an
+ * adopted component and this repo has its files; otherwise Compare is as it was.
+ */
+export function compareBaseline(
+  ids: readonly string[],
+  component: { inApp?: boolean; iterations: { id: string; origin?: string }[] },
+  here: readonly string[]
+): string | null {
+  const baseline = component.iterations.find(item => item.id === BASELINE);
+  return component.inApp &&
+    baseline?.origin === 'app' &&
+    ids.includes(BASELINE) &&
+    here.includes(BASELINE)
+    ? BASELINE
+    : null;
+}
+
 function webAction(
   state: SelectionState,
   path: string,
@@ -222,16 +241,26 @@ export function selectionActions(
     }
   } else if (facts.generated) {
     const picked = state.compare.includes(key);
-    // A baseline is the app as it is: compared with, not forked or promoted yet (B3 and B4).
+    // A baseline is forked and refined like any card, from a copy of the app's files (B3); it is
+    // not promoted until B4. Any other iteration of an adopted component compares with it.
+    const baseline = canvas.cards[`iteration:${page}/${component}/${BASELINE}`];
+    const withApp =
+      !facts.baseline && baseline?.kind === 'local' && baseline.baseline && baseline.generated;
     actions.push(
-      ...(facts.baseline
-        ? []
-        : [
-            { id: 'fork' as const, label: 'Fork', toolbar: true },
-            { id: 'refine' as const, label: 'Refine', toolbar: true }
-          ]),
+      { id: 'fork' as const, label: 'Fork', toolbar: true },
+      { id: 'refine' as const, label: 'Refine', toolbar: true },
       { id: 'pick', label: picked ? 'Unpick' : 'Pick', toolbar: true, keys: 'Shift-click' },
       ...compareAction(page, component, picks),
+      ...(withApp
+        ? [
+            {
+              id: 'compare-app' as const,
+              label: 'Compare with the app',
+              toolbar: true,
+              href: `/${page}/${component}/iterations/compare?ids=${BASELINE},${card.id}`
+            }
+          ]
+        : []),
       ...(card.selected && !facts.baseline
         ? [{ id: 'promote' as const, label: 'Promote', toolbar: true }]
         : [])

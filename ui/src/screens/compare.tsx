@@ -8,6 +8,7 @@ import {
 } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
+import { compareBaseline } from '../canvas-actions';
 import { findComponent, localIterations, useStudio } from '../data';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
@@ -81,6 +82,11 @@ export function CompareScreen({
       component={component}
       base={`/${page}/${component}`}
       candidates={candidates}
+      baseline={compareBaseline(
+        ids,
+        found.component,
+        candidates.map(item => item.id)
+      )}
       reviewSummaries={summaries}
       ratings={ratings}
       viewports={environment.viewports.map(viewport => ({

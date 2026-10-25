@@ -75,6 +75,7 @@ const ICONS: Partial<Record<StudioActionId, typeof GitFork>> = {
   refine: Wand2,
   pick: Layers,
   compare: Columns2,
+  'compare-app': Columns2,
   promote: PackageCheck,
   done: Check,
   stop: Square,

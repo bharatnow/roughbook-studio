@@ -5,7 +5,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { layoutCanvas } from '@roughbook/ui/canvas';
 import { PROJECT, RUNS, iteration } from './canvas-fixture.ts';
-import { canvasActions, selectionActions, type SelectionState } from './canvas-actions.ts';
+import {
+  canvasActions,
+  compareBaseline,
+  selectionActions,
+  type SelectionState
+} from './canvas-actions.ts';
 import { studioCanvasInput } from './canvas-input.ts';
 import type { MapView, ProjectView } from './types.ts';
 
@@ -237,13 +242,84 @@ describe('adopting from the canvas', () => {
     );
   });
 
-  it('opens, picks and compares a baseline, which is not forked or promoted yet', () => {
+  it('opens, forks, refines and picks a baseline, which is not promoted yet (B3)', () => {
     const project = adoptedHero();
     project.tree.pages[0]!.components[0]!.selectedIteration = 0;
     const adopted = studioCanvasInput(project.tree, RUNS, { ...project.local, map: MAP });
     assert.deepEqual(
-      ids('iteration:home/hero/iteration-00', adopted).map(([id]) => id),
-      ['open', 'pick', 'web']
+      selectionActions(adopted, 'iteration:home/hero/iteration-00', STATE).map(action => [
+        action.id,
+        action.toolbar
+      ]),
+      [
+        ['open', true],
+        ['fork', true],
+        ['refine', true],
+        ['pick', true],
+        ['web', false]
+      ]
     );
+  });
+
+  it('compares every iteration of an adopted component with the app, and none of another', () => {
+    const adopted = studioCanvasInput(adoptedHero().tree, RUNS, {
+      ...adoptedHero().local,
+      map: MAP
+    });
+    for (const id of ['iteration-01', 'iteration-02', 'iteration-06']) {
+      const compare = selectionActions(adopted, `iteration:home/hero/${id}`, STATE).find(
+        action => action.id === 'compare-app'
+      );
+      assert.deepEqual(compare, {
+        id: 'compare-app',
+        label: 'Compare with the app',
+        toolbar: true,
+        href: `/home/hero/iterations/compare?ids=iteration-00,${id}`
+      });
+    }
+    // Not the baseline itself, not a card an agent is still making, not a web sketch.
+    for (const id of ['iteration-00', 'iteration-03', 'iteration-40']) {
+      assert.ok(
+        !selectionActions(adopted, `iteration:home/hero/${id}`, STATE).some(
+          action => action.id === 'compare-app'
+        ),
+        id
+      );
+    }
+    // A component that was never adopted has no baseline to compare with.
+    const before = studioCanvasInput(PROJECT.tree, RUNS, { ...PROJECT.local, map: MAP });
+    assert.ok(
+      !selectionActions(before, 'iteration:home/hero/iteration-01', STATE).some(
+        action => action.id === 'compare-app'
+      )
+    );
+    // A baseline whose files are not in this repo cannot be shown beside anything.
+    const elsewhere = adoptedHero();
+    elsewhere.local.iterations = elsewhere.local.iterations.filter(
+      key => key !== 'home/hero/iteration-00'
+    );
+    const remote = studioCanvasInput(elsewhere.tree, RUNS, { ...elsewhere.local, map: MAP });
+    assert.ok(
+      !selectionActions(remote, 'iteration:home/hero/iteration-01', STATE).some(
+        action => action.id === 'compare-app'
+      )
+    );
+  });
+});
+
+describe('Compare with the app', () => {
+  it('shows the baseline as the app’s when it is picked, adopted and here', () => {
+    const project = adoptedHero();
+    const hero = project.tree.pages[0]!.components[0]!;
+    const here = ['iteration-00', 'iteration-01'];
+    assert.equal(compareBaseline(['iteration-00', 'iteration-01'], hero, here), 'iteration-00');
+    assert.equal(compareBaseline(['iteration-01', 'iteration-02'], hero, here), null);
+    assert.equal(compareBaseline(['iteration-00', 'iteration-01'], hero, ['iteration-01']), null);
+    assert.equal(
+      compareBaseline(['iteration-00', 'iteration-01'], { ...hero, inApp: false }, here),
+      null
+    );
+    const before = PROJECT.tree.pages[0]!.components[0]!;
+    assert.equal(compareBaseline(['iteration-00', 'iteration-01'], before, here), null);
   });
 });
