@@ -365,6 +365,182 @@ export const config = { matcher: ["/dashboard/:path*", "/account"] };
     assert.equal(pageAt(found, '/').signIn, 'unknown');
   });
 
+  it('takes a sign-in from a proxy that guards every path but its public ones', async () => {
+    const signIns = async (proxy: string, file = 'proxy.ts') => {
+      const repo = await tempDir();
+      write(repo, {
+        ...NEXT_APP,
+        'app/login/page.tsx': 'export default function Login() { return <form />; }\n',
+        [file]: proxy
+      });
+      const found = await discoverNext(INPUT(repo));
+      return Object.fromEntries(
+        found.pages
+          .filter(page => page.address !== null)
+          .map(page => [page.address!, page.signIn] as const)
+      );
+    };
+    // An admin panel's: every path but the static ones, with the public paths a set inside it.
+    const admin = await signIns(
+      `import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+
+const PUBLIC_PATHS = new Set<string>(["/login", "/register"]);
+
+function isPublicAsset(pathname: string): boolean {
+  return (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api") ||
+    pathname === "/favicon.ico"
+  );
+}
+
+export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (isPublicAsset(pathname)) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
+  const token = request.cookies.get("adminToken")?.value;
+  if (token) return NextResponse.next();
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("redirect", pathname);
+  return NextResponse.redirect(loginUrl);
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
+`,
+      'src/proxy.ts'
+    );
+    assert.deepEqual(admin, {
+      '/': 'yes',
+      '/about': 'yes',
+      '/blog': 'yes',
+      '/blog/[slug]': 'yes',
+      '/dashboard': 'yes',
+      '/docs/[...path]': 'yes',
+      '/login': 'no'
+    });
+    // Middleware before Next.js 16, with no matcher (every path) and an array of public routes it
+    // matches exactly: the blog's index is public, its posts are not; the docs are, under a prefix.
+    const site = await signIns(
+      `import { NextResponse } from "next/server";
+const publicRoutes = ["/", "/about", "/blog", "/sign-in"];
+export function middleware(request) {
+  const { pathname } = request.nextUrl;
+  if (publicRoutes.includes(pathname) || pathname.startsWith("/docs")) return NextResponse.next();
+  if (!request.cookies.has("session")) return NextResponse.redirect(new URL("/sign-in", request.url));
+}
+`,
+      'middleware.ts'
+    );
+    assert.deepEqual(
+      [site['/'], site['/about'], site['/blog'], site['/blog/[slug]'], site['/docs/[...path]']],
+      ['no', 'no', 'no', 'yes', 'no']
+    );
+    assert.equal(site['/dashboard'], 'yes');
+    // The guarded paths named instead: those, and nothing else.
+    const named = await signIns(`import { NextResponse } from "next/server";
+const protectedRoutes = ["/dashboard", "/blog"];
+export function proxy(request) {
+  const guarded = protectedRoutes.some(route => request.nextUrl.pathname.startsWith(route));
+  if (guarded && !request.cookies.has("session")) return NextResponse.redirect(new URL("/login", request.url));
+}
+`);
+    assert.deepEqual(
+      [named['/'], named['/about'], named['/blog'], named['/blog/[slug]'], named['/dashboard']],
+      ['unknown', 'unknown', 'yes', 'yes', 'yes']
+    );
+    // The paths the sign-in redirect's own condition names are the guarded ones.
+    const decided = await signIns(`import { NextResponse } from "next/server";
+export function proxy(request) {
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/dashboard") && !request.cookies.has("session")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+}
+`);
+    assert.deepEqual(
+      [decided['/'], decided['/about'], decided['/blog'], decided['/dashboard']],
+      ['unknown', 'unknown', 'unknown', 'yes']
+    );
+    // A blog's admin: what it lets through first (assets, the API, previews, the sign-in page),
+    // then the sign-in page for everything else. A comment's slashes are no path.
+    const blog = await signIns(`import { NextResponse, type NextRequest } from "next/server";
+// Redirect to /login unless signed in: https://example.test/docs
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/_next") || pathname.includes(".")) {
+    return NextResponse.next();
+  }
+  const isAuthenticated = Boolean(request.cookies.get("auth_token")?.value);
+  if (pathname.startsWith("/api")) {
+    const isPublicGet = request.method === "GET" && pathname.startsWith("/api/public");
+    if (isPublicGet) return NextResponse.next();
+    if (!isAuthenticated) return new NextResponse("{}", { status: 401 });
+    return NextResponse.next();
+  }
+  if (pathname.startsWith("/about/") || pathname === "/about") {
+    return NextResponse.next();
+  }
+  if (pathname === "/login") {
+    if (isAuthenticated) return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.next();
+  }
+  if (!isAuthenticated) {
+    const loginUrl = new URL("/login", request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+  return NextResponse.next();
+}
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
+`);
+    assert.deepEqual(blog, {
+      '/': 'yes',
+      '/about': 'no',
+      '/blog': 'yes',
+      '/blog/[slug]': 'yes',
+      '/dashboard': 'yes',
+      '/docs/[...path]': 'yes',
+      '/login': 'no'
+    });
+    // Everything but the dashboard let through: the dashboard alone is guarded.
+    const negated = await signIns(`import { NextResponse } from "next/server";
+export function proxy(request) {
+  if (!request.nextUrl.pathname.startsWith("/dashboard")) return NextResponse.next();
+  if (!request.cookies.has("session")) return NextResponse.redirect(new URL("/login", request.url));
+}
+`);
+    assert.deepEqual(
+      [negated['/'], negated['/blog'], negated['/dashboard']],
+      ['unknown', 'unknown', 'yes']
+    );
+    // A helper from elsewhere asked about the session, not the address, hides no path: the
+    // matcher's paths stand.
+    const kiosk = await signIns(`import { NextResponse } from "next/server";
+import { hasAccess } from "./lib/auth";
+export function proxy(req) {
+  if (hasAccess(req.cookies.get("session")?.value)) return NextResponse.next();
+  return NextResponse.redirect(new URL("/login", req.url));
+}
+export const config = { matcher: ["/", "/dashboard/:path*"] };
+`);
+    assert.deepEqual(
+      [kiosk['/'], kiosk['/about'], kiosk['/dashboard'], kiosk['/login']],
+      ['yes', 'unknown', 'yes', 'no']
+    );
+    // A condition the file cannot answer (a helper from elsewhere) is left to the map run.
+    const imported = await signIns(`import { NextResponse } from "next/server";
+import { isProtected } from "./lib/routes";
+export function proxy(request) {
+  if (isProtected(request.nextUrl.pathname) && !request.cookies.has("session")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+}
+`);
+    assert.ok(Object.values(imported).every(signIn => signIn === 'unknown'));
+  });
+
   it('counts a shell that draws its own chrome, follows a view beside its route and a loader', async () => {
     const repo = await tempDir();
     write(repo, {

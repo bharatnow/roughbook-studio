@@ -102,19 +102,33 @@ function fakeTools(
     slow: boolean;
     /** Nothing answers until the start command was served, as before roughbook start. */
     downUntilServed: boolean;
+    /** The app's proxy sends a visitor with no session to its sign-in page, from the preview too. */
+    signIn: boolean;
   }> = {}
-): DoctorTools & { built: string[]; served: string[]; stopped: string[]; shots: string[] } {
+): DoctorTools & {
+  built: string[];
+  served: string[];
+  stopped: string[];
+  shots: string[];
+  asked: string[];
+  probed: string[];
+} {
   const built: string[] = [];
   const served: string[] = [];
   const stopped: string[] = [];
   const shots: string[] = [];
+  const asked: string[] = [];
+  const probed: string[] = [];
   let clock = 0;
   let appServed = false;
-  const pageFor = (url: URL): { status: number; body: string } => {
+  const pageFor = (url: URL): { status: number; body: string; location?: string } => {
     // Doctor's page is named anew each run: /rough-preview/doctor-check-<id>/sample/<iteration>.
     const key = url.pathname.replace(/^\/rough-preview\/doctor-check(-[a-z0-9]+)?\//, '');
     const isLan = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname);
     if (isLan && !faults.exposed) return { status: 404, body: 'not for the network' };
+    if (faults.signIn && url.pathname.startsWith('/rough-preview/')) {
+      return { status: 307, body: '', location: `/login?redirect=${url.pathname}` };
+    }
     // Doctor's third sample, for the speed check, renders like the first.
     if (key === 'sample/iteration-01' || key === 'sample/iteration-03') {
       const files = sample(repo, key === 'sample/iteration-01' ? 'iteration-01' : 'iteration-03');
@@ -139,6 +153,8 @@ function fakeTools(
     served,
     stopped,
     shots,
+    asked,
+    probed,
     browser: '/fake/chrome',
     which: program => (faults.missingTool === program ? null : `/fake/bin/${program}`),
     fetch: (async (input: string | URL | Request, init?: RequestInit) => {
@@ -186,12 +202,17 @@ function fakeTools(
         return new Response('home', { status: 200 });
       }
       const named = new Headers(init?.headers).get('host');
+      asked.push(`${url.host}${url.pathname}`);
       const page = pageFor(
         faults.hostOnly && named ? new URL(`${url.protocol}//${named}${url.pathname}`) : url
       );
-      return new Response(page.body, { status: page.status });
+      return new Response(page.body, {
+        status: page.status,
+        headers: page.location ? { location: page.location } : {}
+      });
     }) as typeof fetch,
     async probe({ url, overlays }) {
+      probed.push(new URL(url).pathname);
       // The app in production mode shows its own page, unless the preview leaks there.
       const page =
         new URL(url).port === '3999' && faults.production !== 'leaks'
@@ -382,6 +403,40 @@ describe('roughbook doctor', () => {
     assert.match(
       report.checks.find(check => check.id === 'reports-broken')!.detail,
       /did not show the sample iteration/
+    );
+  });
+
+  it('fails what a preview sent to sign in cannot show, at once and saying why', async () => {
+    const repo = await tempRepo();
+    const tools = fakeTools(repo, { signIn: true });
+    const report = await runDoctor(repo, { devUrl: DEV, tools });
+    const check = (id: string) => report.checks.find(item => item.id === id)!;
+    assert.match(
+      check('renders').detail,
+      /sends the preview to \/login, a sign-in page \(HTTP 307\)/
+    );
+    assert.match(check('renders').fix ?? '', /Let \/rough-preview\/ through the app's proxy/);
+    for (const id of ['fixture', 'reports-broken', 'reports-missing', 'fresh']) {
+      assert.equal(check(id).status, 'fail', id);
+      assert.match(check(id).detail, /The preview is sent to \/login, a sign-in page/, id);
+      assert.ok(check(id).fix, id);
+    }
+    assert.equal(check('screenshots').status, 'skip');
+    assert.deepEqual(failing(report), [
+      'renders',
+      'fixture',
+      'reports-broken',
+      'reports-missing',
+      'fresh'
+    ]);
+    // Nothing waited for it: the sample was asked once and never opened in the browser.
+    assert.equal(
+      tools.asked.filter(item => /^localhost:3000\/.*\/sample\/iteration-01$/.test(item)).length,
+      1
+    );
+    assert.deepEqual(
+      tools.probed.filter(item => item.includes('/sample/')),
+      []
     );
   });
 

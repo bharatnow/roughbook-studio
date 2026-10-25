@@ -37,7 +37,7 @@ import { STUDIO_VERSION } from '../version.js';
 import { hasMapFile } from '../map/file.js';
 import { MAP_ORDER, ORDER, result, rewrite, writeFiles } from './checks.js';
 import { buildGate } from './gate.js';
-import { mapChecks } from './map.js';
+import { mapChecks, place, SIGN_IN } from './map.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -48,7 +48,8 @@ import type {
   DoctorOptions,
   DoctorOutcome,
   DoctorReport,
-  DoctorTools
+  DoctorTools,
+  Probe
 } from './types.js';
 
 import {
@@ -85,18 +86,32 @@ async function ask(
   url: string,
   timeoutMs: number,
   host?: string
-): Promise<{ status: number; text: string } | null> {
+): Promise<{ status: number; text: string; location: string | null } | null> {
   try {
     const response = await tools.fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
       ...(host ? { headers: { host } } : {})
     });
-    return { status: response.status, text: await response.text() };
+    return {
+      status: response.status,
+      text: await response.text(),
+      location: response.headers.get('location')
+    };
   } catch {
     return null;
   }
 }
+
+/** What the browser would find at a preview the server sends elsewhere: nothing of it. */
+const NOTHING_SHOWN: Probe = {
+  shows: false,
+  ready: false,
+  error: null,
+  visibleOverlays: 0,
+  exceptions: [],
+  text: ''
+};
 
 export function exitCodeFor(outcome: DoctorOutcome): number {
   return outcome === 'pass' ? 0 : outcome === 'fail' ? 1 : 2;
@@ -420,6 +435,10 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       for (;;) {
         last = await ask(tools, url(GOOD), previewMs);
         if (last?.text.includes(needle)) return { answer: last, shown: true, probe };
+        // Sent elsewhere by the server: it will not show the iteration by waiting.
+        if (last && last.status >= 300 && last.status < 400 && last.location) {
+          return { answer: last, shown: false, probe };
+        }
         if (last?.status === 200 && tools.browser) {
           probe = await probeAt(url(GOOD), needle);
           if (probe.text.includes(needle)) return { answer: last, shown: true, probe };
@@ -430,7 +449,19 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     };
     const first = await showing(marker);
     const good = first.answer;
-    const goodProbe = first.probe ?? (await probeAt(url(GOOD), marker));
+    // A preview the server sends elsewhere (an app's proxy sending a visitor to sign in) shows no
+    // iteration: what needs one fails at once, saying where it was sent, and nothing waits for it.
+    const sentTo =
+      good && good.status >= 300 && good.status < 400 && good.location
+        ? place(good.location, base)
+        : null;
+    const toSignIn = sentTo !== null && SIGN_IN.test(sentTo);
+    const route = `/${new URL(url(GOOD)).pathname.split('/')[1]}/`;
+    const sentLine = `The preview is sent to ${sentTo}${toSignIn ? ', a sign-in page' : ''} (see renders).`;
+    const sentFix = toSignIn
+      ? `Let ${route} through the app's proxy or middleware in development, before it sends a visitor to sign in (contract point 3).`
+      : `Let ${route} answer at its own address in development: whatever sends it to ${sentTo} must let it through (contract point 3).`;
+    const goodProbe = first.probe ?? (sentTo ? NOTHING_SHOWN : await probeAt(url(GOOD), marker));
     /** Whether the server's HTML or the rendered page shows a text. */
     const pageShows = (needle: string) =>
       Boolean(good?.text.includes(needle)) || goodProbe.text.includes(needle);
@@ -441,7 +472,16 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     // needs the iteration on the page can be judged until it shows, so those checks are skipped.
     const hidden = rendered && Boolean(tools.browser) && !goodProbe.shows;
     const unseen = 'Not checked: the page did not show the sample iteration (see renders).';
-    if (!rendered) {
+    if (sentTo) {
+      checks.push(
+        result(
+          'renders',
+          'fail',
+          `${url(GOOD)} sends the preview to ${sentTo}${toSignIn ? ', a sign-in page' : ''} (HTTP ${good!.status}).`,
+          sentFix
+        )
+      );
+    } else if (!rendered) {
       checks.push(
         result(
           'renders',
@@ -492,6 +532,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
 
     if (!environment.fixture) {
       checks.push(result('fixture', 'skip', "This stack's preview takes no fixture."));
+    } else if (sentTo) {
+      checks.push(result('fixture', 'fail', sentLine, sentFix));
     } else if (pageShows(fixtureNote)) {
       checks.push(
         result('fixture', 'pass', `The sample's ${environment.fixture} reached the iteration.`)
@@ -510,6 +552,9 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     if (hidden) {
       checks.push(result('reports-broken', 'skip', unseen));
       checks.push(result('reports-missing', 'skip', unseen));
+    } else if (sentTo) {
+      checks.push(result('reports-broken', 'fail', sentLine, sentFix));
+      checks.push(result('reports-missing', 'fail', sentLine, sentFix));
     } else {
       const broken = await ask(tools, url(BROKEN), previewMs);
       const brokenProbe = await tools.probe({
@@ -570,6 +615,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     // 4. Screenshots at every viewport, with no overlay showing.
     if (hidden) {
       checks.push(result('screenshots', 'skip', unseen));
+    } else if (sentTo) {
+      checks.push(result('screenshots', 'skip', `Not checked: ${sentLine.replace(/^The/, 'the')}`));
     } else if (!tools.browser) {
       checks.push(
         result(
@@ -631,7 +678,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     rewrite(repoRoot, goodFolder, marker, changed);
     const deadline = tools.now() + previewMs;
     let fresh = false;
-    for (;;) {
+    while (!sentTo) {
       const again = await ask(tools, url(GOOD), previewMs);
       if (again?.text.includes(changed)) {
         fresh = true;
@@ -647,14 +694,16 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       await tools.sleep(500);
     }
     checks.push(
-      fresh
-        ? result('fresh', 'pass', 'A change to the iteration showed at its preview URL.')
-        : result(
-            'fresh',
-            'fail',
-            `A change to the iteration did not show within ${environment.timeouts.preview} s.`,
-            "The preview must pick up a change to an iteration's files without a restart: the app's own reload, or a plain reload of the page (contract point 4). If an iteration's folder was deleted and made again while the dev server ran, restart the dev server: some watchers lose such a folder."
-          )
+      sentTo
+        ? result('fresh', 'fail', sentLine, sentFix)
+        : fresh
+          ? result('fresh', 'pass', 'A change to the iteration showed at its preview URL.')
+          : result(
+              'fresh',
+              'fail',
+              `A change to the iteration did not show within ${environment.timeouts.preview} s.`,
+              "The preview must pick up a change to an iteration's files without a restart: the app's own reload, or a plain reload of the page (contract point 4). If an iteration's folder was deleted and made again while the dev server ran, restart the dev server: some watchers lose such a folder."
+            )
     );
 
     // 6. The gate.

@@ -33,7 +33,7 @@ export type MapCheckInput = {
 
 const ITERATION = 'iteration-01';
 /** Pages a stranger is sent to when a page needs a sign-in. */
-const SIGN_IN = /(log-?in|sign-?in|signin|auth|account\/login|wp-login\.php|session)/i;
+export const SIGN_IN = /(log-?in|sign-?in|signin|auth|account\/login|wp-login\.php|session)/i;
 /** How many pages and components a detail names before it says how many more. */
 const NAMED = 12;
 /** How long an app's own page is given to settle before its picture: it never says ready. */
@@ -56,7 +56,7 @@ function trimmed(path: string): string {
 }
 
 /** Where a visitor was sent: a path on the app's own origin, or another site's address without its query. */
-function place(to: string, base: string): string {
+export function place(to: string, base: string): string {
   try {
     const url = new URL(to, base);
     return url.origin === new URL(base).origin ? url.pathname : `${url.origin}${url.pathname}`;

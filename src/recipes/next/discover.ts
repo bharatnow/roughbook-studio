@@ -6,6 +6,7 @@ import { discoverModules, type ModuleRoutes } from '../modules/discover.js';
 import type { Discovered, DiscoverInput, Missed } from '../../map/types.js';
 import { isFolder, listFiles, readText } from '../../map/walk.js';
 import { previewRouteDir } from './preview.js';
+import { signInGuard } from './proxy.js';
 
 const CODE = /\.(tsx|ts|jsx|js|mjs)$/;
 const MARKDOWN = /\.(mdx|md)$/;
@@ -136,27 +137,6 @@ function exampleOf(repo: string, file: string, address: string): string | null {
   return isDynamic(example) ? null : example;
 }
 
-/** The addresses the app's proxy (middleware before Next.js 16) sends to a sign-in page. */
-function signedInPrefixes(repo: string): string[] {
-  for (const base of ['', 'src/']) {
-    for (const name of ['proxy', 'middleware']) {
-      for (const ext of ['.ts', '.js', '.mjs']) {
-        const text = readText(repo, `${base}${name}${ext}`);
-        if (text === null) continue;
-        if (!/\bredirect\s*\(/.test(text) || !/["'`]\/(log-?in|sign-?in|auth)\b/i.test(text)) {
-          return [];
-        }
-        const matcher = /\bmatcher\s*:\s*(\[[^\]]*\]|["'][^"']+["'])/.exec(text)?.[1] ?? '';
-        return [...matcher.matchAll(/["']([^"']+)["']/g)]
-          .map(match => match[1]!)
-          .filter(item => /^\/[\w\-/]*?(\/:path\*)?$/.test(item))
-          .map(item => item.replace(/\/:path\*$/, ''));
-      }
-    }
-  }
-  return [];
-}
-
 export async function discoverNext(given: DiscoverInput): Promise<Discovered> {
   const appDirs = ['app', 'src/app'].filter(dir => isFolder(given.repo, dir));
   // The studio's own preview route is never one of the app's pages.
@@ -193,16 +173,12 @@ export async function discoverNext(given: DiscoverInput): Promise<Discovered> {
     return first.split('/').length - second.split('/').length || first.localeCompare(second);
   });
   const found = await discoverModules(input, routes);
-  const behindSignIn = signedInPrefixes(input.repo);
+  const behindSignIn = signInGuard(input.repo);
   for (const page of found.pages) {
     if (page.address === null) continue;
     const file = page.files[0];
     if (file) page.example ??= exampleOf(input.repo, file, page.address);
-    if (
-      behindSignIn.some(prefix => page.address === prefix || page.address!.startsWith(`${prefix}/`))
-    ) {
-      page.signIn = 'yes';
-    }
+    page.signIn = behindSignIn?.(page.address) ?? page.signIn;
   }
   return found;
 }
