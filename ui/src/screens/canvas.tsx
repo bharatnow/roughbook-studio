@@ -1,6 +1,7 @@
 import {
   Canvas,
   Drawer,
+  MapList,
   PromotePanel,
   SelectionToolbar,
   cn,
@@ -27,6 +28,7 @@ import {
   GitFork,
   Layers,
   PackageCheck,
+  PackagePlus,
   Square,
   SquareTerminal,
   Wand2
@@ -80,8 +82,12 @@ const ICONS: Partial<Record<StudioActionId, typeof GitFork>> = {
   terminal: SquareTerminal,
   pull: CloudDownload,
   web: ExternalLink,
-  brief: FileText
+  brief: FileText,
+  adopt: PackagePlus
 };
+
+/** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
+type AdoptAnswer = { ask: { question: string; count: number } } | { lines: string[] };
 
 const RUN_ACTIONS = new Set<StudioActionId>(['done', 'stop', 'copy-prompt']);
 
@@ -308,6 +314,8 @@ function StudioCanvasView({
   // --- drawers ----------------------------------------------------------------------------------------
 
   const [brief, setBrief] = useState<{ page: string; component: string } | null>(null);
+  /** The list of the app's pages from the map (B2 of the brownfield plan). */
+  const [mapOpen, setMapOpen] = useState(false);
   const [promote, setPromote] = useState<{ page: string; component: string } | null>(null);
   const [refine, setRefine] = useState<{ page: string; component: string; id: string } | null>(
     null
@@ -373,6 +381,24 @@ function StudioCanvasView({
     }
   }
 
+  /**
+   * Adopts the app's own page, component, or all of them (B2 of the brownfield plan): only names
+   * reach the server. Past 50 components the server asks first, and the designer answers here.
+   */
+  async function adopt(body: { page?: string; component?: string; all?: true }, yes = false) {
+    try {
+      const answer = await post<AdoptAnswer>('/api/adopt', yes ? { ...body, yes: true } : body);
+      if ('ask' in answer) {
+        if (window.confirm(answer.ask.question)) await adopt(body, true);
+        return;
+      }
+      say({ tone: 'info', text: answer.lines.join(' ') });
+      await refresh();
+    } catch (error) {
+      say({ tone: 'error', text: describe(error) });
+    }
+  }
+
   // --- what each action does ---------------------------------------------------------------------
 
   function act(id: StudioActionId, key: string | null, session?: string) {
@@ -403,6 +429,13 @@ function StudioCanvasView({
         if (at.page && at.component && at.iteration) {
           void pull(at.page, at.component, at.iteration);
         }
+        return;
+      case 'adopt':
+        if (at.page)
+          void adopt({ page: at.page, ...(at.component ? { component: at.component } : {}) });
+        return;
+      case 'adopt-all':
+        void adopt({ all: true });
         return;
       case 'terminal':
         showSession(session ?? found?.session ?? null);
@@ -439,6 +472,9 @@ function StudioCanvasView({
         return;
       case 'list':
         view?.setList(mode !== 'list');
+        return;
+      case 'in-app':
+        setMapOpen(true);
         return;
       case 'dock':
         showSession(null);
@@ -641,6 +677,12 @@ function StudioCanvasView({
         }
       />
 
+      <Drawer open={mapOpen} onClose={() => setMapOpen(false)} title="The app's pages" size="lg">
+        {canvas.inApp?.problem ? (
+          <p className="text-sm text-graphite">{canvas.inApp.problem}</p>
+        ) : null}
+        <MapList project={project.tree.slug} pages={canvas.inApp?.pages ?? []} />
+      </Drawer>
       <BriefDrawer
         component={briefOf?.component ?? null}
         webHref={briefOf && webBase ? `${webBase}/${brief!.page}/${brief!.component}/brief` : null}

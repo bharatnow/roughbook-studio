@@ -102,8 +102,11 @@ export type Iteration = {
   generation: { mode: string };
   /** When it was made, where the backend says. */
   created?: string | null;
-  /** Where it was made: a web sketch, or a studio (this repo's or another designer's). */
-  origin?: 'sketch' | 'local';
+  /**
+   * Where it was made: a web sketch, a studio (this repo's or another designer's), or the app
+   * itself (`app`: an adopted component's baseline, iteration 0).
+   */
+  origin?: 'sketch' | 'local' | 'app';
   refinement: { preset: string } | null;
   feedback: Feedback;
 };
@@ -127,9 +130,38 @@ export type Component = {
   iterations: Iteration[];
   copy: { versions: CopyVersion[]; approved: number | null };
   promotions: { iteration: string; file?: string | null; at: string }[];
+  /** Adopted from the app's own code (B2 of the brownfield plan). */
+  inApp?: boolean;
 };
 
-export type Page = { slug: string; name: string; components: Component[] };
+export type Page = { slug: string; name: string; components: Component[]; inApp?: boolean };
+
+/** What is known of a page's sign-in or a component's rendering alone. */
+export type Known = 'yes' | 'no' | 'unknown';
+
+/**
+ * rough/map.md as the canvas shows it: the app's pages and components, with doctor's pictures by
+ * viewport name, before and after they are adopted.
+ */
+export type MapView = {
+  pages: {
+    slug: string;
+    name: string;
+    address: string | null;
+    signIn: Known;
+    sections: string[];
+    shots: string[];
+  }[];
+  components: {
+    slug: string;
+    name: string;
+    kind: 'section' | 'shared' | 'atom';
+    alone: Known;
+    why: string | null;
+    shots: string[];
+  }[];
+  problem: string | null;
+};
 
 export type ProjectView = {
   tree: {
@@ -144,6 +176,8 @@ export type ProjectView = {
     screenshots: Record<string, string[]>;
     /** When each iteration's screenshots were last taken, where the studio recorded it. */
     screenshotsAt?: Record<string, string>;
+    /** The app's map, when the repo has one. */
+    map?: MapView | null;
   };
 };
 

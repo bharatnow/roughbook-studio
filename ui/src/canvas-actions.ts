@@ -8,7 +8,7 @@ import type {
   CanvasInput,
   CanvasSectionInput
 } from '@roughbook/ui/canvas';
-import type { StudioCanvas } from './canvas-input.ts';
+import { BASELINE, type StudioCanvas } from './canvas-input.ts';
 import { runRunning } from './runs.ts';
 
 export type SelectionActionId =
@@ -27,10 +27,20 @@ export type SelectionActionId =
   | 'pull'
   | 'web'
   | 'brief'
-  | 'fold';
+  | 'fold'
+  | 'adopt';
 
 export type CanvasWideActionId =
-  'prompt' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'fit-all' | 'fit-selection' | 'list' | 'dock';
+  | 'prompt'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'zoom-reset'
+  | 'fit-all'
+  | 'fit-selection'
+  | 'list'
+  | 'dock'
+  | 'in-app'
+  | 'adopt-all';
 
 export type StudioActionId = SelectionActionId | CanvasWideActionId;
 
@@ -139,9 +149,24 @@ export function selectionActions(
   const entry = canvasEntry(canvas.input, key);
   if (!entry) return [];
   const page = entry.section.id;
-  if (entry.kind === 'section') return webAction(state, page, 'Open on the web');
+  // The app's own, not adopted yet: adopting is all there is to do (B2 of the brownfield plan).
+  const toAdopt = canvas.inApp?.pages
+    .find(item => item.slug === page)
+    ?.components.filter(item => !item.adopted).length;
+  if (entry.kind === 'section') {
+    const onServer = !entry.section.frames.every(
+      frame => canvas.cards[`iteration:${page}/${frame.id}/${BASELINE}`]?.kind === 'map'
+    );
+    return [
+      ...(toAdopt ? [{ id: 'adopt' as const, label: 'Adopt page', toolbar: true }] : []),
+      ...(onServer ? webAction(state, page, 'Open on the web') : [])
+    ];
+  }
   const component = entry.frame.id;
   const picks = picksIn(state.compare, page, component);
+  if (canvas.cards[`iteration:${page}/${component}/${BASELINE}`]?.kind === 'map') {
+    return [{ id: 'adopt', label: 'Adopt', toolbar: true }];
+  }
 
   if (entry.kind === 'frame') {
     const selected = entry.frame.cards.find(card => card.selected);
@@ -197,12 +222,19 @@ export function selectionActions(
     }
   } else if (facts.generated) {
     const picked = state.compare.includes(key);
+    // A baseline is the app as it is: compared with, not forked or promoted yet (B3 and B4).
     actions.push(
-      { id: 'fork', label: 'Fork', toolbar: true },
-      { id: 'refine', label: 'Refine', toolbar: true },
+      ...(facts.baseline
+        ? []
+        : [
+            { id: 'fork' as const, label: 'Fork', toolbar: true },
+            { id: 'refine' as const, label: 'Refine', toolbar: true }
+          ]),
       { id: 'pick', label: picked ? 'Unpick' : 'Pick', toolbar: true, keys: 'Shift-click' },
       ...compareAction(page, component, picks),
-      ...(card.selected ? [{ id: 'promote' as const, label: 'Promote', toolbar: true }] : [])
+      ...(card.selected && !facts.baseline
+        ? [{ id: 'promote' as const, label: 'Promote', toolbar: true }]
+        : [])
     );
   }
   if (facts.kind === 'local') {
@@ -214,11 +246,25 @@ export function selectionActions(
 /** The canvas's own controls, as `mode` shows them, and the terminals once there are any. */
 export function canvasActions(
   selection: string | null,
-  { mode, sessions }: { mode: CanvasMode; sessions: number }
+  {
+    mode,
+    sessions,
+    map = false,
+    toAdopt = 0
+  }: {
+    mode: CanvasMode;
+    sessions: number;
+    /** The repo has a map of the app's pages, which a list shows. */
+    map?: boolean;
+    /** The map's components not adopted yet: Adopt all adopts them. */
+    toAdopt?: number;
+  }
 ): StudioAction[] {
   const actions: StudioAction[] = [
     { id: 'prompt', label: 'Write a prompt', toolbar: false, keys: '/' }
   ];
+  if (map) actions.push({ id: 'in-app', label: "The app's pages", toolbar: false });
+  if (toAdopt) actions.push({ id: 'adopt-all', label: `Adopt all ${toAdopt}`, toolbar: false });
   if (mode === 'canvas') {
     actions.push(
       { id: 'zoom-in', label: 'Zoom in', toolbar: false, keys: '+' },

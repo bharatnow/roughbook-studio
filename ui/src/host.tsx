@@ -84,6 +84,18 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
       await refresh();
     };
 
+    /** Adopts from the map; a refusal is thrown in words, for the list to show beside it. */
+    const adopt = async (body: Record<string, string | boolean>) => {
+      let answer: { lines: string[] };
+      try {
+        answer = await post<{ lines: string[] }>('/api/adopt', body);
+      } catch (error) {
+        throw new Error(describe(error));
+      }
+      say({ tone: 'info', text: answer.lines.join(' ') });
+      await refresh();
+    };
+
     return {
       Link: Anchor,
       navigate,
@@ -170,7 +182,11 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
           }));
           await refresh();
           return result;
-        }
+        },
+        // The map's list (B2 of the brownfield plan): names reach the server, nothing else.
+        adopt: ({ page, component }) => adopt(component ? { page, component } : { page }),
+        // The list asked first, with the count, above 50 components (decision 29).
+        adoptAll: () => adopt({ all: true, yes: true })
       }
     };
   }, [devUrl, previewTemplate, refresh, say]);

@@ -221,6 +221,8 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('POST', '/api/sketches/:page/:component/:iteration/pull', async (request, params) =>
       studio.pull(target(params), await readBody(request))
     ),
+    // The canvas's Adopt and Adopt all (B2 of the brownfield plan).
+    route('POST', '/api/adopt', async request => studio.adopt(await readBody(request))),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
       return studio.promote({
@@ -319,7 +321,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       /^\/api\/iterations\/([^/]+)\/([^/]+)\/([^/]+)\/screenshots\/([a-z][a-z0-9-]*)$/.exec(
         url.pathname
       );
-    if (!match || request.method !== 'GET') return false;
+    // Doctor's pictures of the map's pages and components, for the "In the app" cards.
+    const mapped = /^\/api\/map\/(page|component)\/([^/]+)\/screenshots\/([a-z][a-z0-9-]*)$/.exec(
+      url.pathname
+    );
+    if ((!match && !mapped) || request.method !== 'GET') return false;
     const key = url.searchParams.get('key') ?? undefined;
     if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {
       sendJson(response, 401, { error: 'UNAUTHORIZED' });
@@ -327,10 +333,12 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }
     let file: string | null = null;
     try {
-      file = studio.screenshotFile(
-        { page: match[1]!, component: match[2]!, iteration: match[3]! },
-        match[4]!
-      );
+      file = mapped
+        ? studio.mapShotFile(mapped[1] as 'page' | 'component', mapped[2]!, mapped[3]!)
+        : studio.screenshotFile(
+            { page: match![1]!, component: match![2]!, iteration: match![3]! },
+            match![4]!
+          );
     } catch {
       file = null;
     }

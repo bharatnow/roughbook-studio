@@ -20,7 +20,23 @@ import {
   type EditorLaunched
 } from '../commands/shared.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
-import { ENVIRONMENT_FILE, defaultEnvironment, readEnvironmentSync } from '../environment/read.js';
+import {
+  ENVIRONMENT_FILE,
+  defaultEnvironment,
+  previewUrl,
+  readEnvironmentSync
+} from '../environment/read.js';
+import { adoptAllQuestion, adoptHere, describeAdoption, requireMap } from '../commands/adopt.js';
+import {
+  ASK_PAST,
+  BASELINE,
+  chooseAdoption,
+  countAdoption,
+  type AdoptChoice
+} from '../map/adopt.js';
+import { readMap } from '../map/file.js';
+import type { ComponentKind, Known } from '../map/types.js';
+import { pictureShot, picturesAfterShots, sharePagePictures } from '../pictures/share.js';
 import { resolveVariants, screenshotSet, type ResolvedVariant } from '../environment/variants.js';
 import { currentOs } from '../launch/platform.js';
 import { resolveCommandLine } from '../launch/processes.js';
@@ -50,7 +66,12 @@ import { sendDecision, type Decision, type ReviewTarget } from '../runs/reviews.
 import { assertTarget, iterationExists } from '../runs/slots.js';
 import { listRuns, readRun } from '../runs/store.js';
 import type { RunAgent, RunRecord, StartRunRequest } from '../runs/types.js';
-import { SHOTS_MANIFEST, screenshotPath, type ShotOptions } from '../screenshot/iteration.js';
+import {
+  SHOTS_MANIFEST,
+  mapScreenshotPath,
+  screenshotPath,
+  type ShotOptions
+} from '../screenshot/iteration.js';
 import { openOnDevice } from '../snapshot/device.js';
 import {
   describeResult,
@@ -120,6 +141,36 @@ export type AppView = {
   /** The last line the app printed while starting, for the frame's progress. */
   lastLine: string | null;
 };
+
+/**
+ * The map as the canvas's "In the app" group shows it (B2 of the brownfield plan): names, kinds and
+ * what is known, with doctor's pictures by viewport. No path: the page has no use for one.
+ */
+export type MapView = {
+  pages: {
+    slug: string;
+    name: string;
+    address: string | null;
+    signIn: Known;
+    sections: string[];
+    /** Doctor's pictures of the page, by viewport name. */
+    shots: string[];
+  }[];
+  components: {
+    slug: string;
+    name: string;
+    kind: ComponentKind;
+    alone: Known;
+    why: string | null;
+    shots: string[];
+  }[];
+  /** Why rough/map.md cannot be read, or null. */
+  problem: string | null;
+};
+
+/** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
+export type AdoptAnswer =
+  { ask: { question: string; count: number } } | { lines: string[]; written: string[] };
 
 /** How long after the last write to an iteration its screenshots are taken again. */
 const RESHOT_AFTER_MS = 5000;
@@ -805,7 +856,123 @@ export class LocalStudio {
     }
     // An iteration pulled or started from the CLI is new on the backend too.
     this.cache.notice('iterations', JSON.stringify(iterations));
-    return { iterations, screenshots, screenshotsAt };
+    return { iterations, screenshots, screenshotsAt, map: this.mapView() };
+  }
+
+  /** rough/map.md for the canvas, or null when the repo has none. */
+  private mapView(): MapView | null {
+    let read: ReturnType<typeof readMap>;
+    try {
+      read = readMap(this.repoRoot);
+    } catch (error) {
+      return { pages: [], components: [], problem: describeError(error) };
+    }
+    if (!read) return null;
+    const viewports = this.environment.viewports.map(viewport => viewport.name);
+    const shots = (kind: 'page' | 'component', slug: string) =>
+      viewports.filter(size => fs.existsSync(this.disk(mapScreenshotPath(kind, slug, size))));
+    return {
+      pages: read.map.pages.map(page => ({
+        slug: page.slug,
+        name: page.name,
+        address: page.example ?? page.address,
+        signIn: page.signIn,
+        sections: page.sections,
+        shots: shots('page', page.slug)
+      })),
+      components: read.map.components.map(component => ({
+        slug: component.slug,
+        name: component.name,
+        kind: component.kind,
+        alone: component.alone,
+        why: component.why,
+        shots: shots('component', component.slug)
+      })),
+      problem: null
+    };
+  }
+
+  /** Doctor's picture of a map page or component at a viewport, when there is one. */
+  mapShotFile(kind: 'page' | 'component', slug: string, size: string): string | null {
+    if (!SLUG.test(slug) || !this.environment.viewports.some(item => item.name === size)) {
+      return null;
+    }
+    const file = this.disk(mapScreenshotPath(kind, slug, size));
+    return fs.existsSync(file) ? file : null;
+  }
+
+  /**
+   * Adopts a page, one of its components, or everything (the canvas's Adopt and Adopt all), as
+   * `roughbook adopt` does: "Adopt all" past 50 components answers with its question first, until
+   * asked again with `yes`. The baselines' screenshots and the pictures follow, in the background.
+   */
+  async adopt(body: Record<string, unknown>): Promise<AdoptAnswer> {
+    let choice: AdoptChoice;
+    if (body.all === true) choice = { all: true };
+    else if (typeof body.page === 'string' && SLUG.test(body.page)) {
+      if (
+        body.component !== undefined &&
+        (typeof body.component !== 'string' || !SLUG.test(body.component))
+      ) {
+        throw new BadRequest('Name a component of the map.');
+      }
+      choice = {
+        page: body.page,
+        ...(body.component ? { component: body.component as string } : {})
+      };
+    } else throw new BadRequest('Name a page of the map, or adopt all.');
+    let map;
+    let adoption;
+    try {
+      map = requireMap(this.repoRoot);
+      adoption = chooseAdoption(map, choice);
+    } catch (error) {
+      throw new BadRequest(describeError(error));
+    }
+    if ('all' in choice && countAdoption(adoption) > ASK_PAST && body.yes !== true) {
+      return { ask: { question: adoptAllQuestion(adoption), count: countAdoption(adoption) } };
+    }
+    const { api, link } = this.options;
+    const environment = this.environment;
+    const outcome = await adoptHere(this.repoRoot, api, link, environment, map, adoption);
+    this.projectChanged();
+    void this.pictureAdopted(
+      outcome.baselines.written,
+      outcome.adopted.pages.map(page => page.slug)
+    );
+    return { lines: describeAdoption(outcome), written: outcome.baselines.written };
+  }
+
+  /** After adoption: the new baselines' screenshots and pictures, and the adopted pages' pictures. */
+  private async pictureAdopted(baselines: string[], pages: string[]): Promise<void> {
+    try {
+      for (const key of baselines) {
+        const [page, component] = key.split('/') as [string, string];
+        await this.screenshots({ page, component, iteration: BASELINE });
+        this.changes.note(`${key}/${BASELINE}${IMAGES}`);
+      }
+      const shoot = pictureShot(this.context);
+      const map = readMap(this.repoRoot)?.map;
+      if (!shoot || !map || this.environment.mode !== 'live') return;
+      for (const slug of pages) {
+        const page = map.pages.find(item => item.slug === slug);
+        if (!page) continue;
+        await sharePagePictures(
+          {
+            repoRoot: this.repoRoot,
+            api: this.options.api,
+            outbox: this.outbox,
+            link: this.options.link,
+            environment: this.environment,
+            shoot
+          },
+          page,
+          this.devUrl
+        );
+      }
+    } catch {
+      // The pictures wait for the next screenshots; the adoption itself is done.
+    }
   }
 
   async runs(): Promise<RunView[]> {
@@ -1281,8 +1448,8 @@ export class LocalStudio {
       };
     }
     syncIterations(this.repoRoot, environment);
-    return queued(this.repoRoot, () =>
-      this.context.screenshot(
+    return queued(this.repoRoot, async () => {
+      const shots = await this.context.screenshot(
         this.repoRoot,
         this.devUrl,
         target,
@@ -1292,8 +1459,23 @@ export class LocalStudio {
         undefined,
         environment,
         options
-      )
-    );
+      );
+      // Its pictures go up after its screenshots (decisions 21 and 23 of the brownfield plan).
+      const pictures = await picturesAfterShots(
+        this.context,
+        {
+          repoRoot: this.repoRoot,
+          api: this.options.api,
+          outbox: this.outbox,
+          link: this.options.link,
+          environment
+        },
+        target,
+        previewUrl(this.devUrl, target.page, target.component, target.iteration, environment),
+        shots
+      ).catch(() => null);
+      return pictures ? { ...shots, pictures } : shots;
+    });
   }
 
   /**
