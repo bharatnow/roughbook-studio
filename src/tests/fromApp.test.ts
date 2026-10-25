@@ -22,7 +22,9 @@ import type { RepoLink } from '../repo/link.js';
 import { BASE_FILE, isBasePath, planAppSlot, readBase, writeAppSlot } from '../runs/base.js';
 import { applyChecks, checkIteration, readFolder } from '../runs/checks.js';
 import { assessRun, finishRun, startRuns } from '../runs/lifecycle.js';
-import { createSlot } from '../runs/slots.js';
+import { createSlot, isPlaceholder } from '../runs/slots.js';
+import { forkFields } from '../runs/forkIntent.js';
+import { runKind } from '../commands/run.js';
 import { listRepoFiles, revertFile } from '../runs/snapshot.js';
 import type { Check, StartRunRequest, StartedRun } from '../runs/types.js';
 import { watchedPath } from '../runs/watch.js';
@@ -806,5 +808,95 @@ describe('a child the agent copies in', () => {
     // The app's own file, changed while the run went, counts outside the folder as any file does;
     // the copies and the base are the run's own.
     assert.deepEqual(finished.outOfScope, ['components/pricing/plan-card.tsx']);
+  });
+});
+
+describe('a fork’s intent and a clean start', () => {
+  it('reads what changes, what is kept and a clean start, from the CLI and the local UI alike', () => {
+    assert.deepEqual(
+      runKind({ fork: 'iteration-02', intent: ' Bolder cards ', keep: 'the layout, prices,,' }),
+      {
+        kind: 'fork',
+        parent: 'iteration-02',
+        intent: { remain: ['the layout', 'prices'], change: 'Bolder cards' }
+      }
+    );
+    assert.deepEqual(runKind({ fork: 'iteration-02', radical: true }), {
+      kind: 'fork',
+      parent: 'iteration-02',
+      radical: true
+    });
+    // A plain fork is as it was: no fields the backend does not need.
+    assert.deepEqual(runKind({ fork: 'iteration-02', radical: false }), {
+      kind: 'fork',
+      parent: 'iteration-02'
+    });
+    assert.throws(() => runKind({ fork: 'iteration-02', keep: 'the layout' }), /changes beside/);
+    assert.throws(() => runKind({ direction: ['Quiet'], radical: true }), /are for a fork/);
+    assert.throws(
+      () => forkFields({ change: 'x', remain: Array.from({ length: 13 }, (_, i) => `k${i}`) }),
+      /at most 12 things in one fork; this one lists 13/
+    );
+    assert.throws(() => forkFields({ change: 'x'.repeat(2001) }), /2000 characters/);
+  });
+
+  it('sends the intent with the fork, and a radical fork from the app starts empty with its base kept', async () => {
+    const runs = [started('iteration-01', RUN_A, PROMPT, CHECKS)];
+    const { repo, api, requests } = await adopted(runs);
+    const [run] = await startRuns(repo, api, LINK, {
+      ...FORK,
+      intent: { remain: ['the data'], change: 'Start over' },
+      radical: true
+    });
+    const body = requests.find(request => request.url.endsWith('/runs'))!.body as Record<
+      string,
+      unknown
+    >;
+    assert.deepEqual(body.intent, { remain: ['the data'], change: 'Start over' });
+    assert.equal(body.radical, true);
+    const folder = run!.targetFolder;
+    // The placeholder, as a new direction starts; no copy of the app's files.
+    assert.deepEqual(fs.readdirSync(path.join(repo, ...folder.split('/'))).sort(), [
+      '.base',
+      'index.tsx'
+    ]);
+    assert.ok(isPlaceholder(read(repo, `${folder}/index.tsx`)));
+    // The base keeps what the app was at the fork, for B4.
+    const base = readBase(repo, folder)!;
+    assert.equal(base.radical, true);
+    assert.deepEqual(
+      base.files.map(file => [file.path, file.copy]),
+      [['components/pricing/pricing-section.tsx', null]]
+    );
+    assert.equal(
+      read(repo, `${folder}/.base/components/pricing/pricing-section.tsx`),
+      read(repo, 'components/pricing/pricing-section.tsx')
+    );
+    assert.match(
+      read(repo, run!.promptFile),
+      /Its files:\ncomponents\/pricing\/pricing-section\.tsx\n/
+    );
+    // Left as the placeholder, it fails as any unwritten slot does.
+    const sources = recipeFor('next')!.environment(LINK).sources;
+    assert.equal(checkIteration(repo, run!, sources).failure?.code, 'PLACEHOLDER');
+  });
+
+  it('a radical fork of a studio iteration starts empty too, with no base', async () => {
+    const runs = [{ ...started('iteration-02', RUN_B, PROMPT, CHECKS), parent: 'iteration-01' }];
+    const { repo, api } = await adopted(runs);
+    write(
+      repo,
+      'rough/pricing/pricing-section/iteration-01/index.tsx',
+      'export default () => null;\n'
+    );
+    const [run] = await startRuns(repo, api, LINK, {
+      ...FORK,
+      parent: 'iteration-01',
+      radical: true
+    });
+    assert.deepEqual(fs.readdirSync(path.join(repo, ...run!.targetFolder.split('/'))), [
+      'index.tsx'
+    ]);
+    assert.ok(isPlaceholder(read(repo, `${run!.targetFolder}/index.tsx`)));
   });
 });

@@ -55,7 +55,14 @@ export type StartRunRequest = {
   stack?: string[];
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
-  | { kind: 'fork'; parent: string }
+  | {
+      kind: 'fork';
+      parent: string;
+      /** What the fork changes, and what it keeps as the parent has it (B3). */
+      intent?: ForkIntent;
+      /** A clean start: an empty folder, with what the parent was and what reviews said. */
+      radical?: boolean;
+    }
   /** The sketch's files are a read-only reference beside the component; the agent rebuilds it. */
   | { kind: 'pull'; sketch: string }
   | {
@@ -67,6 +74,9 @@ export type StartRunRequest = {
       preserve?: string;
     }
 );
+
+/** What a fork is asked to change, and what it keeps as the parent has it. */
+export type ForkIntent = { remain: string[]; change: string };
 
 /** One run as the backend answers `POST /runs`. */
 export type StartedRun = {

@@ -105,14 +105,14 @@ export function iterationExists(repoRoot: string, page: string, component: strin
  * Makes a run's folder: the placeholder for a new direction, or a copy of the parent for a fork
  * or refinement, which the agent then changes. A fork or refinement of the app's own component
  * (its baseline) starts from `app`, a copy of the real files with the originals kept in `.base/`,
- * never from the baseline's pointer (B3 of the brownfield plan). An existing iteration is never
- * written over.
+ * never from the baseline's pointer (B3 of the brownfield plan); a radical one starts from the
+ * placeholder, with the originals kept all the same. An existing iteration is never written over.
  */
 export function createSlot(
   repoRoot: string,
   slot: { page: string; component: string; iteration: string; parent: string | null },
   placeholder: Placeholder = defaultPlaceholder(),
-  app?: AppSlot & { commit: string | null }
+  app?: AppSlot & { commit: string | null; radical?: boolean }
 ): string {
   assertTarget(slot.page, slot.component, slot.iteration);
   const relative = iterationDir(slot.page, slot.component, slot.iteration);
@@ -127,7 +127,11 @@ export function createSlot(
         `${iterationDir(slot.page, slot.component, slot.parent)} is the app's own component: its fork starts from a copy of the real files, which was not made.`
       );
     }
-    writeAppSlot(repoRoot, relative, app, { parent: slot.parent, commit: app.commit });
+    writeAppSlot(repoRoot, relative, app, {
+      parent: slot.parent,
+      commit: app.commit,
+      ...(app.radical ? { empty: { file: placeholder.file, content: placeholder.content } } : {})
+    });
   } else if (slot.parent) {
     assertTarget(slot.page, slot.component, slot.parent);
     const from = toDisk(repoRoot, iterationDir(slot.page, slot.component, slot.parent));

@@ -134,8 +134,16 @@ export async function startRuns(
   // A fork or refine of the app's own component starts from a copy of its real files (B3): one
   // that cannot be made here is refused before the backend allocates anything.
   const fromApp = (request.kind === 'fork' || request.kind === 'refine') && fromTheApp(request);
+  // A radical fork starts empty, as a new direction does; from the app it still keeps the base.
+  const radical = request.kind === 'fork' && request.radical === true;
   if (fromApp) {
-    planAppSlot(repoRoot, recipe, environment, { ...request, iteration: 'iteration-01' });
+    planAppSlot(
+      repoRoot,
+      recipe,
+      environment,
+      { ...request, iteration: 'iteration-01' },
+      { radical }
+    );
   }
   const commit = fromApp ? await headCommit(repoRoot) : null;
   const stack = cleanStack(environment.stack);
@@ -197,7 +205,7 @@ export async function startRuns(
     // is not one of the repo's iterations to copy.
     createSlot(
       repoRoot,
-      request.kind === 'pull' ? { ...record, parent: null } : record,
+      request.kind === 'pull' || (radical && !fromApp) ? { ...record, parent: null } : record,
       {
         file: environment.entry,
         content: recipe
@@ -209,7 +217,7 @@ export async function startRuns(
         ...(recipe?.retarget ? { retarget: recipe.retarget.bind(recipe) } : {})
       },
       fromApp && fromTheApp(record)
-        ? { ...planAppSlot(repoRoot, recipe, environment, record), commit }
+        ? { ...planAppSlot(repoRoot, recipe, environment, record, { radical }), commit, radical }
         : undefined
     );
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;

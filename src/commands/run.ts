@@ -11,10 +11,11 @@ import type { RunRecord, StartRunRequest } from '../runs/types.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 import { completeRun, devUrl } from './done.js';
 import { readEnvironment } from '../environment/read.js';
+import { forkFields, keptList } from '../runs/forkIntent.js';
 import { chooseAgent, openInEditor, parseComponent, sayEditorLaunch } from './shared.js';
 
 /** What the designer asked for: new directions, a fork, or a refinement. */
-function runKind(values: {
+export function runKind(values: {
   direction?: string[];
   hypothesis?: string;
   fork?: string;
@@ -22,12 +23,17 @@ function runKind(values: {
   intent?: string;
   preset?: string;
   preserve?: string;
+  keep?: string;
+  radical?: boolean;
 }): Pick<StartRunRequest, 'kind'> & Record<string, unknown> {
   const asked = [values.direction?.length, values.fork, values.refine].filter(Boolean).length;
   if (asked !== 1) {
     throw new Error(
       'Say what to run: --direction "<idea>" (up to eight), --fork <iteration>, or --refine <iteration> --intent "<what to change>".'
     );
+  }
+  if (!values.fork && (values.keep || values.radical)) {
+    throw new Error('--keep and --radical are for a fork: --fork <iteration>.');
   }
   if (values.direction?.length) {
     if (values.direction.length > 8) throw new Error('At most eight directions at once.');
@@ -39,7 +45,17 @@ function runKind(values: {
       }))
     };
   }
-  if (values.fork) return { kind: 'fork', parent: values.fork };
+  if (values.fork) {
+    return {
+      kind: 'fork',
+      parent: values.fork,
+      ...forkFields({
+        change: values.intent,
+        remain: keptList(values.keep),
+        radical: values.radical
+      })
+    };
+  }
   if (!values.intent) throw new Error('A refinement needs --intent "<what to change>".');
   return {
     kind: 'refine',
@@ -54,7 +70,7 @@ export const run: Command = {
   name: 'run',
   summary: 'Start iterations with a coding agent, in a terminal, unattended or in your editor',
   usage:
-    'run <page>/<component> (--direction <idea>... | --fork <iteration> | --refine <iteration> --intent <text>) [--agent <id>] [--headless]',
+    'run <page>/<component> (--direction <idea>... | --fork <iteration> [--intent <what to change>] [--keep <a,b,…>] [--radical] | --refine <iteration> --intent <text>) [--agent <id>] [--headless]',
   needsRepo: true,
   async run(args, context) {
     const { values, positionals } = parseArgs({
@@ -68,6 +84,8 @@ export const run: Command = {
         intent: { type: 'string' },
         preset: { type: 'string' },
         preserve: { type: 'string' },
+        keep: { type: 'string' },
+        radical: { type: 'boolean', default: false },
         agent: { type: 'string' },
         model: { type: 'string' },
         headless: { type: 'boolean', default: false },

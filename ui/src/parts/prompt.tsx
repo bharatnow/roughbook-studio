@@ -1,10 +1,11 @@
 import { HelpTip, PromptBar } from '@roughbook/ui';
 import { focusForKey } from '@roughbook/ui/canvas';
-import { SlidersHorizontal } from 'lucide-react';
+import { Eraser, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { canvasEntry } from '../canvas-actions';
 import type { StudioCanvas } from '../canvas-input';
 import { useStudio } from '../data';
+import { forkPrompt } from '../fork-prompt';
 import type { Launched, RunView } from '../types';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
 
@@ -62,6 +63,8 @@ export function StudioPrompt({
   // Each send draws the form anew: React resets a form after its action, which would leave the
   // mode's radios at the ones first drawn. A refusal puts the words and the keyboard back.
   const [field, setField] = useState({ key: 0, value: '', refused: false });
+  // A radical fork: an empty folder, with what the parent was and what reviews said.
+  const [cleanStart, setCleanStart] = useState(false);
   useEffect(() => {
     if (field.refused) document.getElementById(fieldId)?.focus();
   }, [field, fieldId]);
@@ -86,7 +89,7 @@ export function StudioPrompt({
       id: 'fork',
       label: 'Fork',
       placeholder: made
-        ? `Send to fork ${iteration}: a copy the agent takes somewhere new`
+        ? `What should change in a fork of ${iteration}; a Keep: line says what stays`
         : 'Select an iteration to fork it',
       disabled: !made
     },
@@ -130,10 +133,15 @@ export function StudioPrompt({
         }))
       };
     } else if (current === 'fork') {
-      if (lines.length) {
-        return refuse('A fork takes no words. Send it empty, or say what should change in Refine.');
-      }
-      body = { page: at.page, component: at.component, kind: 'fork', parent: iteration };
+      const fork = forkPrompt(text, cleanStart);
+      if ('refusal' in fork) return refuse(fork.refusal);
+      body = {
+        page: at.page,
+        component: at.component,
+        kind: 'fork',
+        parent: iteration,
+        ...fork.fields
+      };
     } else {
       if (!lines.length) return refuse(`Say how ${iteration} should change.`);
       body = {
@@ -153,6 +161,7 @@ export function StudioPrompt({
       return;
     }
     setField(value => ({ key: value.key + 1, value: '', refused: false }));
+    setCleanStart(false);
     onModeChange('new');
     onStarted(started);
     if (started.launched.kind === 'manual' || started.launched.kind === 'editor') {
@@ -173,6 +182,17 @@ export function StudioPrompt({
       }}
       chip={
         <div className="flex flex-wrap items-center gap-0.5">
+          {current === 'fork' ? (
+            <button
+              type="button"
+              aria-pressed={cleanStart}
+              onClick={() => setCleanStart(value => !value)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet aria-pressed:bg-frost aria-pressed:text-graphite"
+            >
+              <Eraser className="size-3.5" strokeWidth={1.5} />
+              Clean start
+            </button>
+          ) : null}
           {current === 'refine' ? (
             <button
               type="button"
@@ -188,8 +208,10 @@ export function StudioPrompt({
             <strong className="font-medium">New</strong>: one iteration per line, up to{' '}
             {MAX_DIRECTIONS}; a line starting with <span className="font-mono">Tests:</span> says
             what they test. <strong className="font-medium">Fork</strong>: a copy of the selected
-            iteration the agent takes somewhere new. <strong className="font-medium">Refine</strong>
-            : a new iteration that changes it as you say; Options has the presets. Ctrl Enter sends.
+            iteration the agent takes where the words say, keeping what a{' '}
+            <span className="font-mono">Keep:</span> line lists; Clean start begins empty instead,
+            from what it was and what reviews said. <strong className="font-medium">Refine</strong>:
+            a new iteration that changes it as you say; Options has the presets. Ctrl Enter sends.
           </HelpTip>
         </div>
       }

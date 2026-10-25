@@ -49,6 +49,8 @@ export type BaseRecord = {
   written: Record<string, string>;
   /** Child components the agent copied in to change them (decision 32), which B4 promotes too. */
   children: BaseFile[];
+  /** A radical fork: it started empty, from the placeholder, with no copy of the files. */
+  radical?: true;
 };
 
 /** What the slot of a fork from the app is made of, planned before anything is written. */
@@ -96,7 +98,8 @@ export function planAppSlot(
   repoRoot: string,
   recipe: Recipe | null,
   environment: Pick<RepoEnvironment, 'fixture'>,
-  target: { page: string; component: string; iteration: string }
+  target: { page: string; component: string; iteration: string },
+  options: { radical?: boolean } = {}
 ): AppSlot {
   const what = `${target.page}/${target.component}`;
   const map = readMap(repoRoot)?.map;
@@ -105,6 +108,27 @@ export function planAppSlot(
     throw new Error(
       `${ROUGH_DIR}/map.md has no component ${target.component}, so ${what}/${BASELINE} cannot be copied. Run roughbook map, then try again.`
     );
+  }
+  // A radical fork copies nothing: the base alone keeps what the app was at the fork.
+  if (options.radical) {
+    const originals = new Map<string, Buffer>();
+    for (const file of component.files) {
+      const bytes = readBytes(repoRoot, file);
+      if (bytes) originals.set(file, bytes);
+    }
+    if (!originals.size) {
+      throw new Error(
+        `${component.files.join(', ') || 'Its files'} not in the repo, so the app's ${what} cannot be kept. Run roughbook map, then try again.`
+      );
+    }
+    return {
+      component,
+      copy: {
+        files: {},
+        copies: Object.fromEntries([...originals.keys()].map(file => [file, '']))
+      },
+      originals
+    };
   }
   if (!recipe?.fromApp) {
     throw new Error(
@@ -165,11 +189,13 @@ export function writeAppSlot(
   repoRoot: string,
   relative: string,
   slot: AppSlot,
-  base: { parent: string; commit: string | null }
+  base: { parent: string; commit: string | null; empty?: { file: string; content: string } }
 ): BaseRecord {
   const dir = toDisk(repoRoot, relative);
   const written: Record<string, string> = {};
-  for (const [file, text] of Object.entries(slot.copy.files)) {
+  // A radical fork starts from the placeholder, as a new direction does.
+  const start = base.empty ? { [base.empty.file]: base.empty.content } : slot.copy.files;
+  for (const [file, text] of Object.entries(start)) {
     const target = path.join(dir, ...file.split('/'));
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, text);
@@ -182,7 +208,7 @@ export function writeAppSlot(
     const target = path.join(dir, BASE_DIR, ...file.split('/'));
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, bytes);
-    files.push({ path: file, sha256: sha256(bytes), copy });
+    files.push({ path: file, sha256: sha256(bytes), copy: base.empty ? null : copy });
   }
   const record: BaseRecord = {
     version: 1,
@@ -191,7 +217,8 @@ export function writeAppSlot(
     commit: base.commit,
     files,
     written: Object.fromEntries(Object.entries(written).sort(([a], [b]) => a.localeCompare(b))),
-    children: []
+    children: [],
+    ...(base.empty ? { radical: true as const } : {})
   };
   writeBase(repoRoot, relative, record);
   return record;

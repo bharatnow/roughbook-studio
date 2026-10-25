@@ -49,6 +49,7 @@ import { isApproved, readApprovals } from '../repo/approvals.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
 import { roughPath } from '../repo/root.js';
+import { forkFields } from '../runs/forkIntent.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
@@ -233,7 +234,12 @@ export type RunBody = {
   rows?: number;
 } & (
   | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
-  | { kind: 'fork'; parent: string }
+  | {
+      kind: 'fork';
+      parent: string;
+      intent?: { remain?: unknown; change?: unknown };
+      radical?: boolean;
+    }
   /** A web sketch ported into this repo's stack: a pull run (F7 of the frameworks plan). */
   | { kind: 'pull'; sketch: string }
   | {
@@ -1667,7 +1673,22 @@ export class LocalStudio {
       case 'fork':
         if (!ITERATION.test(String(body.parent)))
           throw new BadRequest('Name the iteration to fork.');
-        return { kind: 'fork', parent: body.parent };
+        try {
+          const remain = body.intent?.remain;
+          return {
+            kind: 'fork',
+            parent: body.parent,
+            ...forkFields({
+              change: typeof body.intent?.change === 'string' ? body.intent.change : null,
+              remain: Array.isArray(remain)
+                ? remain.filter((item): item is string => typeof item === 'string')
+                : null,
+              radical: body.radical === true
+            })
+          };
+        } catch (error) {
+          throw new BadRequest((error as Error).message);
+        }
       case 'pull':
         if (!ITERATION.test(String(body.sketch)))
           throw new BadRequest('Name the web sketch to port.');
