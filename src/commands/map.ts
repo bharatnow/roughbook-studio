@@ -31,6 +31,7 @@ import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { handoffLine, writePrompt } from '../runs/slots.js';
 import { takeSnapshot } from '../runs/snapshot.js';
+import { recordEvent } from '../telemetry/events.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 import { doctorReportFile } from './setup.js';
 import { chooseAgent, openInEditor, sayEditorLaunch } from './shared.js';
@@ -239,6 +240,7 @@ export const map: Command = {
         `${error.message} Fix the header, or move the file away and run roughbook map to write it again.`
       );
     }
+    if (result) await recordMapRan(context, result, open !== null);
     if (values.json) {
       io.out(
         JSON.stringify(result ? { map: result.map, fixtures: result.fixtures } : null, null, 2)
@@ -266,6 +268,23 @@ export const map: Command = {
     });
   }
 };
+
+/**
+ * `map.ran` (B2's contract), when the designer agreed: how much the map lists, whether a map run's
+ * work is in it, and how long the discoverers took. Counts only, never a name.
+ */
+async function recordMapRan(context: CommandContext, result: MapResult, agent: boolean) {
+  const { map } = result;
+  const count = (value: number, max = 100_000) => Math.min(max, Math.max(0, Math.round(value)));
+  await recordEvent(context, 'map.ran', {
+    pages: count(map.pages.length),
+    components: count(map.components.length),
+    missed: count(map.missed.length),
+    unplaced: count(map.unplaced.length),
+    agent,
+    milliseconds: count(result.ms, 86_400_000)
+  }).catch(() => false);
+}
 
 /** The map already there, for a map run on a stack no discoverer reads. */
 function fallback(repoRoot: string): MapResult | null {

@@ -501,6 +501,40 @@
         }
       }
     },
+    "map.ran": {
+      "description": "roughbook map read a repo's pages and components: how many pages, components, missed and unplaced it listed, whether an agent's map run took part, and how long it took.",
+      "sentBy": "studio",
+      "props": {
+        "pages": {
+          "kind": "int",
+          "min": 0,
+          "max": 100000
+        },
+        "components": {
+          "kind": "int",
+          "min": 0,
+          "max": 100000
+        },
+        "missed": {
+          "kind": "int",
+          "min": 0,
+          "max": 100000
+        },
+        "unplaced": {
+          "kind": "int",
+          "min": 0,
+          "max": 100000
+        },
+        "agent": {
+          "kind": "boolean"
+        },
+        "milliseconds": {
+          "kind": "int",
+          "min": 0,
+          "max": 86400000
+        }
+      }
+    },
     "error.reported": {
       "description": "Something failed in the studio: the error code and where, never the message.",
       "sentBy": "studio",

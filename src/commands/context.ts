@@ -12,6 +12,7 @@ import { telemetryDisabled } from '../telemetry/events.js';
 import type { Launch } from '../launch/open.js';
 import type { PtySupport } from '../launch/pty.js';
 import type { TerminalPlan } from '../launch/terminal.js';
+import type { PictureShot } from '../pictures/share.js';
 import type { askPreview, screenshotIteration } from '../screenshot/iteration.js';
 import type { ScaffoldTools } from './new.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -46,6 +47,8 @@ export type CommandContext = {
   runCommand: typeof runCommand;
   runHeadless: typeof runHeadless;
   screenshot: typeof screenshotIteration;
+  /** Takes the pictures the studio uploads (B2 of the brownfield plan); the browser's by default. */
+  takePicture?: PictureShot;
   /** Asks the app's dev server once: the warming request, and whether the app answers at all. */
   askPreview: typeof askPreview;
   /** The built-in terminal's pseudo-terminal, found once per process; a fake in tests. */

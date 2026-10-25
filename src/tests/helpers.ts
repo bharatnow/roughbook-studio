@@ -63,6 +63,8 @@ export type RecordedRequest = {
   url: string;
   headers: Record<string, string>;
   body: unknown;
+  /** The bytes of a body that is not JSON: an uploaded picture. */
+  bytes?: Buffer;
 };
 
 type Reply = { status?: number; json?: unknown; text?: string } | 'offline';
@@ -79,7 +81,8 @@ export function fakeFetch(respond: (request: RecordedRequest) => Reply | Promise
       method: init?.method ?? 'GET',
       url: String(input),
       headers,
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : null
+      body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      ...(init?.body instanceof Uint8Array ? { bytes: Buffer.from(init.body) } : {})
     };
     requests.push(request);
     const reply = await respond(request);

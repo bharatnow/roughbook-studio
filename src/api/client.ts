@@ -2,6 +2,8 @@ import { ApiError, OfflineError } from './errors.js';
 import type { Family } from '../environment/types.js';
 import type { StartRunRequest, StartedRun } from '../runs/types.js';
 import type {
+  AdoptBody,
+  Adopted,
   AssetScope,
   DeviceLogin,
   DoctorResultBody,
@@ -17,8 +19,10 @@ import type {
   PullableSketch,
   PulledSketch,
   RatingSummary,
+  PictureKind,
   SetupPrompt,
-  SketchFile
+  SketchFile,
+  StoredPicture
 } from './types.js';
 
 /** Where the backend serves the studio's routes. */
@@ -48,6 +52,9 @@ export type RequestOptions = {
   /** Lets the backend recognize a request sent again from the outbox. */
   idempotencyKey?: string;
 };
+
+/** An image the studio uploads as it is: a picture of a studio iteration or an adopted page. */
+export type ImageBody = { bytes: Buffer; type: 'image/png' | 'image/webp' };
 
 type Envelope = { success: boolean; data?: unknown; error?: unknown; message?: unknown };
 
@@ -229,6 +236,26 @@ export class StudioApi {
     return this.request('GET', `${projectPath(orgId, project)}/setup-prompt`);
   }
 
+  /**
+   * Adopts pages and components from the map (B2 of the brownfield plan): names, slugs and kinds
+   * only. What exists is marked as in the app and given its baseline if it has none.
+   */
+  adopt(orgId: string, project: string, body: AdoptBody): Promise<Adopted> {
+    return this.request('POST', `${projectPath(orgId, project)}/adopt`, body);
+  }
+
+  /** Uploads one picture, to a path from `picturePath`; the backend re-encodes what it keeps. */
+  async putPicture(
+    path: string,
+    image: ImageBody,
+    options: RequestOptions = {}
+  ): Promise<StoredPicture> {
+    const response = await this.send('PUT', path, image, options);
+    const envelope = await readEnvelope(response);
+    if (envelope.success && response.ok) return envelope.data as StoredPicture;
+    throw toApiError(response.status, envelope);
+  }
+
   /** The map run's prompt for this project (B1 of the brownfield plan), with its stand-ins. */
   mapPrompt(orgId: string, project: string): Promise<MapPrompt> {
     return this.request('GET', `${projectPath(orgId, project)}/map-prompt`);
@@ -258,7 +285,7 @@ export class StudioApi {
   private async send(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
-    body: RequestBody | undefined,
+    body: RequestBody | ImageBody | undefined,
     options: RequestOptions,
     accept = 'application/json'
   ): Promise<Response> {
@@ -266,7 +293,8 @@ export class StudioApi {
       accept,
       'user-agent': this.config.userAgent
     };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    const image = isImage(body) ? body : null;
+    if (body !== undefined) headers['content-type'] = image ? image.type : 'application/json';
     if (this.config.token) headers.authorization = `Bearer ${this.config.token}`;
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
     if (this.config.telemetryOff) headers['x-roughbook-telemetry'] = 'off';
@@ -275,13 +303,21 @@ export class StudioApi {
       return await (this.config.fetch ?? fetch)(`${this.config.server}${STUDIO_BASE}${path}`, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: image
+          ? new Uint8Array(image.bytes)
+          : body === undefined
+            ? undefined
+            : JSON.stringify(body),
         signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000)
       });
     } catch (error) {
       throw new OfflineError(this.config.server, error);
     }
   }
+}
+
+function isImage(body: RequestBody | ImageBody | undefined): body is ImageBody {
+  return body !== undefined && Buffer.isBuffer((body as ImageBody).bytes);
 }
 
 function projectPath(orgId: string, project: string): string {
@@ -301,6 +337,20 @@ export function iterationPath(
   iteration: string
 ): string {
   return `${componentPath(orgId, project, page, component)}/iterations/${encodeURIComponent(iteration)}`;
+}
+
+/** Where one picture goes: an iteration's, or an adopted page's when `iteration` is null. */
+export function picturePath(
+  orgId: string,
+  project: string,
+  target: { page: string; component?: string; iteration?: string },
+  kind: PictureKind
+): string {
+  const base =
+    target.component && target.iteration
+      ? iterationPath(orgId, project, target.page, target.component, target.iteration)
+      : `${projectPath(orgId, project)}/pages/${encodeURIComponent(target.page)}`;
+  return `${base}/pictures/${kind}`;
 }
 
 async function readEnvelope(response: Response): Promise<Envelope> {

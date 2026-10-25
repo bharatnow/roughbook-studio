@@ -12,6 +12,7 @@ import { isDynamic, mapProblems, readMap } from '../map/file.js';
 import type { MapComponent, RepoMap } from '../map/types.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
+import { mapScreenshotPath } from '../screenshot/iteration.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { MAP_ORDER, result, writeFiles } from './checks.js';
@@ -390,10 +391,14 @@ export async function mapChecks(input: MapCheckInput): Promise<CheckResult[]> {
         }));
       overlays += probe.visibleOverlays ? 1 : 0;
       for (const viewport of environment.viewports) {
+        // Kept for the canvas's "In the app" cards, which show them before anything is adopted.
         const file = path.join(
-          input.shotsDir,
-          'map',
-          `${target.page ? 'page' : 'component'}-${target.slug}-${viewport.name}.png`
+          repoRoot,
+          ...mapScreenshotPath(
+            target.page ? 'page' : 'component',
+            target.slug,
+            viewport.name
+          ).split('/')
         );
         const ok = await tools.screenshot({
           url: target.url,

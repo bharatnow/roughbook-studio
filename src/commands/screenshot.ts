@@ -1,10 +1,13 @@
 import { parseArgs } from 'node:util';
-import { readEnvironment } from '../environment/read.js';
+import { outboxFor } from '../api/outbox.js';
+import { previewUrl, readEnvironment } from '../environment/read.js';
+import { picturesAfterShots } from '../pictures/share.js';
+import { requireRepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
 import { iterationExists } from '../runs/slots.js';
 import { listRuns } from '../runs/store.js';
 import { withPreviews } from '../standalone/server.js';
-import type { Command } from './context.js';
+import { openApi, type Command } from './context.js';
 import { devUrl } from './done.js';
 import { parseIteration } from './shared.js';
 
@@ -44,15 +47,17 @@ export const screenshot: Command = {
       throw new Error(`${label} is not in this repo.`);
     }
     // The preview setup renders only the iterations it knows of.
-    const environment = await readEnvironment(repoRoot);
+    const link = await requireRepoLink(repoRoot);
+    const environment = await readEnvironment(repoRoot, link);
+    let pictures: string | null = null;
     syncIterations(repoRoot, environment);
     // Through the app's dev server, or a standalone server of its own for the time it takes.
     const shots = await withPreviews(
       repoRoot,
       environment,
       devUrl(values['dev-url'], context.env, environment.start.url),
-      (url, shown) =>
-        context.screenshot(
+      async (url, shown) => {
+        const taken = await context.screenshot(
           repoRoot,
           url,
           target,
@@ -61,10 +66,22 @@ export const screenshot: Command = {
           undefined,
           undefined,
           shown
-        )
+        );
+        // Its pictures go up after its screenshots (decisions 21 and 23), when signed in.
+        const { api } = await openApi(context);
+        pictures = await picturesAfterShots(
+          context,
+          { repoRoot, api, outbox: outboxFor(repoRoot), link, environment: shown },
+          target,
+          previewUrl(url, target.page, target.component, target.iteration, shown),
+          taken
+        ).catch(() => null);
+        return taken;
+      }
     );
     const files = Object.values(shots.files);
     if (files.length) io.out(`${label}: ${files.join(', ')}`);
+    if (pictures) io.out(pictures);
     if (shots.warning) io.err(shots.warning);
     return shots.warning ? 1 : 0;
   }

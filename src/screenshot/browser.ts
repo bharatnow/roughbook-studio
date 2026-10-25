@@ -691,6 +691,68 @@ export async function takeScreenshot({
   return taken === true;
 }
 
+/** The largest picture the backend takes (decision 28 of the brownfield plan). */
+export const MAX_PICTURE_BYTES = 5 * 1024 * 1024;
+/** Where a full-length picture is cut: the backend cuts there too. */
+export const MAX_PICTURE_HEIGHT = 10_000;
+/** WebP qualities tried in turn until a picture fits under the limit. */
+const PICTURE_QUALITIES = [85, 70, 50];
+
+/**
+ * A picture for the backend (decisions 21 and 28 of the brownfield plan), as WebP in the default
+ * variant: one screen at `size`, or with `full` the whole page, cut at 10,000 px. Null when the page
+ * could not be photographed, or would not fit in 5 MB.
+ */
+export async function takePicture({
+  browser,
+  url,
+  size,
+  full,
+  overlays = [],
+  timeoutMs = 60_000,
+  waitMs = 20_000
+}: {
+  browser: string | KeptBrowser;
+  url: string;
+  size: ScreenshotSize;
+  full: boolean;
+  overlays?: string[];
+  timeoutMs?: number;
+  /** At most how long to wait for the page to say ready: an app's own page never does. */
+  waitMs?: number;
+}): Promise<Buffer | null> {
+  const kept = browserFor(browser);
+  const taken = await kept.withPage({ size, overlays, variant: null, timeoutMs }, async page => {
+    await settle(page, url, waitMs, kept.settleMs);
+    let clip: { x: 0; y: 0; width: number; height: number; scale: 1 } | null = null;
+    if (full) {
+      const metrics = await page.send<{
+        cssContentSize?: { height: number };
+        contentSize: { height: number };
+      }>('Page.getLayoutMetrics');
+      const height = Math.ceil((metrics.cssContentSize ?? metrics.contentSize).height);
+      clip = {
+        x: 0,
+        y: 0,
+        width: size.width,
+        height: Math.min(Math.max(height, size.height), MAX_PICTURE_HEIGHT),
+        scale: 1
+      };
+    }
+    for (const quality of PICTURE_QUALITIES) {
+      const { data } = await page.send<{ data: string }>('Page.captureScreenshot', {
+        format: 'webp',
+        quality,
+        ...(clip ? { clip, captureBeyondViewport: true } : {})
+      });
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.length <= MAX_PICTURE_BYTES) return bytes;
+    }
+    return null;
+  });
+  return Buffer.isBuffer(taken) ? taken : null;
+}
+
 /**
  * What a preview did once it settled: whether it shows the text expected of it, whether it posted
  * the ready message or an error, and how many of the app's own development overlays were still

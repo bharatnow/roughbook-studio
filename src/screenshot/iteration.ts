@@ -5,6 +5,7 @@ import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { screenshotSet, withVariant } from '../environment/variants.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
+import { baselineSources } from '../map/adopt.js';
 import { isApproved, readApprovals } from '../repo/approvals.js';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
@@ -23,6 +24,14 @@ export type Shots = {
 /** Where an iteration's screenshots go: rough/.screenshots/, never committed. */
 export function screenshotPath(page: string, component: string, iteration: string, size: string) {
   return `${ROUGH_DIR}/.screenshots/${page}/${component}/${iteration}/${size}.png`;
+}
+
+/**
+ * Where doctor's pictures of the map's pages and components go, at each viewport: kept here for the
+ * canvas's "In the app" cards before anything is adopted, never uploaded.
+ */
+export function mapScreenshotPath(kind: 'page' | 'component', slug: string, viewport: string) {
+  return `${ROUGH_DIR}/.screenshots/.map/${kind}-${slug}-${viewport}.png`;
 }
 
 /** Beside an iteration's screenshots: what they were taken of, so unchanged files are not taken again. */
@@ -97,12 +106,14 @@ export function previewProblem(url: string, devUrl: string, answer: PreviewAnswe
 
 /**
  * A hash of everything the screenshots depend on: each file of the iteration's folder, and the
- * viewports, variants and overlays they are taken with. Null when the folder is not there.
+ * viewports, variants and overlays they are taken with; for a baseline, the app's own files it
+ * points at too (`sources`, repo-relative). Null when the folder is not there.
  */
 export function iterationHash(
   repoRoot: string,
   target: Target,
-  environment: Pick<RepoEnvironment, 'viewports' | 'variants' | 'overlays'>
+  environment: Pick<RepoEnvironment, 'viewports' | 'variants' | 'overlays'>,
+  sources: string[] = baselineSources(repoRoot, target)
 ): string | null {
   const dir = path.join(
     repoRoot,
@@ -125,6 +136,15 @@ export function iterationHash(
     }
   };
   walk(dir, '');
+  for (const source of sources) {
+    hash.update(`${source}\0`);
+    try {
+      hash.update(fs.readFileSync(path.join(repoRoot, ...source.split('/'))));
+    } catch {
+      hash.update('gone');
+    }
+    hash.update('\0');
+  }
   hash.update(
     JSON.stringify({
       viewports: environment.viewports,

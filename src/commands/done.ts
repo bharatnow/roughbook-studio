@@ -9,6 +9,7 @@ import { withPreviews } from '../standalone/server.js';
 import { assessRun, finishRun, type FinishOptions } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import type { Shots } from '../screenshot/iteration.js';
+import { picturesAfterShots } from '../pictures/share.js';
 import { listRuns, namesRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
 import { confirm } from '../io.js';
@@ -53,7 +54,7 @@ export async function finishWithScreenshots(
   link: RepoLink,
   runId: string,
   options: CompleteOptions
-): Promise<{ run: RunRecord; shots: Shots | null }> {
+): Promise<{ run: RunRecord; shots: Shots | null; pictures?: string | null }> {
   const repoRoot = context.repoRoot!;
   const run = await finishRun(repoRoot, api, outbox, link, runId, options);
   if (run.failure || run.outcome === 'cancelled' || run.outcome === 'failed') {
@@ -75,8 +76,8 @@ export async function finishWithScreenshots(
             environment.timeouts.preview * 1000
           );
     if (!options.screenshots) return null;
-    return queued(repoRoot, () =>
-      context.screenshot(
+    return queued(repoRoot, async () => {
+      const taken = await context.screenshot(
         repoRoot,
         url,
         target,
@@ -86,13 +87,23 @@ export async function finishWithScreenshots(
         undefined,
         environment,
         { answer }
-      )
-    );
+      );
+      // Its pictures go up as soon as its screenshots are taken (decisions 21 and 23).
+      pictures = await picturesAfterShots(
+        context,
+        { repoRoot, api, outbox, link, environment },
+        target,
+        previewUrl(url, target.page, target.component, target.iteration, environment),
+        taken
+      ).catch(() => null);
+      return taken;
+    });
   };
+  let pictures: string | null = null;
   const shots = options.environment
     ? await shoot(options.devUrl, read)
     : await withPreviews(repoRoot, read, options.devUrl, shoot);
-  return { run, shots };
+  return { run, shots, pictures };
 }
 
 /** Finishes one run, takes its screenshots, and says how it went. */
@@ -105,14 +116,11 @@ export async function completeRun(
   options: CompleteOptions
 ): Promise<RunRecord> {
   const { io } = context;
-  const { run: finished, shots } = await finishWithScreenshots(
-    context,
-    api,
-    outbox,
-    link,
-    run.runId,
-    options
-  );
+  const {
+    run: finished,
+    shots,
+    pictures
+  } = await finishWithScreenshots(context, api, outbox, link, run.runId, options);
   const label = `${finished.page}/${finished.component}/${finished.iteration}`;
   // The warnings are counted beside it, so completed_with_warnings reads as completed.
   const outcome = (finished.outcome ?? 'completed').replace('_with_warnings', '');
@@ -137,6 +145,7 @@ export async function completeRun(
     if (files.length) io.out(`  Screenshots: ${files.join(', ')}`);
     if (shots.warning) io.out(`  ${shots.warning}`);
   }
+  if (pictures) io.out(`  ${pictures}`);
   if (finished.reported === 'queued') {
     io.out('  The result waits in the outbox and goes to the server when it can be reached.');
   }

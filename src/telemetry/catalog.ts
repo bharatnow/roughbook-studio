@@ -23,7 +23,7 @@ export type EventSpec = {
 export const EVENT_CATALOG = catalog as { version: number; events: Record<string, EventSpec> };
 
 /** The events this studio sends. */
-export type StudioEventType = 'studio.started' | 'error.reported';
+export type StudioEventType = 'studio.started' | 'map.ran' | 'error.reported';
 
 const TOKEN = /^[0-9A-Za-z._:/+-]{1,100}$/;
 const CODE = /^[A-Z][A-Z0-9_]{1,63}$/;

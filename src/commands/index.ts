@@ -16,6 +16,7 @@ import { findRepoRoot } from '../repo/root.js';
 import { errorCode, flushEvents, recordEvent } from '../telemetry/events.js';
 import { STUDIO_VERSION } from '../version.js';
 import { openApi, type Command, type CommandContext } from './context.js';
+import { adopt } from './adopt.js';
 import { agents } from './agents.js';
 import { doctor } from './doctor.js';
 import { done } from './done.js';
@@ -44,6 +45,7 @@ export const COMMANDS: Command[] = [
   init,
   setup,
   map,
+  adopt,
   start,
   run,
   done,
@@ -107,6 +109,7 @@ export type MainOptions = {
     | 'runCommand'
     | 'runHeadless'
     | 'screenshot'
+    | 'takePicture'
     | 'askPreview'
     | 'pty'
     | 'waitForStop'
@@ -213,6 +216,7 @@ export async function main(argv: string[], options: MainOptions): Promise<number
     runCommand: options.runCommand ?? runCommand,
     runHeadless: options.runHeadless ?? runHeadless,
     screenshot: options.screenshot ?? screenshotIteration,
+    takePicture: options.takePicture,
     askPreview: options.askPreview ?? askPreview,
     pty: options.pty,
     doctorTools: options.doctorTools,

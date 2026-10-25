@@ -81,6 +81,12 @@ export type DoctorResultBody = {
   setup?: { kind: 'setup' | 'fix'; seconds: number };
 };
 
+/**
+ * Where an iteration was made: a web sketch, a studio, or the app itself (`app`, iteration 0, the
+ * baseline of an adopted component: B2 of ROUGHBOOK-BROWNFIELD-PLAN.md).
+ */
+export type IterationOrigin = 'sketch' | 'local' | 'app';
+
 /** An iteration as the server records it: metadata only, never its code. */
 export type IterationRecord = {
   id: string;
@@ -90,6 +96,8 @@ export type IterationRecord = {
   parent: string | null;
   direction: string;
   generation: { mode: string };
+  /** Absent from a backend older than B2. */
+  origin?: IterationOrigin;
 };
 
 export type ComponentRecord = {
@@ -97,6 +105,16 @@ export type ComponentRecord = {
   name: string;
   selectedIteration: number | null;
   iterations: IterationRecord[];
+  /** Adopted from the app's own code (decision 6 of the brownfield plan). */
+  inApp?: boolean;
+};
+
+export type PageRecord = {
+  slug: string;
+  name: string;
+  components: ComponentRecord[];
+  /** Adopted from the app's own pages. */
+  inApp?: boolean;
 };
 
 /** `GET /orgs/:orgId/projects/:project`: the project with its brief; the parts the studio reads. */
@@ -104,8 +122,42 @@ export type ProjectTree = {
   slug: string;
   name: string;
   delivery: { componentsDir: string; publicDir: string; devUrl: string };
-  pages: { slug: string; name: string; components: ComponentRecord[] }[];
+  pages: PageRecord[];
+  /**
+   * Whether the studio uploads its pictures (decisions 21, 23 and 28 of the brownfield plan): on
+   * unless the project's setting turned it off; absent from a backend older than B2.
+   */
+  pictures?: boolean;
 };
+
+/**
+ * `POST /orgs/:orgId/projects/:project/adopt`: the pages and components adopted from the map, by
+ * name, slug and kind only (decision 7 of the brownfield plan): no path, file, fixture or code.
+ */
+export type AdoptBody = {
+  pages: {
+    slug: string;
+    name: string;
+    components: { slug: string; name: string; kind: 'section' | 'shared' | 'atom' }[];
+  }[];
+};
+
+/** What adoption made: each page and component, whether it is new, and its baseline's key. */
+export type Adopted = {
+  pages: {
+    slug: string;
+    created: boolean;
+    components: { slug: string; created: boolean; baseline: string }[];
+  }[];
+};
+
+/** The three pictures the studio uploads of an iteration or an adopted page (decision 21). */
+export type PictureKind = 'thumbnail' | 'desktop' | 'phone';
+
+export const PICTURE_KINDS: readonly PictureKind[] = ['thumbnail', 'desktop', 'phone'];
+
+/** `PUT …/pictures/:kind`: what the backend kept, after re-encoding it. */
+export type StoredPicture = { kind: PictureKind; width: number; height: number; updatedAt: string };
 
 export type AssetScope = 'project' | 'library';
 
