@@ -110,7 +110,10 @@ function png(rgb: [number, number, number]): Buffer {
  * the iteration in its marker. `broken` swaps answer 500; `unmarked` leaves the markers out;
  * `shifts` makes the picture with markers differ from the one without.
  */
-function tools(faults: { broken?: string[]; unmarked?: boolean; shifts?: boolean } = {}) {
+function tools(
+  faults: { broken?: string[]; unmarked?: boolean; shifts?: boolean; moves?: boolean } = {}
+) {
+  let shots = 0;
   const asked: string[] = [];
   let clock = 0;
   const fake: Partial<DoctorTools> = {
@@ -135,7 +138,14 @@ function tools(faults: { broken?: string[]; unmarked?: boolean; shifts?: boolean
     screenshot: async input => {
       const bare = new URL(input.url).searchParams.get('roughbook-markers') === '0';
       fs.mkdirSync(path.dirname(input.file), { recursive: true });
-      fs.writeFileSync(input.file, png(faults.shifts && !bare ? [255, 0, 0] : [255, 255, 255]));
+      shots += 1;
+      // A page that moves on its own (an endless animation) differs from one picture to the next.
+      const colour: [number, number, number] = faults.moves
+        ? [shots % 256, 0, 0]
+        : faults.shifts && !bare
+          ? [255, 0, 0]
+          : [255, 255, 255];
+      fs.writeFileSync(input.file, png(colour));
       return true;
     }
   };
@@ -201,6 +211,16 @@ describe('map-context', () => {
     assert.match(
       found.detail,
       /\/pricing at desktop looks different with its markers \(100\.00% of its pixels\)/
+    );
+  });
+
+  it('does not blame the markers for a page that moves on its own, and names it', async () => {
+    const found = await check(await repo(), tools({ moves: true }).tools);
+    assert.equal(found.status, 'pass', found.detail);
+    assert.match(found.detail, /the markers leave 0 pictures the same/);
+    assert.match(
+      found.detail,
+      /\/pricing at desktop: not compared, the page moves on its own \(\d+\.\d{2}% of its pixels between two pictures without markers\)/
     );
   });
 

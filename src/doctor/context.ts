@@ -258,11 +258,28 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
           fs.readFileSync(file('marked')),
           fs.readFileSync(file('bare'))
         );
-        if (difference > 0) {
+        if (difference === 0) {
+          compared += 1;
+          continue;
+        }
+        // A page that moves on its own (an endless animation) differs from itself: a second
+        // picture without markers tells it from markers that move things.
+        const again = await shot(
+          `${input.base}${hook.address(address, null, { markers: false })}`,
+          file('bare-again')
+        );
+        const itself = again
+          ? pictureDifference(fs.readFileSync(file('bare')), fs.readFileSync(file('bare-again')))
+          : 0;
+        if (itself > 0) {
+          named.push(
+            `${address} at ${viewport.name}: not compared, the page moves on its own (${(itself * 100).toFixed(2)}% of its pixels between two pictures without markers)`
+          );
+        } else {
           failures.push(
             `${address} at ${viewport.name} looks different with its markers (${(difference * 100).toFixed(2)}% of its pixels)`
           );
-        } else compared += 1;
+        }
       }
     }
   }
