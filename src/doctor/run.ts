@@ -34,10 +34,12 @@ import { screenshotIteration } from '../screenshot/iteration.js';
 import { siteFile } from '../standalone/files.js';
 import { startStandaloneServer, type StandaloneServer } from '../standalone/server.js';
 import { STUDIO_VERSION } from '../version.js';
-import { hasMapFile } from '../map/file.js';
+import { hasMapFile, readMap } from '../map/file.js';
 import { MAP_ORDER, ORDER, result, rewrite, writeFiles } from './checks.js';
 import { buildGate } from './gate.js';
 import { mapChecks, place, SIGN_IN } from './map.js';
+import type { ContextGate } from './context.js';
+import { contextAddress, contextSections } from '../recipes/context.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -706,8 +708,12 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
             )
     );
 
-    // 6. The gate.
+    // 6. The gate, which also looks for the in-page view's switch in production (B5), for map-context.
+    let contextGate: ContextGate = null;
     if (options.skipBuild) {
+      contextGate = {
+        skipped: 'production was not checked for the switch (--skip-build)'
+      };
       checks.push(
         result(
           'gate',
@@ -728,7 +734,16 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
       // A standalone preview is the studio's, so what the served site must not hand out is rough/.
       const servesSite = environment.mode === 'standalone';
       if (environment.gate === 'build' || environment.gate === 'both') {
-        const found = await buildGate(repoRoot, environment, tools, changed);
+        const found = await buildGate(
+          repoRoot,
+          environment,
+          tools,
+          changed,
+          recipe?.contextPreview?.sentinel ?? null
+        );
+        if (found.switchLeaked) {
+          contextGate = { leaked: found.switchLeaked, where: 'the production build' };
+        }
         problems.push(...found.problems);
         fixes.push(...found.fixes);
         held.push(...found.held);
@@ -818,6 +833,27 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
                   );
                 } else if (answer.status !== 404) {
                   runtimeHeld = `In production mode the preview answers HTTP ${answer.status} with a page of the app’s own, never the iteration.`;
+                }
+              }
+              // The in-page view's switch (B5): a page asked with a swap and Pick in production
+              // mode holds none of it.
+              const swapped = recipe?.contextPreview ? contextTarget(repoRoot, environment) : null;
+              if (swapped && recipe?.contextPreview) {
+                const hook = recipe.contextPreview;
+                const at = hook.address(swapped.address, swapped.key, { pick: true });
+                const page = await ask(tools, `${production.url}${at}`, previewMs);
+                const leaked =
+                  page !== null &&
+                  (page.text.includes(hook.sentinel) ||
+                    page.text.includes('data-roughbook-section'));
+                contextGate = page
+                  ? { leaked: leaked ? [at] : [], where: 'production mode' }
+                  : { skipped: `in production mode nothing answered at ${at}` };
+                if (leaked) {
+                  problems.push(`In production mode ${at} shows the in-page view's switch.`);
+                  fixes.push(
+                    'The switch is for development only: load it with the preview route, in the local environment alone (roughbook setup --upgrade writes it so).'
+                  );
                 }
               }
               // Where a deploy of the repo as it is puts rough/ on the site (a theme's folder):
@@ -930,7 +966,18 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     // screenshots come out clean (src/doctor/map.ts). Reported after the contract's.
     if (mapped) {
       checks.push(
-        ...(await mapChecks({ repoRoot, environment, shown, recipe, tools, base, page, shotsDir }))
+        ...(await mapChecks({
+          repoRoot,
+          environment,
+          shown,
+          recipe,
+          tools,
+          base,
+          page,
+          shotsDir,
+          contextGate,
+          link
+        }))
       );
     }
 
@@ -1023,6 +1070,24 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     if (startedApp) await startedApp.stop();
     if (standalone) await standalone.close();
   }
+}
+
+/** An adopted section's iteration and the page it shows in, for the runtime gate's look at the switch. */
+function contextTarget(
+  repoRoot: string,
+  environment: RepoEnvironment
+): { key: string; address: string } | null {
+  try {
+    const map = readMap(repoRoot)?.map;
+    if (!map) return null;
+    for (const section of contextSections(repoRoot, environment.entry, map)) {
+      const address = contextAddress(map, section);
+      if (address && section.iterations[0]) return { key: section.iterations[0].key, address };
+    }
+  } catch {
+    // No map to read: nothing of the switch to look for.
+  }
+  return null;
 }
 
 /**

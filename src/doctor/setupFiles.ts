@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { RepoEnvironment } from '../environment/types.js';
 import type { Recipe } from '../recipes/types.js';
 import type { RepoLink } from '../repo/link.js';
+import { hasMapFile } from '../map/file.js';
 import { covers, read } from '../repo/plan.js';
 import { PREP_FILES, planPrep } from '../repo/prep.js';
 import { ROUGH_DIR } from '../repo/root.js';
@@ -76,8 +77,14 @@ export async function setupFilesCheck(
       ...(recipe.edits?.(repoRoot, link) ?? [])
     ].map(change => change.file);
     const plan = planPrep(repoRoot, { link, recipe });
+    // The in-page view's switch, not set up yet in a mapped repo, is map-context's to ask for.
+    const pending = new Set(
+      hasMapFile(repoRoot) ? (recipe.contextPreview?.missing(repoRoot, link) ?? []) : []
+    );
     const stale = plan.changes.filter(
-      change => recipeFiles.includes(change.file) || snippetFiles.includes(change.file)
+      change =>
+        !pending.has(change.file) &&
+        (recipeFiles.includes(change.file) || snippetFiles.includes(change.file))
     );
     if (stale.length) {
       problems.push(

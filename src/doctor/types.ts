@@ -21,7 +21,8 @@ export type CheckId =
   | 'speed'
   | 'map-pages'
   | 'map-components'
-  | 'map-screenshots';
+  | 'map-screenshots'
+  | 'map-context';
 
 /** `skip`: not checked, and the report says why (another phase's check, or `--skip-build`). */
 export type CheckStatus = 'pass' | 'fail' | 'skip';

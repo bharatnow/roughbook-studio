@@ -15,7 +15,9 @@ import { iterationDir } from '../repo/iterations.js';
 import { mapScreenshotPath } from '../screenshot/iteration.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import type { RepoLink } from '../repo/link.js';
 import { MAP_ORDER, result, writeFiles } from './checks.js';
+import { contextCheck, type ContextGate } from './context.js';
 import type { CheckResult, DoctorTools, Probe } from './types.js';
 
 export type MapCheckInput = {
@@ -30,6 +32,9 @@ export type MapCheckInput = {
   /** Doctor's own page this run; the map's pointers go under a page of their own beside it. */
   page: string;
   shotsDir: string;
+  /** What the gate found of the in-page view's switch in production (B5), for map-context. */
+  contextGate?: ContextGate;
+  link?: RepoLink | null;
 };
 
 const ITERATION = 'iteration-01';
@@ -105,8 +110,31 @@ async function visit(
   return null;
 }
 
-/** The map's checks, in their order; none at all for a repo with no map. */
+/**
+ * The map's checks, in their order; none at all for a repo with no map. The last, map-context, is
+ * the in-page view's (B5): it runs whatever the others found, unless the map could not be read or
+ * the preview is not live, which the others report for it.
+ */
 export async function mapChecks(input: MapCheckInput): Promise<CheckResult[]> {
+  const checks = await pageChecks(input);
+  if (!checks.length || checks.some(check => check.id === 'map-context')) return checks;
+  return [
+    ...checks,
+    await contextCheck({
+      repoRoot: input.repoRoot,
+      environment: input.environment,
+      recipe: input.recipe,
+      tools: input.tools,
+      base: input.base,
+      shotsDir: input.shotsDir,
+      gate: input.contextGate ?? null,
+      link: input.link ?? null
+    })
+  ];
+}
+
+/** The pages, the components alone and their screenshots. */
+async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
   const { repoRoot, environment, tools } = input;
   let map: RepoMap;
   try {

@@ -261,8 +261,8 @@ describe("doctor's map checks", () => {
     assert.equal(report.outcome, 'unverified');
     // The checks come after the contract's, and doctor's map page is gone afterwards.
     assert.deepEqual(
-      report.checks.slice(-3).map(item => item.id),
-      ['map-pages', 'map-components', 'map-screenshots']
+      report.checks.slice(-4).map(item => item.id),
+      ['map-pages', 'map-components', 'map-screenshots', 'map-context']
     );
     assert.ok(
       !fs.readdirSync(path.join(repo, 'rough')).some(entry => entry.startsWith('doctor-check'))

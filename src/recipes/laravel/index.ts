@@ -2,6 +2,8 @@
 // the app's own `php artisan serve`, through a route registered only in the local environment.
 // F3 proved the setup on a fresh Laravel 13 app built by the setup run, and F7 ported a sketch
 // into it; this recipe writes the same without an agent.
+import fs from 'node:fs';
+import path from 'node:path';
 import type { EnvironmentOs, RepoEnvironment } from '../../environment/types.js';
 import { currentOs, hostPlatform } from '../../launch/platform.js';
 import type { RepoLink } from '../../repo/link.js';
@@ -12,6 +14,15 @@ import { familyCraft } from '../craft.js';
 import { layOut, type AppCopy, type AppCopyInput } from '../fromApp.js';
 import type { MapComponent } from '../../map/types.js';
 import type { PreviewPlan, Recipe } from '../types.js';
+import { hasMapFile } from '../../map/file.js';
+import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import {
+  CONTEXT_BLOCK,
+  CONTEXT_LIST,
+  SECTION_FILE,
+  SECTION_TEMPLATE,
+  writeContextList
+} from './context.js';
 import { discoverLaravel } from './discover.js';
 import {
   ENTRY,
@@ -28,12 +39,28 @@ import {
 const PORT = 8000;
 const PRODUCTION_PORT = 8001;
 
+/**
+ * The route file as the recipe writes it: for a mapped app, with the in-page view's switch after
+ * the route (B5). A repo that maps nothing gets the route it had before.
+ */
+export function routeFile(repo: string): string {
+  return hasMapFile(repo) ? `${PREVIEW_ROUTE}${CONTEXT_BLOCK}` : PREVIEW_ROUTE;
+}
+
+/** The files the in-page view adds beside the route, for a mapped app. */
+function contextFiles(repo: string): string[] {
+  return hasMapFile(repo) || fs.existsSync(path.join(repo, ...SECTION_TEMPLATE.split('/')))
+    ? [SECTION_TEMPLATE]
+    : [];
+}
+
 function planPreview(repo: string, link: RepoLink): PreviewPlan {
   void link;
   const changes: PrepChange[] = [];
   const manual: string[] = [];
   const route = read(repo, ROUTE_FILE);
-  if (route !== PREVIEW_ROUTE) {
+  const wanted = routeFile(repo);
+  if (route !== wanted) {
     if (route !== null && !isOurRoute(route)) {
       manual.push(`${ROUTE_FILE} exists and was not written by Roughbook, so it was left alone.`);
     } else {
@@ -42,7 +69,21 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
         action: route === null ? 'create' : 'edit',
         summary:
           route === null ? 'Add the development-only preview route.' : 'Update the preview route.',
-        after: PREVIEW_ROUTE
+        after: wanted
+      });
+    }
+  }
+  if (hasMapFile(repo)) {
+    const template = read(repo, SECTION_TEMPLATE);
+    if (template !== SECTION_FILE) {
+      changes.push({
+        file: SECTION_TEMPLATE,
+        action: template === null ? 'create' : 'edit',
+        summary:
+          template === null
+            ? 'Add the in-page view’s marker for adopted views, development only.'
+            : 'Update the in-page view’s marker.',
+        after: SECTION_FILE
       });
     }
   }
@@ -73,7 +114,15 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const tailwind = planTailwindSource(repo, ['resources/css']);
   if (tailwind && 'manual' in tailwind) manual.push(tailwind.manual);
   else if (tailwind) changes.push(tailwind);
-  return { changes, manual, ignoredFromBuild: [], gitWanted: [`/${ROUTE_FILE}`] };
+  return {
+    changes,
+    manual,
+    ignoredFromBuild: [],
+    gitWanted: [
+      `/${ROUTE_FILE}`,
+      ...(hasMapFile(repo) ? [`/${SECTION_TEMPLATE}`, `/${CONTEXT_LIST}`] : [])
+    ]
+  };
 }
 
 const SETUP_NOTES = `This repo is on Laravel with Blade, which has a recipe: roughbook init writes ${ROUTE_FILE}, a
@@ -185,7 +234,8 @@ export function bladeFromApp(component: MapComponent, input: AppCopyInput): AppC
 export const laravel: Recipe = {
   id: 'laravel',
   name: 'Laravel with Blade',
-  version: 1,
+  // 2: the in-page view's switch after the route, and its marker beside it (brownfield B5).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link, os?: EnvironmentOs): RepoEnvironment {
@@ -254,7 +304,18 @@ export const laravel: Recipe = {
   discover: discoverLaravel,
   pointer: bladePointer,
   fromApp: bladeFromApp,
-  setupFiles: () => [ROUTE_FILE],
+  setupFiles: repo => [ROUTE_FILE, ...contextFiles(repo)],
+  contextPreview: {
+    files: repo => contextFiles(repo),
+    edits: () => [],
+    generated: [CONTEXT_LIST],
+    missing: repo => [
+      ...(read(repo, ROUTE_FILE)?.includes(CONTEXT_BLOCK) ? [] : [ROUTE_FILE]),
+      ...(read(repo, SECTION_TEMPLATE) === null ? [SECTION_TEMPLATE] : [])
+    ],
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL
+  },
   snippets: () => [{ file: WEB_ROUTES, text: WEB_SNIPPET }],
   agentRules:
     environment => `- \`${environment.entry}\` is a Blade view, rendered inside \`${WRAPPER}\` with the app's styles:
@@ -268,9 +329,11 @@ export const laravel: Recipe = {
     <p>${PLACEHOLDER_LINE}</p>
 </div>
 `,
-  generatedFiles: [],
-  importAllowed: () => [ROUTE_FILE],
-  syncPreview: () => {},
+  generatedFiles: [CONTEXT_LIST],
+  importAllowed: () => [ROUTE_FILE, SECTION_TEMPLATE],
+  syncPreview: repo => {
+    if (hasMapFile(repo)) writeContextList(repo);
+  },
   pullTransform: (_file, text) => text,
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${bladeName(componentName)}.blade.php`,

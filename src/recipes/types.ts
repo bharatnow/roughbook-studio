@@ -56,6 +56,40 @@ export type RecipeEdit = {
   undo(text: string): string | null;
 };
 
+/**
+ * The in-page view's switch (B5 of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 41 and 42): in
+ * development only, and for a request to this machine, a page renders each adopted component
+ * inside its marker, and for `?roughbook-swap=<page>/<component>/<iteration>` renders the iteration
+ * in its place with the page's own data. Without the parameter the page is the app's, markers
+ * apart. Its files and edits are also among the recipe's `setupFiles`, `edits` and
+ * `generatedFiles`, so doctor and uninstall treat them as the rest of the preview setup.
+ */
+export type ContextPreview = {
+  /** The development-only files the switch writes outside rough/, repo-relative. */
+  files(repo: string, link: RepoLink): string[];
+  /** Its edits inside the app's own files, which uninstall reverses. */
+  edits(repo: string, link: RepoLink): RecipeEdit[];
+  /** The files it regenerates as components are adopted and iterations change, repo-relative. */
+  generated: string[];
+  /**
+   * What of the switch a mapped repo does not have yet: files and edits `setup --upgrade` would
+   * add for the first time. Doctor's setup-files check leaves them to map-context, which asks for
+   * the upgrade, so a repo set up before B5 is not reported as broken for lacking it.
+   */
+  missing(repo: string, link: RepoLink): string[];
+  /**
+   * A page's address with an iteration swapped in, or none, as the frame asks for it: Pick on, or
+   * the markers off (doctor's comparison of the pictures).
+   */
+  address(
+    address: string,
+    swap: string | null,
+    options?: { pick?: boolean; markers?: boolean }
+  ): string;
+  /** The text every file of the switch holds, which no production build may: the gate's sentinel. */
+  sentinel: string;
+};
+
 /** What a recipe's preview setup adds to `init`'s plan. */
 export type PreviewPlan = {
   changes: PrepChange[];
@@ -106,6 +140,8 @@ export type Recipe = {
    * them, and the baseline's fixture carried over. Null when this component cannot be copied.
    */
   fromApp?(component: MapComponent, input: AppCopyInput): AppCopy | null;
+  /** The in-page view's switch, for a stack that has one (B5); a stack without shows components alone. */
+  contextPreview?: ContextPreview;
   /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
   setupFiles(repo: string, link: RepoLink): string[];
   /**

@@ -1,7 +1,10 @@
 // Next.js with the App Router: the stack the studio knew before environments existed, now one
 // recipe among those to come. Everything here was the studio's own code until F1 of
 // ROUGHBOOK-FRAMEWORKS-PLAN.md moved it in, word for word.
+import fs from 'node:fs';
+import path from 'node:path';
 import type { RepoEnvironment } from '../../environment/types.js';
+import { hasMapFile } from '../../map/file.js';
 import type { RepoLink } from '../../repo/link.js';
 import { pascalCase } from '../../repo/names.js';
 import { OURS, planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
@@ -9,6 +12,16 @@ import { ROUGH_DIR, STATE_DIR } from '../../repo/root.js';
 import { REACT_WEB_CRAFT } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
 import { moduleFromApp, modulePointer } from '../modules/pointer.js';
+import { swapAddress, CONTEXT_SENTINEL } from '../context.js';
+import {
+  CONTEXT_MODULES,
+  CONTEXT_REGISTRY,
+  contextFiles,
+  nextConfigFile,
+  planNextConfig,
+  undoNextConfig,
+  writeContext
+} from './context.js';
 import { discoverNext } from './discover.js';
 import { PLACEHOLDER_INDEX } from './placeholder.js';
 import {
@@ -25,25 +38,15 @@ import {
 } from './preview.js';
 import { writeScratch } from './scratch.js';
 
-const NEXT_CONFIGS = [
-  'next.config.ts',
-  'next.config.mts',
-  'next.config.js',
-  'next.config.mjs',
-  'next.config.cjs'
-];
-
 /**
  * Whether the app's Next.js config turns Cache Components on, as `create-next-app` does from
  * Next.js 16.4. Read as text, so a config that computes the flag reads as off; the preview route
  * then still renders, with an error logged on each request.
  */
 export function usesCacheComponents(repo: string): boolean {
-  for (const name of NEXT_CONFIGS) {
-    const text = read(repo, name);
-    if (text !== null) return /^\s*cacheComponents\s*:\s*true\b/m.test(text);
-  }
-  return false;
+  const file = nextConfigFile(repo);
+  const text = file ? read(repo, file) : null;
+  return text !== null && /^\s*cacheComponents\s*:\s*true\b/m.test(text);
 }
 
 /**
@@ -96,6 +99,17 @@ export function defaultComponentFile(
   return `${dir}/${pascalCase(componentName)}.tsx`;
 }
 
+/**
+ * The route's files, and for a mapped repo the in-page view's beside them: the recipe's own files
+ * outside rough/. A repo that maps nothing gets the setup it had before B5.
+ */
+function ownFiles(repo: string, appDir: string): { file: string; content: string }[] {
+  return [
+    ...previewRouteFiles(appDir, { cacheComponents: usesCacheComponents(repo) }),
+    ...(hasMapFile(repo) ? contextFiles(appDir) : [])
+  ];
+}
+
 /** The preview route and what goes with it, as `init` plans them for one repo. */
 function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const changes: PrepChange[] = [];
@@ -103,6 +117,9 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const ignoredFromBuild: string[] = [];
   const gitWanted: string[] = [];
   if (link.roughCommitted) gitWanted.push(`/${ROUGH_DIR}/${REGISTRY_FILE}`);
+  if (link.roughCommitted && hasMapFile(repo)) {
+    gitWanted.push(`/${CONTEXT_REGISTRY}`, `/${CONTEXT_MODULES}`);
+  }
   const appDir = link.appDir;
   if (!appDir) {
     manual.push(
@@ -113,7 +130,7 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const routeDir = previewRouteDir(appDir);
   ignoredFromBuild.push(routeDir);
   gitWanted.push(`/${routeDir}/`);
-  for (const route of previewRouteFiles(appDir, { cacheComponents: usesCacheComponents(repo) })) {
+  for (const route of ownFiles(repo, appDir)) {
     const current = read(repo, route.file);
     if (current === route.content) continue;
     if (current !== null && !isOurPreviewFile(current)) {
@@ -128,6 +145,10 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
       after: route.content
     });
   }
+  // The in-page view's rule (B5): in next.config, development only.
+  const config = hasMapFile(repo) ? planNextConfig(repo, appDir) : null;
+  if (config && 'manual' in config) manual.push(config.manual);
+  else if (config) changes.push(config);
   if (read(repo, `${ROUGH_DIR}/preview.tsx`) === null) {
     changes.push({
       file: `${ROUGH_DIR}/preview.tsx`,
@@ -166,7 +187,8 @@ export const next: Recipe = {
   name: 'Next.js',
   // 2: the route applies the variant the studio asks for in the address (F4).
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
-  version: 3,
+  // 4: the in-page view's switch, its files beside the route and its rule in next.config (B5).
+  version: 4,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
@@ -220,12 +242,42 @@ export const next: Recipe = {
   discover: discoverNext,
   pointer: modulePointer({ entry: 'index.tsx', fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: 'index.tsx', fixture: FIXTURE }),
+  // The in-page view's files are listed wherever they are, so uninstall takes them out.
   setupFiles: (repo, link) =>
     link.appDir
-      ? previewRouteFiles(link.appDir, { cacheComponents: usesCacheComponents(repo) }).map(
-          route => route.file
-        )
+      ? [
+          ...new Set([
+            ...ownFiles(repo, link.appDir).map(route => route.file),
+            ...contextFiles(link.appDir)
+              .map(item => item.file)
+              .filter(file => fs.existsSync(path.join(repo, ...file.split('/'))))
+          ])
+        ]
       : [],
+  edits: repo => {
+    const file = nextConfigFile(repo);
+    return file ? [{ file, undo: undoNextConfig }] : [];
+  },
+  contextPreview: {
+    files: (_repo, link) => (link.appDir ? contextFiles(link.appDir).map(item => item.file) : []),
+    edits: repo => {
+      const file = nextConfigFile(repo);
+      return file ? [{ file, undo: undoNextConfig }] : [];
+    },
+    generated: [CONTEXT_REGISTRY, CONTEXT_MODULES],
+    missing: (repo, link) => {
+      const absent = link.appDir
+        ? contextFiles(link.appDir)
+            .map(item => item.file)
+            .filter(file => !fs.existsSync(path.join(repo, ...file.split('/'))))
+        : [];
+      const config = nextConfigFile(repo);
+      const text = config ? read(repo, config) : null;
+      return text !== null && undoNextConfig(text) === null ? [...absent, config!] : absent;
+    },
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL
+  },
   agentRules:
     environment => `- \`${environment.entry}\` renders inside the app's own pages, as a server component in the
   Next.js App Router. If it uses state, effects, event handlers, browser APIs or
@@ -233,10 +285,11 @@ export const next: Recipe = {
 `,
   roughTsconfig: repo => (read(repo, 'tsconfig.json') === null ? null : ROUGH_TSCONFIG),
   placeholder: () => PLACEHOLDER_INDEX,
-  generatedFiles: [`${ROUGH_DIR}/${REGISTRY_FILE}`],
+  generatedFiles: [`${ROUGH_DIR}/${REGISTRY_FILE}`, CONTEXT_REGISTRY, CONTEXT_MODULES],
   importAllowed: link => (link.appDir ? [previewRouteDir(link.appDir)] : []),
   syncPreview: repo => {
     writePreviewRegistry(repo);
+    if (hasMapFile(repo)) writeContext(repo);
   },
   pullTransform: withClientDirective,
   promoteDefault: defaultComponentFile,

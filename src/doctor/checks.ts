@@ -20,7 +20,8 @@ export const NAMES: Record<CheckId, string> = {
   speed: 'The speed budgets hold',
   'map-pages': "The map's pages answer at their addresses",
   'map-components': "The map's sections render alone and say so",
-  'map-screenshots': "The map's screenshots come out clean"
+  'map-screenshots': "The map's screenshots come out clean",
+  'map-context': 'An iteration shows in its page, marked, and production holds none of it'
 };
 
 /** The same checks in snapshot mode, named for what they prove there. */
@@ -53,7 +54,12 @@ export const ORDER: CheckId[] = [
  * The map's checks (B1 of the brownfield plan), after the contract's, in a repo with rough/map.md
  * only: a repo that maps nothing gets the same report as before.
  */
-export const MAP_ORDER: CheckId[] = ['map-pages', 'map-components', 'map-screenshots'];
+export const MAP_ORDER: CheckId[] = [
+  'map-pages',
+  'map-components',
+  'map-screenshots',
+  'map-context'
+];
 
 export function result(
   id: CheckId,

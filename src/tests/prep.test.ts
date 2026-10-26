@@ -317,7 +317,8 @@ describe('preparing a repo', () => {
       item => item.file === 'rough/tsconfig.json'
     );
     assert.equal(change?.action, 'edit');
-    assert.equal(next.version, 3);
+    // Bumped since (B5), so setup --upgrade brings a repo up.
+    assert.ok(next.version >= 3);
   });
 });
 

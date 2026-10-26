@@ -7,13 +7,30 @@ import type { DoctorTools } from './types.js';
 
 export type GateFindings = { problems: string[]; fixes: string[]; held: string[] };
 
-/** The build gate over the repo, with `sentinel` the sample's text no production output may hold. */
+/**
+ * The build gate over the repo, with `sentinel` the sample's text no production output may hold,
+ * and `switchSentinel` the in-page view's (B5), when the recipe has one: where the output holds it,
+ * or null when the output was not searched.
+ */
 export async function buildGate(
   repoRoot: string,
   environment: RepoEnvironment,
   tools: Pick<DoctorTools, 'exec'>,
-  sentinel: string
-): Promise<GateFindings & { published: boolean }> {
+  sentinel: string,
+  switchSentinel: string | null = null
+): Promise<GateFindings & { published: boolean; switchLeaked: string[] | null }> {
+  let switchLeaked: string[] | null = null;
+  /** The switch's sentinel in the output, as a problem of the gate's when it is there. */
+  const searchSwitch = () => {
+    if (!switchSentinel) return;
+    switchLeaked = findSentinel(repoRoot, environment.build.output, switchSentinel);
+    if (switchLeaked.length) {
+      problems.push(`The production build holds the in-page view's switch: ${list(switchLeaked)}.`);
+      fixes.push(
+        'The switch is for development only: its rule must apply in the dev server alone (roughbook setup --upgrade writes it so).'
+      );
+    }
+  };
   const problems: string[] = [];
   const fixes: string[] = [];
   const held: string[] = [];
@@ -36,6 +53,7 @@ export async function buildGate(
         `nothing is built, and the folders published as they are (${folders}) hold nothing from rough/`
       );
     }
+    searchSwitch();
   } else if (!environment.build.command) {
     problems.push('The gate is the build, but the environment names no build command.');
     fixes.push(
@@ -73,7 +91,8 @@ export async function buildGate(
           'Nothing from rough/ may reach the production build; keep the preview setup to development (contract point 1).'
         );
       } else held.push('the production build passed and holds nothing from rough/');
+      searchSwitch();
     }
   }
-  return { problems, fixes, held, published };
+  return { problems, fixes, held, published, switchLeaked };
 }
