@@ -10,7 +10,8 @@
 // a live preview) instead of the page. A fixture with an overlay gains its pages over the scaffold's,
 // and one marked map (or any, with `--map`) is mapped as `roughbook map` maps it before doctor, so
 // doctor's map checks run (ROUGHBOOK-BROWNFIELD-PLAN.md, B1). Needs `npm run build` first, since it
-// runs the studio from dist/.
+// runs the studio from dist/. Given several fixtures, it runs each in turn, in a process of its own
+// with the same flags, and exits with the worst of their codes (B5b, decision 45).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -20,7 +21,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const name = args.find(arg => !arg.startsWith('--'));
+const names = args.filter(arg => !arg.startsWith('--'));
+const name = names[0];
 const skipBuild = args.includes('--skip-build');
 const speed = args.includes('--speed');
 const snapshots = args.includes('--snapshots');
@@ -28,9 +30,35 @@ const keep = args.includes('--keep');
 const mapped = args.includes('--map');
 if (!name) {
   console.error(
-    'Usage: node conformance/run.mjs <fixture> [--skip-build] [--speed] [--snapshots] [--map] [--keep]'
+    'Usage: node conformance/run.mjs <fixture> [<fixture> …] [--skip-build] [--speed] [--snapshots] [--map] [--keep]'
   );
   process.exit(2);
+}
+if (names.length > 1) {
+  const flags = args.filter(arg => arg.startsWith('--'));
+  const outcomes = [];
+  for (const each of names) {
+    const started = performance.now();
+    const ran = spawnSync(process.execPath, [fileURLToPath(import.meta.url), each, ...flags], {
+      stdio: 'inherit',
+      windowsHide: true
+    });
+    outcomes.push({
+      name: each,
+      code: ran.status ?? 1,
+      seconds: Math.round((performance.now() - started) / 1000)
+    });
+  }
+  const words = { 0: 'passed', 1: 'failed', 2: 'unverified' };
+  console.log('\nConformance:');
+  for (const outcome of outcomes) {
+    console.log(
+      `  ${outcome.name}: ${words[outcome.code] ?? 'failed'} (exit ${outcome.code}, ${outcome.seconds} s)`
+    );
+  }
+  // Failed over unverified over passed.
+  const codes = outcomes.map(outcome => outcome.code);
+  process.exit(codes.some(code => code !== 0 && code !== 2) ? 1 : codes.includes(2) ? 2 : 0);
 }
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, 'conformance', 'fixtures.json'), 'utf8')

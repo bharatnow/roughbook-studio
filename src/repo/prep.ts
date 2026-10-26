@@ -29,6 +29,11 @@ export type PrepPlan = {
   manual: string[];
   /** Each edited file as it is now, for showing the edit. */
   before: Record<string, string>;
+  /**
+   * The recipe whose preview setup this is: once it is written, its generated files (the in-page
+   * view's list of adopted components) are brought up to date, so it works without another command.
+   */
+  recipe?: Recipe | null;
 };
 
 const GITIGNORE_HEADER = '# Roughbook';
@@ -459,10 +464,14 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
       .filter(change => change.action === 'edit')
       .map(change => [change.file, read(root, change.file) ?? ''])
   );
-  return { repo: root, problems, changes, manual, before };
+  return { repo: root, problems, changes, manual, before, recipe };
 }
 
-/** Writes a plan. Each file is written whole, as the plan showed it, with `\n` line endings. */
+/**
+ * Writes a plan. Each file is written whole, as the plan showed it, with `\n` line endings; then
+ * the recipe's generated files follow what it wrote (B5b, decision 45: `init` and `setup
+ * --upgrade` leave the in-page view working without `roughbook start`).
+ */
 export function applyPrep(plan: PrepPlan): void {
   if (plan.problems.length) throw new Error(plan.problems[0]);
   for (const change of plan.changes) {
@@ -470,4 +479,5 @@ export function applyPrep(plan: PrepPlan): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, change.after);
   }
+  plan.recipe?.syncPreview(plan.repo);
 }

@@ -133,7 +133,11 @@ async function nextRepo(): Promise<string> {
     'pricing/faq/iteration-00',
     'shared/site-header/iteration-00'
   ]) {
-    write(repo, `rough/${key}/index.tsx`, 'export { default } from "./x";\n');
+    write(
+      repo,
+      `rough/${key}/index.tsx`,
+      'export default function Iteration() {\n  return null;\n}\n'
+    );
   }
   // A fork from the app keeps its copy of the component's file, which its base names.
   write(repo, 'rough/pricing/pricing-section/iteration-01/pricing-section.tsx', 'export {};\n');

@@ -7,7 +7,8 @@
 // would make the page wait for; for `?roughbook-swap=<page>/<component>/<iteration>` on this
 // machine, it renders the iteration in the component's place with the same props, the page's own
 // data. The iterations are loaded from a generated registry, compiled only when a page asks for
-// one (turbopackLazyDynamicImportsSSR), so an iteration that does not compile never breaks a page.
+// one (turbopackLazyDynamicImportsSSR); one that does not compile (src/recipes/compiles.ts) is
+// never imported there, since Turbopack would keep its failure in the page's graph afterwards.
 //
 //   <app>/rough-preview/context/loader.cjs          the rule's loader            (with the route, gitignored)
 //   <app>/rough-preview/context/section.tsx         the wrapper on the server
@@ -31,6 +32,7 @@ import {
   contextSections,
   type ContextSection
 } from '../context.js';
+import { compileProblem } from '../compiles.js';
 import { previewRouteDir } from './preview.js';
 
 export const CONTEXT_REGISTRY = `${ROUGH_DIR}/context-registry.ts`;
@@ -259,8 +261,15 @@ export function moduleId(section: Pick<ContextSection, 'source'>): string | null
   return `${file}#${name}`;
 }
 
-/** rough/context-registry.ts and rough/context-modules.json, as the adopted components are now. */
-export function renderContext(sections: ContextSection[]): { registry: string; modules: string } {
+/**
+ * rough/context-registry.ts and rough/context-modules.json, as the adopted components are now. An
+ * iteration `broken` names (key -> why) is never imported: its loader fails with the reason, so the
+ * page's graph never holds it and only the swap that asks for it fails (decision 45).
+ */
+export function renderContext(
+  sections: ContextSection[],
+  broken: Map<string, string> = new Map()
+): { registry: string; modules: string } {
   const modules = new Map<string, { key: string; address: string | null }[]>();
   const files: Record<string, string> = {};
   const loaders: string[] = [];
@@ -270,8 +279,11 @@ export function renderContext(sections: ContextSection[]): { registry: string; m
     modules.set(id, [...(modules.get(id) ?? []), { key: section.key, address: section.address }]);
     files[section.source.files[0]!] = section.source.export;
     for (const iteration of section.iterations) {
+      const why = broken.get(iteration.key);
       loaders.push(
-        `  ${JSON.stringify(iteration.key)}: () => import(${JSON.stringify(`./${iteration.key}/index`)}),`
+        why === undefined
+          ? `  ${JSON.stringify(iteration.key)}: () => import(${JSON.stringify(`./${iteration.key}/index`)}),`
+          : `  ${JSON.stringify(iteration.key)}: () => Promise.reject(new Error(${JSON.stringify(`${iteration.key} does not compile: ${why}`)})),`
       );
     }
   }
@@ -292,9 +304,18 @@ ${loaders.map(line => `${line}\n`).join('')}};
   return { registry, modules: `${JSON.stringify(files, null, 2)}\n` };
 }
 
-/** Rewrites the switch's generated files when the adopted components changed. Returns whether it wrote. */
+/**
+ * Rewrites the switch's generated files when the adopted components or whether their iterations
+ * compile changed. Returns whether it wrote.
+ */
 export function writeContext(repo: string): boolean {
-  const { registry, modules } = renderContext(contextSections(repo, ENTRY));
+  const sections = contextSections(repo, ENTRY);
+  const broken = new Map<string, string>();
+  for (const iteration of sections.flatMap(section => section.iterations)) {
+    const why = compileProblem(repo, `${ROUGH_DIR}/${iteration.key}`, ENTRY);
+    if (why !== null) broken.set(iteration.key, why);
+  }
+  const { registry, modules } = renderContext(sections, broken);
   let wrote = false;
   for (const [file, text] of [
     [CONTEXT_REGISTRY, registry],

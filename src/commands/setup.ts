@@ -21,6 +21,7 @@ import {
 } from '../repo/approvals.js';
 import { readJson } from '../fs/json.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
+import { syncIterations } from '../repo/mirror.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
 import { ROUGH_DIR, statePath } from '../repo/root.js';
 import { applySetup, planSetup, type SetupStep } from '../repo/setup.js';
@@ -106,6 +107,8 @@ export async function applyTemplates(
     }
   }
   const written = applySetup(repoRoot, steps);
+  // What the templates set up shows the iterations there are now, without another command.
+  syncIterations(repoRoot, environment);
   io.out(
     `Applied ${written.length} file${written.length === 1 ? '' : 's'}: ${written.join(', ')}.`
   );
@@ -334,6 +337,8 @@ export const setup: Command = {
       const plan = planPrep(repoRoot, { link, recipe });
       if (plan.problems.length) throw new Error(plan.problems[0]);
       if (!plan.changes.length) {
+        // Up to date, its generated files too: a repo upgraded before they were written with it.
+        applyPrep(plan);
         io.out(
           `The ${recipe.name} setup is up to date (version ${recipe.version}). Nothing to change.`
         );

@@ -10,6 +10,7 @@ import { readMap } from '../map/file.js';
 import { SHARED_PAGE, type MapComponent, type MapPage, type RepoMap } from '../map/types.js';
 import { ITERATION, SLUG } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import type { ContextPreview, Recipe } from './types.js';
 
 /** `?roughbook-swap=<page>/<component>/<iteration>`: the iteration shown where the component was. */
 export const SWAP_PARAM = 'roughbook-swap';
@@ -194,3 +195,25 @@ export function sectionKeyFor(
   };
   return (keys.find(item => matches(item.address)) ?? keys[0])?.key ?? null;
 }
+
+/**
+ * The switch's words for doctor: the recipe's own hook, or, for a setup the setup run built (no
+ * recipe), the words the setup prompt gives the agent: the same address, nothing of the studio's
+ * to write, and the parameter's name as the sentinel no production output may hold. Null for a
+ * recipe with no switch, whose components are shown alone.
+ */
+export function contextSwitch(recipe: Recipe | null): ContextPreview | null {
+  if (recipe) return recipe.contextPreview ?? null;
+  return AGENT_SWITCH;
+}
+
+const AGENT_SWITCH: ContextPreview = {
+  // Its files are the setup's own, listed in setupFiles with their templates: doctor's setup-files
+  // check has them.
+  files: () => [],
+  edits: () => [],
+  generated: [],
+  missing: () => [],
+  address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+  sentinel: SWAP_PARAM
+};

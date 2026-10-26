@@ -13,6 +13,7 @@ import {
   SWAPPED_ATTRIBUTE,
   contextAddress,
   contextSections,
+  contextSwitch,
   type ContextSection
 } from '../recipes/context.js';
 import type { Recipe } from '../recipes/types.js';
@@ -100,12 +101,13 @@ async function askUntil(
 /** The map-context check. */
 export async function contextCheck(input: ContextCheckInput): Promise<CheckResult> {
   const { repoRoot, environment, recipe, tools } = input;
-  const hook = recipe?.contextPreview;
+  // A setup the setup run built has the switch the setup prompt describes, by the same words.
+  const hook = contextSwitch(recipe);
   if (!hook) {
     return result(
       'map-context',
       'skip',
-      `Not checked: ${recipe ? `the ${recipe.name} recipe` : 'a setup with no recipe'} has no in-page view yet, so its components are shown alone (decision 11).`
+      `Not checked: the ${recipe?.name ?? ''} recipe has no in-page view yet, so its components are shown alone (decision 11).`
     );
   }
   let map = input.map ?? null;
@@ -127,7 +129,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
       'Not checked: no adopted section has an iteration yet to show in its page.'
     );
   }
-  const appDir = recipe.appDir(repoRoot);
+  const appDir = recipe ? recipe.appDir(repoRoot) : null;
   const link: RepoLink = input.link ?? {
     version: 1,
     orgId: '',

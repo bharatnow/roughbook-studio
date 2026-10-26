@@ -39,7 +39,7 @@ import { MAP_ORDER, ORDER, result, rewrite, writeFiles } from './checks.js';
 import { buildGate } from './gate.js';
 import { mapChecks, place, SIGN_IN } from './map.js';
 import type { ContextGate } from './context.js';
-import { contextAddress, contextSections } from '../recipes/context.js';
+import { contextAddress, contextSections, contextSwitch } from '../recipes/context.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -739,7 +739,7 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           environment,
           tools,
           changed,
-          recipe?.contextPreview?.sentinel ?? null
+          contextSentinel(repoRoot, recipe)
         );
         if (found.switchLeaked) {
           contextGate = { leaked: found.switchLeaked, where: 'the production build' };
@@ -837,9 +837,9 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
               }
               // The in-page view's switch (B5): a page asked with a swap and Pick in production
               // mode holds none of it.
-              const swapped = recipe?.contextPreview ? contextTarget(repoRoot, environment) : null;
-              if (swapped && recipe?.contextPreview) {
-                const hook = recipe.contextPreview;
+              const hook = contextSwitch(recipe);
+              const swapped = hook ? contextTarget(repoRoot, environment) : null;
+              if (swapped && hook) {
                 const at = hook.address(swapped.address, swapped.key, { pick: true });
                 const page = await ask(tools, `${production.url}${at}`, previewMs);
                 const leaked =
@@ -1070,6 +1070,15 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     if (startedApp) await startedApp.stop();
     if (standalone) await standalone.close();
   }
+}
+
+/**
+ * The in-page view's sentinel the build gate looks for: the recipe's, or for a setup the setup run
+ * built, roughbook-swap once the repo is mapped (before that it has no switch to look for).
+ */
+function contextSentinel(repoRoot: string, recipe: Recipe | null): string | null {
+  if (recipe) return recipe.contextPreview?.sentinel ?? null;
+  return hasMapFile(repoRoot) ? (contextSwitch(null)?.sentinel ?? null) : null;
 }
 
 /** An adopted section's iteration and the page it shows in, for the runtime gate's look at the switch. */
