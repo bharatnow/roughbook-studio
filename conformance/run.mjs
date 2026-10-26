@@ -75,6 +75,8 @@ const { recipeFor } = await dist('recipes/index.js');
 const { mapRepo, describeMap, countMap } = await dist('map/run.js');
 const { readEnvironment } = await dist('environment/read.js');
 const { readRepoLink } = await dist('repo/link.js');
+const { planAppSlot, writeAppSlot } = await dist('runs/base.js');
+const { readMap } = await dist('map/file.js');
 const recipe = recipeFor(base);
 const environment = recipe.environment(null);
 
@@ -206,6 +208,65 @@ try {
   console.log(`Prepared: ${plan.changes.map(change => change.file).join(', ')}`);
   for (const step of plan.manual) console.log(`By hand: ${step}`);
 
+  // Mapped and set up before the dev server starts, as a designer maps, runs roughbook setup
+  // --upgrade and then starts the app: a dev server restarting for a changed config is not checked here.
+  // The map of what the copy already has, as roughbook map writes it with no agent: doctor's map
+  // checks then ask its pages and render its sections (the brownfield plan's B1).
+  if (pinned.map || mapped) {
+    const started = performance.now();
+    const result = await mapRepo(work, await readEnvironment(work), await readRepoLink(work));
+    const ms = Math.round(performance.now() - started);
+    if (result) {
+      console.log(
+        `\nMapped in ${ms} ms (the discoverers alone: ${result.ms} ms): ${countMap(result.map)}.`
+      );
+      for (const line of describeMap(result.map)) console.log(line);
+      for (const item of result.map.missed) console.log(`  missed ${item.what}: ${item.why}`);
+      for (const file of result.map.unplaced) console.log(`  unplaced ${file}`);
+    } else {
+      console.log('\nNo discoverer fits this recipe, so nothing was mapped.');
+    }
+  }
+
+  // The in-page view (B5 of the brownfield plan): each section named in inPage adopted as roughbook
+  // adopt makes its baseline, an iteration copied from the app by the studio itself (no agent), and
+  // the switch set up as roughbook setup --upgrade sets it up, so doctor's map-context shows it.
+  if (pinned.inPage?.length) {
+    const map = readMap(work)?.map;
+    for (const key of pinned.inPage) {
+      const [page, slug] = key.split('/');
+      const component = map?.components.find(item => item.slug === slug);
+      const files =
+        component &&
+        recipe.pointer?.(component, {
+          iterationDir: `rough/${page}/${slug}/iteration-00`,
+          fixture: null
+        });
+      if (!files) throw new Error(`The map has no ${key} to show in its page.`);
+      for (const [file, text] of Object.entries(files)) {
+        const target = path.join(work, 'rough', page, slug, 'iteration-00', ...file.split('/'));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, text);
+      }
+      const target = { page, component: slug, iteration: 'iteration-01' };
+      const slot = planAppSlot(work, recipe, environment, target);
+      writeAppSlot(work, `rough/${page}/${slug}/iteration-01`, slot, {
+        parent: 'iteration-00',
+        commit: null
+      });
+    }
+    const upgrade = planPrep(work, {
+      link: { version: 1, orgId: 'conformance', project: 'fixture', roughCommitted: true },
+      recipe
+    });
+    applyPrep(upgrade);
+    recipe.syncPreview(work);
+    console.log(
+      `
+In its page: ${pinned.inPage.join(', ')}, with iteration-01 copied from the app; set up: ${upgrade.changes.map(change => change.file).join(', ') || 'nothing new'}`
+    );
+  }
+
   const live = environment.mode !== 'snapshot' && !snapshots && pinned.dev;
   const port = await freePort();
   const fill = text => text.replaceAll('{port}', String(port)).replaceAll('{store}', store ?? '');
@@ -243,24 +304,6 @@ try {
     }
   } else {
     console.log('\nNo dev server: doctor runs the snapshot command.');
-  }
-
-  // The map of what the copy already has, as roughbook map writes it with no agent: doctor's map
-  // checks then ask its pages and render its sections (the brownfield plan's B1).
-  if (pinned.map || mapped) {
-    const started = performance.now();
-    const result = await mapRepo(work, await readEnvironment(work), await readRepoLink(work));
-    const ms = Math.round(performance.now() - started);
-    if (result) {
-      console.log(
-        `\nMapped in ${ms} ms (the discoverers alone: ${result.ms} ms): ${countMap(result.map)}.`
-      );
-      for (const line of describeMap(result.map)) console.log(line);
-      for (const item of result.map.missed) console.log(`  missed ${item.what}: ${item.why}`);
-      for (const file of result.map.unplaced) console.log(`  unplaced ${file}`);
-    } else {
-      console.log('\nNo discoverer fits this recipe, so nothing was mapped.');
-    }
   }
 
   // The suite's own checkout: its commands are the recipe's, approved here as a CI owner would.
