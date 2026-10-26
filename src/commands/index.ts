@@ -18,6 +18,7 @@ import { STUDIO_VERSION } from '../version.js';
 import { openApi, type Command, type CommandContext } from './context.js';
 import { adopt } from './adopt.js';
 import { agents } from './agents.js';
+import { composition, section } from './composition.js';
 import { doctor } from './doctor.js';
 import { done } from './done.js';
 import { init } from './init.js';
@@ -55,6 +56,8 @@ export const COMMANDS: Command[] = [
   review,
   revert,
   pull,
+  section,
+  composition,
   promote,
   agents,
   mcp,

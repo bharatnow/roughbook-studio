@@ -14,6 +14,11 @@ import type { ContextPreview, Recipe } from './types.js';
 
 /** `?roughbook-swap=<page>/<component>/<iteration>`: the iteration shown where the component was. */
 export const SWAP_PARAM = 'roughbook-swap';
+/**
+ * `?roughbook-compose=<component>:<iteration>,…` on the preview route at a page's key: the page's
+ * composition, its sections rendered in order (B6, decision 46), for a recipe that `composes`.
+ */
+export const COMPOSE_PARAM = 'roughbook-compose';
 /** `?roughbook-pick=1`: a click names its section to the frame instead of following the page. */
 export const PICK_PARAM = 'roughbook-pick';
 /** `?roughbook-markers=0`: the page without its markers, for doctor's comparison of the pictures. */

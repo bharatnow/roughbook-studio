@@ -3,6 +3,10 @@ import type { Family } from '../environment/types.js';
 import type { StartRunRequest, StartedRun } from '../runs/types.js';
 import type {
   AdoptBody,
+  CompositionBody,
+  CreatedComposition,
+  NewSection,
+  PagePromoteBody,
   Adopted,
   AssetScope,
   DeviceLogin,
@@ -128,18 +132,41 @@ export class StudioApi {
   promote(
     orgId: string,
     project: string,
-    body: {
-      page: string;
-      component: string;
-      iteration: string;
-      assets: { scope: AssetScope; file: string }[];
-      /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
-      family?: Family;
-      /** A new file, the app component's own files, or a merge with the app's changes (B4). */
-      how: 'new' | 'in-place' | 'merge';
-    }
+    body:
+      | {
+          page: string;
+          component: string;
+          iteration: string;
+          assets: { scope: AssetScope; file: string }[];
+          /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
+          family?: Family;
+          /** A new file, the app component's own files, or a merge with the app's changes (B4). */
+          how: 'new' | 'in-place' | 'merge';
+        }
+      | PagePromoteBody
   ): Promise<Promotion> {
     return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
+  }
+
+  /**
+   * A new section on a page, not in the app (B6 of the brownfield plan, decision 47): made from its
+   * name as the web makes a component, answering its slug.
+   */
+  createSection(orgId: string, project: string, page: string, name: string): Promise<NewSection> {
+    return this.request('POST', `${pagePath(orgId, project, page)}/components`, { name });
+  }
+
+  /**
+   * Numbers a composition of the app's page made here (B6): its sections in order, by component
+   * and iteration, never a file or a path.
+   */
+  createComposition(
+    orgId: string,
+    project: string,
+    page: string,
+    body: CompositionBody
+  ): Promise<CreatedComposition> {
+    return this.request('POST', `${pagePath(orgId, project, page)}/compositions`, body);
   }
 
   /** A local iteration's reviews, oldest first. */
@@ -326,8 +353,12 @@ function projectPath(orgId: string, project: string): string {
   return `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}`;
 }
 
+function pagePath(orgId: string, project: string, page: string): string {
+  return `${projectPath(orgId, project)}/pages/${encodeURIComponent(page)}`;
+}
+
 function componentPath(orgId: string, project: string, page: string, component: string): string {
-  return `${projectPath(orgId, project)}/pages/${encodeURIComponent(page)}/components/${encodeURIComponent(component)}`;
+  return `${pagePath(orgId, project, page)}/components/${encodeURIComponent(component)}`;
 }
 
 /** The path of one iteration's review routes. */
@@ -341,17 +372,22 @@ export function iterationPath(
   return `${componentPath(orgId, project, page, component)}/iterations/${encodeURIComponent(iteration)}`;
 }
 
-/** Where one picture goes: an iteration's, or an adopted page's when `iteration` is null. */
+/**
+ * Where one picture goes: an iteration's, a page composition's (B6), or an adopted page's when it
+ * names neither.
+ */
 export function picturePath(
   orgId: string,
   project: string,
-  target: { page: string; component?: string; iteration?: string },
+  target: { page: string; component?: string; iteration?: string; composition?: string },
   kind: PictureKind
 ): string {
   const base =
     target.component && target.iteration
       ? iterationPath(orgId, project, target.page, target.component, target.iteration)
-      : `${projectPath(orgId, project)}/pages/${encodeURIComponent(target.page)}`;
+      : target.composition
+        ? `${pagePath(orgId, project, target.page)}/compositions/${encodeURIComponent(target.composition)}`
+        : pagePath(orgId, project, target.page);
   return `${base}/pictures/${kind}`;
 }
 

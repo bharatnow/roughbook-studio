@@ -153,6 +153,13 @@ export type Recipe = {
   fromApp?(component: MapComponent, input: AppCopyInput): AppCopy | null;
   /** The in-page view's switch, for a stack that has one (B5); a stack without shows components alone. */
   contextPreview?: ContextPreview;
+  /**
+   * Whether the preview route renders a page's composition (B6, decision 54): at the page's key,
+   * with `?roughbook-compose=<component>:<iteration>,…`, each section with its fixture, in order,
+   * inside one `Preview`, each in its marker, saying ready once all have rendered. A stack without
+   * shows a composition's sections one under another, each in its own frame.
+   */
+  composes?: boolean;
   /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
   setupFiles(repo: string, link: RepoLink): string[];
   /**

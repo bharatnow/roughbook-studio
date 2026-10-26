@@ -1,5 +1,6 @@
 // What the backend's /studio routes answer. Kept by hand beside the backend's validators; the
 // route tests on both sides pin the shapes.
+import type { Family } from '../environment/types.js';
 
 export type OrgRole = 'owner' | 'editor' | 'viewer';
 
@@ -215,6 +216,12 @@ export type Promotion = {
      */
     promoteFiles?: string;
     base?: string;
+    /**
+     * For a page composition's promote (B6): where the page's files go, one repository path per
+     * line, and the "new file ← iteration folder" pairs of its new sections.
+     */
+    pageFiles?: string;
+    newSections?: string;
   };
   copyMarkdown: string | null;
   componentName: string;
@@ -222,6 +229,33 @@ export type Promotion = {
   assets: { scope: AssetScope; file: string; publicUrl: string }[];
   missingAssets: { scope: AssetScope; file: string }[];
 };
+
+/**
+ * `POST …/promotions` for a page's composition (B6 of the brownfield plan): the backend reads the
+ * composition's sections from its record; `current` is the page's own section slugs, in order,
+ * from the map. Slugs only, as adoption sends: no path, no code.
+ */
+export type PagePromoteBody = {
+  page: string;
+  composition: string;
+  current: string[];
+  how: 'in-place' | 'merge';
+  family?: Family;
+  assets: { scope: AssetScope; file: string }[];
+};
+
+/** `POST …/pages/:page/components`: the new section's slug (decision 47). */
+export type NewSection = { slug: string; name?: string };
+
+/** `POST …/pages/:page/compositions`, as the web's builder sends it: sections in order. */
+export type CompositionBody = {
+  sections: { component: string; iteration: string }[];
+  name?: string;
+  parent?: string;
+};
+
+/** What the backend numbered: `{ id: "composition-NN", number }`. */
+export type CreatedComposition = { id: string; number: number };
 
 /** `POST /heartbeat`: the studio's version, OS and the agents it found. Never a path. */
 export type Heartbeat = {

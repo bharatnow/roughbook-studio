@@ -28,5 +28,10 @@
     "file": "src/runs/nativeFloor.ts",
     "rule": "another stack by name",
     "reason": "The native floor is the flutter, swiftui and compose families' check (decision 23): it reads each toolkit's source files and names its buttons, so it names them. The backend sends it only for those families."
+  },
+  {
+    "file": "src/commands/composition.ts",
+    "rule": "another stack by name",
+    "reason": "`roughbook compose` is the command B6's contract names for saving a page's composition: the verb, not the Compose stack. Only its name and usage say it."
   }
 ]

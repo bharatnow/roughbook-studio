@@ -100,12 +100,16 @@ export function defaultComponentFile(
 }
 
 /**
- * The route's files, and for a mapped repo the in-page view's beside them: the recipe's own files
- * outside rough/. A repo that maps nothing gets the setup it had before B5.
+ * The route's files, and for a mapped repo the in-page view's beside them and the route's page
+ * compositions (B6): the recipe's own files outside rough/. A repo that maps nothing gets the
+ * setup it had before B5.
  */
 function ownFiles(repo: string, appDir: string): { file: string; content: string }[] {
   return [
-    ...previewRouteFiles(appDir, { cacheComponents: usesCacheComponents(repo) }),
+    ...previewRouteFiles(appDir, {
+      cacheComponents: usesCacheComponents(repo),
+      compose: hasMapFile(repo)
+    }),
     ...(hasMapFile(repo) ? contextFiles(appDir) : [])
   ];
 }
@@ -188,7 +192,8 @@ export const next: Recipe = {
   // 2: the route applies the variant the studio asks for in the address (F4).
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 4: the in-page view's switch, its files beside the route and its rule in next.config (B5).
-  version: 4,
+  // 5: the route renders a mapped page's composition, with Pick (B6).
+  version: 5,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
@@ -242,6 +247,7 @@ export const next: Recipe = {
   discover: discoverNext,
   pointer: modulePointer({ entry: 'index.tsx', fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: 'index.tsx', fixture: FIXTURE }),
+  composes: true,
   // The in-page view's files are listed wherever they are, so uninstall takes them out.
   setupFiles: (repo, link) =>
     link.appDir

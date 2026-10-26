@@ -62,13 +62,21 @@ export function pictureSizes(
   ];
 }
 
-/** An iteration's pictures, or an adopted page's when it names no component. */
-export type PictureSubject = { page: string; component?: string; iteration?: string };
+/** An iteration's pictures, a page composition's (B6), or an adopted page's when it names neither. */
+export type PictureSubject = {
+  page: string;
+  component?: string;
+  iteration?: string;
+  composition?: string;
+};
 
 /** Where a subject's pictures are kept here, repo-relative: never committed, never sent by name. */
 export function picturesDir(subject: PictureSubject): string {
-  return subject.component && subject.iteration
-    ? `${ROUGH_DIR}/.screenshots/${subject.page}/${subject.component}/${subject.iteration}/pictures`
+  if (subject.component && subject.iteration) {
+    return `${ROUGH_DIR}/.screenshots/${subject.page}/${subject.component}/${subject.iteration}/pictures`;
+  }
+  return subject.composition
+    ? `${ROUGH_DIR}/.screenshots/.compositions/${subject.page}/${subject.composition}`
     : `${ROUGH_DIR}/.screenshots/.pages/${subject.page}`;
 }
 
@@ -277,6 +285,24 @@ export async function shareInPagePictures(
   const refusal = tree ? pictureRefusal(tree, target) : null;
   if (refusal) return empty(refusal);
   return share({ ...input, tree }, target, url, hash, PAGE_WAIT_MS, true);
+}
+
+/**
+ * A page's composition made here (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md): its thumbnail, desktop and
+ * phone pictures of the composed preview at `url`, as an iteration's are taken; `hash` is what
+ * they show (compositionHash), so they are retaken only when a section's iteration changes.
+ */
+export async function shareCompositionPictures(
+  input: ShareInput,
+  target: { page: string; composition: string },
+  url: string,
+  hash: string
+): Promise<PictureReport> {
+  const tree = await projectOf(input);
+  if (tree === 'refused') return empty('PROJECT_UNREADABLE');
+  const refusal = tree ? pictureRefusal(tree, target) : null;
+  if (refusal) return empty(refusal);
+  return share({ ...input, tree }, target, url, hash);
 }
 
 /** The address an adopted page is pictured at, or why it is not (decision 13 and 14). */

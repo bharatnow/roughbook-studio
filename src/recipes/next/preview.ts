@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listFixtures, listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
 
 export const PREVIEW_ROUTE = 'rough-preview';
 export const REGISTRY_FILE = 'preview-registry.ts';
@@ -35,6 +36,94 @@ export function previewRouteDir(appDir: string): string {
 }
 
 /**
+ * A page's composition on the route (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 46 and 54), for
+ * a mapped repo: at the page's key with ?${COMPOSE_PARAM}=<component>:<iteration>,…, each section
+ * with its fixture, in order, inside one Preview, each in the in-page view's marker so Pick works.
+ */
+const COMPOSITION_BRANCH = `  const search = await searchParams;
+  const composed = search["${COMPOSE_PARAM}"];
+  if (typeof composed === "string") {
+    const page = (await params).slug.join("/");
+    const sections = await composition(registry, page, composed);
+    const variant = variantOf(search);
+    const { Preview } = registry;
+    return (
+      <div
+        data-roughbook-variant
+        dir={variant.dir}
+        lang={variant.lang}
+        className={variant.scheme === "dark" ? "dark" : undefined}
+        style={{ colorScheme: variant.scheme, fontSize: variant.text === "large" ? "125%" : undefined }}
+      >
+        <Preview>
+          {sections.map((section) =>
+            createElement(
+              "${MARKER_ELEMENT}",
+              { key: section.key, "${SECTION_ATTRIBUTE}": section.marker, style: { display: "contents" } },
+              createElement(section.Section, section.fixture),
+            ),
+          )}
+        </Preview>
+        <Pick />
+        <Ready id={\`\${page}?${COMPOSE_PARAM}=\${composed}\`} />
+      </div>
+    );
+  }
+`;
+
+const COMPOSITION_FUNCTION = `
+type Registry = {
+  loaders: Record<string, () => Promise<{ default: ComponentType }>>;
+  fixtures: Record<string, () => Promise<{ default: Record<string, unknown> }>>;
+};
+
+/** A page's composition: each section's iteration and fixture, in order; a section the registry lacks is a 404. */
+async function composition(registry: Registry, page: string, composed: string) {
+  const sections = composed.split(",").filter(Boolean);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(page) || !sections.length || sections.length > 30) notFound();
+  return Promise.all(
+    sections.map(async (section) => {
+      const [component = "", iteration = ""] = section.split(":");
+      const key = \`\${page}/\${component}/\${iteration}\`;
+      const load = registry.loaders[key];
+      if (!load) notFound();
+      return {
+        key,
+        marker: \`\${page}/\${component}\`,
+        Section: (await load()).default as ComponentType<Record<string, unknown>>,
+        fixture: registry.fixtures[key] ? (await registry.fixtures[key]()).default : {},
+      };
+    }),
+  );
+}
+`;
+
+const PICK_FILE = `"use client";
+// ${MARKER}. Pick on a page's composition: with ?${PICK_PARAM}=1, a click posts { roughbook: "section", key }
+// to the frame, naming the section it fell in, instead of following the page.
+import { useEffect } from "react";
+
+export function Pick() {
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("${PICK_PARAM}") !== "1") return;
+    const pick = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const section = event.target instanceof Element ? event.target.closest("[${SECTION_ATTRIBUTE}]") : null;
+      const key = section?.getAttribute("${SECTION_ATTRIBUTE}");
+      if (key) window.parent.postMessage({ roughbook: "section", key }, "*");
+    };
+    document.addEventListener("click", pick, true);
+    return () => document.removeEventListener("click", pick, true);
+  }, []);
+  return null;
+}
+`;
+
+/** The id a failure posts: the key in the path, with the composition when one was asked for. */
+const COMPOSED_ID = `window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "") + (new URLSearchParams(window.location.search).has("${COMPOSE_PARAM}") ? "?${COMPOSE_PARAM}=" + new URLSearchParams(window.location.search).get("${COMPOSE_PARAM}") : "")`;
+
+/**
  * The route's two files. Imports climb from <app>/rough-preview/[...slug]/ to the repo root.
  *
  * With Cache Components on (Next.js 16's default for new apps), a page that reads `params`
@@ -46,9 +135,14 @@ export function previewRouteDir(appDir: string): string {
  */
 export function previewRouteFiles(
   appDir: string,
-  options: { cacheComponents?: boolean } = {}
+  options: { cacheComponents?: boolean; compose?: boolean } = {}
 ): { file: string; content: string }[] {
   const up = '../'.repeat(appDir.split('/').length + 2);
+  // A repo that maps nothing keeps the route it had before B6.
+  const compose = options.compose === true;
+  const failedId = compose
+    ? COMPOSED_ID
+    : `window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "")`;
   const dir = `${previewRouteDir(appDir)}/[...slug]`;
   const blocking = options.cacheComponents
     ? [
@@ -68,7 +162,7 @@ export function previewRouteFiles(
 /// <reference types="node" />
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import type { ComponentType } from "react";
+${compose ? 'import { createElement, type ComponentType } from "react";\nimport { Pick } from "./pick";' : 'import type { ComponentType } from "react";'}
 import { Ready } from "./ready";
 ${blocking}
 export default async function RoughPreview({
@@ -84,7 +178,7 @@ export default async function RoughPreview({
   // The bundler drops this branch from production builds, so nothing in ${ROUGH_DIR}/ is ever built for production.
   const registry = process.env.NODE_ENV === "development" ? await import("${up}${ROUGH_DIR}/preview-registry") : null;
   if (!registry) notFound();
-  const key = (await params).slug.join("/");
+${compose ? COMPOSITION_BRANCH : ''}  const key = (await params).slug.join("/");
   const load = registry.loaders[key];
   if (!load) notFound();
   const Iteration = (await load()).default as ComponentType<Record<string, unknown>>;
@@ -92,7 +186,7 @@ export default async function RoughPreview({
   const fixture = registry.fixtures[key] ? (await registry.fixtures[key]()).default : {};
   const { Preview } = registry;
   // The variant asked for: the dark class for apps that switch by class, color-scheme for the rest, and the text direction and language on the root.
-  const variant = variantOf(await searchParams);
+  const variant = variantOf(${compose ? 'search' : 'await searchParams'});
   return (
     <div
       data-roughbook-variant
@@ -110,7 +204,7 @@ export default async function RoughPreview({
 }
 
 type Search = Record<string, string | string[] | undefined>;
-
+${compose ? COMPOSITION_FUNCTION : ''}
 /** The variant the studio asks for in the address (the preview contract, point 2), as attributes on the iteration's root. */
 function variantOf(search: Search) {
   const one = (name: string) => {
@@ -147,7 +241,7 @@ import { useEffect } from "react";
 
 export default function RoughPreviewError({ error }: { error: Error & { digest?: string } }) {
   useEffect(() => {
-    const id = window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "");
+    const id = ${failedId};
     window.parent.postMessage({ roughbook: "error", id, message: error.message || "The iteration failed to render." }, "*");
   }, [error]);
   return <pre style={{ padding: "2rem", whiteSpace: "pre-wrap" }}>{error.message}</pre>;
@@ -162,13 +256,14 @@ import { useEffect } from "react";
 
 export default function RoughPreviewNotFound() {
   useEffect(() => {
-    const id = window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "");
+    const id = ${failedId};
     window.parent.postMessage({ roughbook: "error", id, message: "No iteration at this key." }, "*");
   }, []);
   return <p style={{ padding: "2rem" }}>No iteration at this key.</p>;
 }
 `
-    }
+    },
+    ...(compose ? [{ file: `${dir}/pick.tsx`, content: PICK_FILE }] : [])
   ];
 }
 
