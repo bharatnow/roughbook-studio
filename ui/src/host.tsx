@@ -213,6 +213,33 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         pickSection: key => {
           const to = pickedAddress(key);
           if (to) navigate(to);
+        },
+        // A page's composition (B6): a new section by its name, and Save, through the local server.
+        addPageSection: async ({ page, name }) => {
+          let made: { slug: string; name: string };
+          try {
+            made = await post<{ slug: string; name: string }>('/api/sections', { page, name });
+          } catch (error) {
+            throw new Error(describe(error));
+          }
+          say({
+            tone: 'info',
+            text: `Made ${made.name}, a new section. Its first iteration is a run: start one on the canvas.`
+          });
+          await refresh();
+          return made;
+        },
+        saveComposition: async ({ page, name, parent, sections }) => {
+          try {
+            const saved = await post<{ id: string; number: number; lines: string[] }>(
+              '/api/compositions',
+              { page, name, parent, sections }
+            );
+            await refresh();
+            return { ok: true, message: `Saved ${saved.id}.`, id: saved.id };
+          } catch (error) {
+            return { ok: false, message: describe(error) };
+          }
         }
       }
     };

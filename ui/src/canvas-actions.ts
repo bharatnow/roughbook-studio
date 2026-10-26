@@ -4,6 +4,7 @@
 // `toolbar: false` is the palette's alone (rule 7: new and rare things go there).
 import type {
   CanvasCardInput,
+  CanvasCompositionInput,
   CanvasFrameInput,
   CanvasInput,
   CanvasSectionInput
@@ -31,7 +32,8 @@ export type SelectionActionId =
   | 'brief'
   | 'fold'
   | 'adopt'
-  | 'in-page';
+  | 'in-page'
+  | 'compose';
 
 export type CanvasWideActionId =
   | 'prompt'
@@ -76,6 +78,8 @@ export type SelectionState = {
   unfolded: readonly string[];
   /** Adopted pages with a view of their own in the app here (B5). */
   inPage?: readonly string[];
+  /** Adopted pages of the map, which a composition can be made of (B6). */
+  composable?: readonly string[];
 };
 
 /** Compare shows up to four iterations side by side. */
@@ -83,6 +87,7 @@ export const MAX_COMPARE = 4;
 
 export type CanvasEntry =
   | { kind: 'section'; section: CanvasSectionInput }
+  | { kind: 'composition'; section: CanvasSectionInput; composition: CanvasCompositionInput }
   | { kind: 'frame'; section: CanvasSectionInput; frame: CanvasFrameInput }
   | {
       kind: 'card';
@@ -100,6 +105,10 @@ export function canvasEntry(input: CanvasInput, key: string | null): CanvasEntry
   if (!section) return null;
   const kind = key.slice(0, at);
   if (kind === 'page') return { kind: 'section', section };
+  if (kind === 'composition') {
+    const composition = section.compositions.find(entry => entry.id === component);
+    return composition ? { kind: 'composition', section, composition } : null;
+  }
   const frame = section.frames.find(entry => entry.id === component);
   if (!frame) return null;
   if (kind === 'component' || kind === 'folded') return { kind: 'frame', section, frame };
@@ -192,7 +201,23 @@ export function selectionActions(
             }
           ]
         : []),
+      // A page's composition (B6): the app's own order to start from, on the baselines.
+      ...(state.composable?.includes(page)
+        ? [{ id: 'compose' as const, label: 'Compose', toolbar: true, href: `/${page}/compose` }]
+        : []),
       ...(onServer ? webAction(state, page, 'Open on the web') : [])
+    ];
+  }
+  if (entry.kind === 'composition') {
+    const { composition } = entry;
+    return [
+      { id: 'open', label: 'Open', toolbar: true, href: composition.href, keys: 'Enter' },
+      {
+        id: 'compose',
+        label: 'Edit as new',
+        toolbar: true,
+        href: `/${page}/compose?from=${composition.id}`
+      }
     ];
   }
   const component = entry.frame.id;

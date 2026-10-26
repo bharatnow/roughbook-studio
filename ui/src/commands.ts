@@ -79,7 +79,9 @@ function selectionCommands(selection: string, context: CommandContext): StudioCo
       ? entry.card.name
       : entry.kind === 'frame'
         ? entry.frame.name
-        : entry.section.name;
+        : entry.kind === 'composition'
+          ? entry.composition.name
+          : entry.section.name;
   const commands = selectionActions(context.canvas, selection, context.state).map(action =>
     actionCommand('selection', group, action, selection)
   );

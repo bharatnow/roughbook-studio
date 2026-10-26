@@ -14,9 +14,14 @@ export type Route =
   | { screen: 'iteration'; page: string; component: string; iteration: string; refine: boolean }
   /** An adopted page's own view in the app, with its markers (B5): `/<page>?view=page`. */
   | { screen: 'page'; page: string }
+  /** A page's composition editor (B6): `/<page>/compose`, from a composition with `?from=`. */
+  | { screen: 'compose'; page: string; from: string | null }
+  /** A page's composition's own view (B6): `/<page>/compositions/<composition>`. */
+  | { screen: 'composition'; page: string; id: string }
   | { screen: 'missing' };
 
 const ITERATION = /^iteration-\d{2,}$/;
+const COMPOSITION = /^composition-\d{2,}$/;
 
 export function parseRoute(hash: string): Route {
   const address = hash.replace(/^#/, '');
@@ -30,6 +35,19 @@ export function parseRoute(hash: string): Route {
   }
   const [page, component, third, fourth] = parts;
   if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
+  if (page && component === 'compose' && parts.length === 2) {
+    const from = query.get('from');
+    return { screen: 'compose', page, from: from && COMPOSITION.test(from) ? from : null };
+  }
+  if (
+    page &&
+    component === 'compositions' &&
+    third &&
+    COMPOSITION.test(third) &&
+    parts.length === 3
+  ) {
+    return { screen: 'composition', page, id: third };
+  }
   if (page && component && third === 'iterations' && fourth === 'compare' && parts.length === 4) {
     return {
       screen: 'compare',

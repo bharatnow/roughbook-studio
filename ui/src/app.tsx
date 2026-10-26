@@ -6,6 +6,8 @@ import { Shell } from './parts/shell';
 import { useRoute } from './router';
 import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
+import { ComposeScreen } from './screens/compose';
+import { CompositionScreen } from './screens/composition';
 import { IterationScreen } from './screens/iteration';
 import { PageScreen } from './screens/page';
 
@@ -40,6 +42,18 @@ function Screen() {
       return (
         <Shell bare>
           <PageScreen page={route.page} />
+        </Shell>
+      );
+    case 'compose':
+      return (
+        <Shell bare>
+          <ComposeScreen page={route.page} from={route.from} />
+        </Shell>
+      );
+    case 'composition':
+      return (
+        <Shell bare>
+          <CompositionScreen page={route.page} id={route.id} />
         </Shell>
       );
     default:

@@ -71,7 +71,7 @@ export function StudioPrompt({
 
   const at = partsOf(selection);
   const entry = canvasEntry(canvas.input, selection);
-  const frame = entry && entry.kind !== 'section' ? entry.frame : null;
+  const frame = entry && (entry.kind === 'frame' || entry.kind === 'card') ? entry.frame : null;
   const facts = selection ? canvas.cards[selection] : undefined;
   const iteration = at.iteration;
   // A local iteration with its files and no run making it can be forked or refined.

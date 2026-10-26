@@ -27,6 +27,7 @@ import {
   FileText,
   GitFork,
   Layers,
+  LayoutList,
   PackageCheck,
   PackagePlus,
   Square,
@@ -50,6 +51,7 @@ import { describe, findComponent, useStudio } from '../data';
 import { pagesWithView } from '../in-page';
 import { BriefDrawer } from '../parts/brief';
 import { useChrome } from '../parts/chrome';
+import { canCompose } from '../composition';
 import { usePromotePlan } from '../parts/promote-plan';
 import { Missing } from '../parts/missing';
 import { useAppCommands } from '../parts/palette';
@@ -86,7 +88,8 @@ const ICONS: Partial<Record<StudioActionId, typeof GitFork>> = {
   pull: CloudDownload,
   web: ExternalLink,
   brief: FileText,
-  adopt: PackagePlus
+  adopt: PackagePlus,
+  compose: LayoutList
 };
 
 /** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
@@ -246,7 +249,9 @@ function StudioCanvasView({
       { href: `#/${page.id}`, label: page.name },
       ...(entry.kind === 'section'
         ? []
-        : [{ href: `#/${page.id}/${entry.frame.id}`, label: entry.frame.name }]),
+        : entry.kind === 'composition'
+          ? [{ href: `#${entry.composition.href}`, label: entry.composition.name }]
+          : [{ href: `#/${page.id}/${entry.frame.id}`, label: entry.frame.name }]),
       ...(entry.kind === 'card' ? [{ href: addressFor(selection), label: entry.card.name }] : [])
     ]);
   }, [canvas, selection, setCrumbs]);
@@ -291,7 +296,10 @@ function StudioCanvasView({
     webUrl: state.webUrl,
     compare,
     unfolded,
-    inPage: pagesWithView(project.local)
+    inPage: pagesWithView(project.local),
+    composable: project.tree.pages
+      .filter(page => canCompose(project, page.slug))
+      .map(page => page.slug)
   };
 
   function toggleCompare(key: string) {

@@ -3,11 +3,13 @@
 // screenshots as their pictures (decision 11 keeps those here), the web sketches not pulled yet,
 // and the runs an agent is making now. The app's own pages and components (B2 of
 // ROUGHBOOK-BROWNFIELD-PLAN.md) show from rough/map.md as "In the app" cards before they are
-// adopted, with doctor's pictures, and as their baselines, iteration 0, after. What a card can do
-// is in canvas-actions.ts.
+// adopted, with doctor's pictures, and as their baselines, iteration 0, after. A page's
+// compositions made here (B6) show above its frames, from rough/, with their thumbnails. What a
+// card can do is in canvas-actions.ts.
 import {
   iterationGlyph,
   type CanvasCardInput,
+  type CanvasCompositionInput,
   type CanvasFrameInput,
   type CanvasInput
 } from '@roughbook/ui/canvas';
@@ -249,6 +251,21 @@ export function studioCanvasInput(
     return { id: component.slug, name: component.name, href: `/${page}`, cards: [card] };
   };
 
+  /** A page's compositions in rough/ (B6), each with its thumbnail where it was pictured here. */
+  const compositions = (page: string): CanvasCompositionInput[] =>
+    (local.compositions ?? [])
+      .filter(item => item.page === page)
+      .map(item => ({
+        id: item.id,
+        name: item.name.trim() || `Composition ${item.number}`,
+        thumbnail: item.pictures.includes('thumbnail')
+          ? `/api/compositions/${page}/${item.id}/pictures/thumbnail${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
+          : null,
+        href: `/${page}/compositions/${item.id}`,
+        created: item.savedAt,
+        number: item.number
+      }));
+
   // The project's pages, each with the map's components on it not adopted yet; then the map's
   // pages the project does not have.
   const sections = project.pages.map(page => {
@@ -262,7 +279,7 @@ export function studioCanvasInput(
         ...(map ? notAdopted(map, page.slug, have) : []).map(item => mapFrame(page.slug, item))
       ],
       compositionOrder: null,
-      compositions: [],
+      compositions: compositions(page.slug),
       ...(page.inApp ? { inApp: true } : {})
     };
   });

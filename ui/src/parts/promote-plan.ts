@@ -14,6 +14,15 @@ export type PromotePlan = {
   open: boolean;
   /** What the last finish found, wherever it was finished (roughbook done, finish_run). */
   finish: PromoteFinish | null;
+  /** A page composition's (B6): the page's files, then each new section's file. */
+  targets?: {
+    path: string;
+    section: { component: string; iteration: string; name: string } | null;
+    drifted: boolean;
+  }[];
+  /** Its sections on an iteration not in the app, which keep the app's version (decision 50). */
+  keepsApp?: { component: string; iteration: string; name: string }[];
+  counts?: { kept: number; moved: number; added: number; removed: number } | null;
 };
 
 /** The plan of the iteration the drawer promotes, read when it opens; null while it loads. */

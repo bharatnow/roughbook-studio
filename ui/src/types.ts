@@ -163,6 +163,23 @@ export type MapView = {
   problem: string | null;
 };
 
+/** A page's composition kept in rough/ (B6 of the brownfield plan), as the server lists it. */
+export type CompositionView = {
+  page: string;
+  /** `composition-NN`, as the backend numbered it. */
+  id: string;
+  number: number;
+  /** As the designer named it; empty for none. */
+  name: string;
+  parent: string | null;
+  sections: { component: string; iteration: string }[];
+  savedAt: string | null;
+  /** The composed preview's path on the app, where the recipe composes; null otherwise. */
+  address: string | null;
+  /** The pictures taken of it here. */
+  pictures: ('thumbnail' | 'desktop' | 'phone')[];
+};
+
 export type ProjectView = {
   tree: {
     slug: string;
@@ -186,6 +203,13 @@ export type ProjectView = {
     inPage?: Record<string, string> | null;
     /** What the in-page view covers on this stack, shown beside In its page (decision 44). */
     inPageNote?: string | null;
+    /** The pages' compositions in rough/ (B6). */
+    compositions?: CompositionView[];
+    /**
+     * Where a page's composition is previewed, `{page}` for its slug, the sections after it as
+     * `<component>:<iteration>,…`; null where the recipe does not compose (decision 54).
+     */
+    composeTemplate?: string | null;
   };
 };
 
