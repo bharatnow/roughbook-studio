@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { formatJson, writeJsonAtomic } from '../fs/json.js';
 import { BASELINE } from '../map/adopt.js';
-import type { MapPage, RepoMap } from '../map/types.js';
+import type { MapPage } from '../map/types.js';
 import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { BASE_DIR, BASE_FILE, sha256, type BaseFile } from '../runs/base.js';
@@ -163,30 +163,6 @@ export function missingSections(
         : `${folder} is not in this repo, or has no ${entry}.`
     ];
   });
-}
-
-/**
- * The components this repo has for the page that the app does not: the new sections made in the
- * studio (decision 47), each with its iterations here, in the order of their folders.
- */
-export function newSectionsOf(
-  repoRoot: string,
-  map: RepoMap | null,
-  page: string,
-  entry: string
-): { component: string; iterations: string[] }[] {
-  const inApp = new Set((map?.components ?? []).map(item => item.slug));
-  return folders(toDisk(repoRoot, `${ROUGH_DIR}/${page}`))
-    .filter(name => name !== COMPOSITIONS_DIR && SLUG.test(name) && !inApp.has(name))
-    .map(component => ({
-      component,
-      iterations: folders(toDisk(repoRoot, `${ROUGH_DIR}/${page}/${component}`)).filter(
-        name =>
-          ITERATION.test(name) &&
-          name !== BASELINE &&
-          fs.existsSync(path.join(toDisk(repoRoot, iterationDir(page, component, name)), entry))
-      )
-    }));
 }
 
 /**

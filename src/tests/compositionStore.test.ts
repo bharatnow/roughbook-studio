@@ -9,12 +9,11 @@ import {
   compositionDir,
   listCompositions,
   missingSections,
-  newSectionsOf,
   readComposition,
   readPageBase,
   writeComposition
 } from '../compositions/store.js';
-import type { MapPage, RepoMap } from '../map/types.js';
+import type { MapPage } from '../map/types.js';
 import { listIterations } from '../repo/iterations.js';
 import { sha256 } from '../runs/base.js';
 import { listRepoFiles } from '../runs/snapshot.js';
@@ -40,25 +39,6 @@ const HOME: MapPage = {
   files: ['app/page.tsx'],
   sections: ['hero', 'pricing'],
   byAgent: false
-};
-
-const MAP: RepoMap = {
-  version: 1,
-  by: ['next'],
-  pages: [HOME],
-  components: ['hero', 'pricing'].map(slug => ({
-    slug,
-    name: slug,
-    kind: 'section' as const,
-    files: [`components/${slug}.tsx`],
-    export: 'default',
-    fixture: null,
-    alone: 'yes' as const,
-    why: null,
-    byAgent: false
-  })),
-  missed: [],
-  unplaced: []
 };
 
 describe("a page's compositions in rough/", () => {
@@ -149,7 +129,7 @@ describe("a page's compositions in rough/", () => {
     assert.equal(readComposition(repo, '../home', 'composition-01'), null);
   });
 
-  it('says which sections this repo cannot show, and finds the new ones', async () => {
+  it('says which sections this repo cannot show', async () => {
     const repo = await tempDir();
     write(repo, 'rough/home/hero/iteration-00/index.tsx', 'export {};');
     write(repo, 'rough/home/banner/iteration-01/index.tsx', 'export {};');
@@ -166,9 +146,6 @@ describe("a page's compositions in rough/", () => {
         'rough/home/banner/iteration-02 is not in this repo, or has no index.tsx.'
       ]
     );
-    assert.deepEqual(newSectionsOf(repo, MAP, 'home', 'index.tsx'), [
-      { component: 'banner', iterations: ['iteration-01'] }
-    ]);
   });
 
   it('leaves .base/ out of the run snapshot and the watcher', async () => {

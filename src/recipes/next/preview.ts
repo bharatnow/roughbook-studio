@@ -65,7 +65,7 @@ const COMPOSITION_BRANCH = `  const search = await searchParams;
           )}
         </Preview>
         <Pick />
-        <Ready id={\`\${page}?${COMPOSE_PARAM}=\${composed}\`} />
+        <Ready id={\`\${page}/composition\`} />
       </div>
     );
   }
@@ -120,8 +120,8 @@ export function Pick() {
 }
 `;
 
-/** The id a failure posts: the key in the path, with the composition when one was asked for. */
-const COMPOSED_ID = `window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "") + (new URLSearchParams(window.location.search).has("${COMPOSE_PARAM}") ? "?${COMPOSE_PARAM}=" + new URLSearchParams(window.location.search).get("${COMPOSE_PARAM}") : "")`;
+/** The id a failure posts: the key in the path, `<page>/composition` for a page's composition. */
+const COMPOSED_ID = `window.location.pathname.replace(/^\\/${PREVIEW_ROUTE}\\//, "") + (new URLSearchParams(window.location.search).has("${COMPOSE_PARAM}") ? "/composition" : "")`;
 
 /**
  * The route's two files. Imports climb from <app>/rough-preview/[...slug]/ to the repo root.

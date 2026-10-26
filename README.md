@@ -65,7 +65,10 @@ says how the binaries are built and released.
 | `roughbook review <page>/<component>/<iteration> …`      | `--select`, `--reject <reason> [--why <text>]`, or `--note <observation>`, and `--rating <1-5\|none>` with either or alone; saved on the server, so the next prompt remembers                                                                                                                                                                                       |
 | `roughbook revert <page>/<component>/<iteration> <file>` | Puts back a file the run changed outside its iteration                                                                                                                                                                                                                                                                                                              |
 | `roughbook pull <page>/<component>[/<sketch>]`           | Lists the component's web sketches, or brings one into `rough/` as the next local iteration: copied where it renders as it is, else ported into your stack by your agent (`--port`, `--add`)                                                                                                                                                                        |
+| `roughbook section <page> --name "<name>"`               | Makes a new section for one of the app's pages, not in the app yet, whose first iteration is a run like any other                                                                                                                                                                                                                                                   |
+| `roughbook compose <page> --sections …`                  | Saves a composition of the page: `<component>[:<iteration>],…` in order, a section without an iteration on its baseline (`--name`, `--parent composition-NN`); takes its pictures where the app runs (`--pictures composition-NN` again later)                                                                                                                      |
 | `roughbook promote <page>/<component>`                   | Hands the selected iteration to your agent to write the real component (`--to <file>`, `--iteration <id>`)                                                                                                                                                                                                                                                          |
+| `roughbook promote <page> --composition <id>`            | Hands a saved composition to your agent to arrange the page's own files in its order and write its new sections' files (`--branch [<name>]`)                                                                                                                                                                                                                        |
 | `roughbook agents [--default <agent>]`                   | Lists the coding agents and editors found here, their sign-in and whether they can run unattended; sets the default                                                                                                                                                                                                                                                 |
 | `roughbook mcp install [<editor>…]`                      | Lets your editors' and agents' own agents find, check and finish runs themselves: adds `roughbook mcp`, the MCP server, to each one found here, or to those named                                                                                                                                                                                                   |
 | `roughbook status`                                       | The sign-in, the analytics answer, the linked project, and what is waiting to be sent                                                                                                                                                                                                                                                                               |
@@ -367,6 +370,23 @@ how an asset is used (from the address the app serves its assets folder at, `ass
 agent may change. The file must be one of the environment's kinds, inside the repo, outside
 `rough/`, the public folder and the folders the environment ignores. The server never hears the
 file's path. An existing file is never overwritten, and nothing is committed: you review the diff.
+
+## Compositions
+
+A page's own change is its composition (the brownfield plan's B6): its sections reordered, added,
+removed or replaced, each on its baseline or one of its iterations. `roughbook compose`, or Compose
+on an adopted page in the local UI, starts from the map's order on the baselines and saves the
+composition in `rough/<page>/compositions/composition-NN/`: `composition.json` holds its name,
+parent and sections, and `.base/` beside it the page's files as they were, which the checks, the
+run snapshot, the watcher and the pictures leave out. The backend numbers it and keeps its
+sections by slug, and its pictures; never the page's code. On Next.js the preview route shows it
+composed, each section with its fixture inside the app's layout and in its marker, so Pick works;
+on other stacks each section shows in its own frame. `roughbook promote <page> --composition
+composition-NN` has your agent change only the page's own files and write each new section's file
+where a new component goes; a section on an iteration that is not in the app keeps the app's
+version, shipped by its own promote. The finish is a component's: the diff, any other file named
+for revert, the build and the checks, and on a branch the commit on your yes. Once done, the map is
+refreshed and the new sections are adopted with their baselines.
 
 ## The preview contract
 

@@ -105,6 +105,7 @@ const { readEnvironment } = await dist('environment/read.js');
 const { readRepoLink } = await dist('repo/link.js');
 const { planAppSlot, writeAppSlot } = await dist('runs/base.js');
 const { readMap } = await dist('map/file.js');
+const { composedAddress } = await dist('compositions/save.js');
 const recipe = recipeFor(base);
 const environment = recipe.environment(null);
 
@@ -166,6 +167,64 @@ let cleaning = null;
  * everything it started (the dev server, even one still starting, and the app doctor starts
  * itself with --speed), what the dev command started outside it, and the copy.
  */
+/**
+ * The composed preview of `key`'s page: its sections' baselines written as roughbook adopt writes
+ * them, then the page in reverse, `key`'s section on its iteration-01, asked until it answers (the
+ * dev server compiles the route and the registry first).
+ */
+async function checkComposition(work, devUrl, key) {
+  const [page, own] = key.split('/');
+  const map = readMap(work)?.map;
+  const sections = map?.pages.find(item => item.slug === page)?.sections ?? [];
+  for (const slug of sections) {
+    const folder = path.join(work, 'rough', page, slug, 'iteration-00');
+    if (fs.existsSync(folder)) continue;
+    const component = map.components.find(item => item.slug === slug);
+    const files =
+      component &&
+      recipe.pointer?.(component, {
+        iterationDir: `rough/${page}/${slug}/iteration-00`,
+        fixture: null
+      });
+    for (const [file, text] of Object.entries(files ?? {})) {
+      fs.mkdirSync(path.dirname(path.join(folder, file)), { recursive: true });
+      fs.writeFileSync(path.join(folder, file), text);
+    }
+  }
+  recipe.syncPreview(work);
+  const chosen = [...sections]
+    .reverse()
+    .filter(slug => fs.existsSync(path.join(work, 'rough', page, slug, 'iteration-00')))
+    .map(slug => ({ component: slug, iteration: slug === own ? 'iteration-01' : 'iteration-00' }));
+  const address = composedAddress(environment, page, chosen);
+  const wanted = chosen.map(item => `${page}/${item.component}`);
+  let found = [];
+  let status = null;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try {
+      const response = await fetch(`${devUrl}${address}`, { signal: AbortSignal.timeout(60_000) });
+      status = response.status;
+      const html = await response.text();
+      // A baseline renders the app's own component, which the in-page view marks too: one key each.
+      found = [...html.matchAll(/data-roughbook-section="([^"]+)"/g)]
+        .map(match => match[1])
+        .filter((item, index, all) => item !== all[index - 1]);
+      if (status === 200 && found.length >= wanted.length) break;
+    } catch {
+      status = null;
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  const inOrder = wanted.every((item, index) => found[index] === item);
+  return {
+    ok: status === 200 && inOrder,
+    message:
+      status === 200 && inOrder
+        ? `${address} rendered ${wanted.length} sections in order, each in its marker.`
+        : `${address} answered ${status ?? 'nothing'}, with ${found.join(', ') || 'no markers'}; wanted ${wanted.join(', ')}.`
+  };
+}
+
 function cleanUp() {
   cleaning ??= (async () => {
     await Promise.all([closeKeptBrowsers(), stopStartedProcesses()]);
@@ -346,6 +405,16 @@ In its page: ${pinned.inPage.join(', ')}, with iteration-01 copied from the app;
   console.log('');
   for (const line of renderReport(report)) console.log(line);
   code = exitCodeFor(report.outcome);
+
+  // A page's composition (B6 of the brownfield plan), where the recipe composes: every section of
+  // the in-page fixture's page adopted, composed in reverse with its in-page iteration, and asked
+  // of the preview route, which must render each in its marker, in that order.
+  if (live && recipe.composes && pinned.inPage?.length) {
+    const composed = await checkComposition(work, devUrl, pinned.inPage[0]);
+    console.log(`
+Composition: ${composed.message}`);
+    if (!composed.ok) code = 1;
+  }
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
   code = 1;

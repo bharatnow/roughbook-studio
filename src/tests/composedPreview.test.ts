@@ -78,10 +78,10 @@ describe('the composed preview on Next.js', () => {
     // Ready once, after every section, under the composition's own id.
     assert.match(
       route,
-      /<\/Preview>\n {8}<Pick \/>\n {8}<Ready id=\{`\$\{page\}\?roughbook-compose=\$\{composed\}`\} \/>/
+      /<\/Preview>\n {8}<Pick \/>\n {8}<Ready id=\{`\$\{page\}\/composition`\} \/>/
     );
-    assert.match(error!.content, /\? "\?roughbook-compose=" \+ new URLSearchParams/);
-    assert.match(notFound!.content, /\? "\?roughbook-compose=" \+ new URLSearchParams/);
+    assert.match(error!.content, /\.has\("roughbook-compose"\) \? "\/composition" : ""/);
+    assert.match(notFound!.content, /\.has\("roughbook-compose"\) \? "\/composition" : ""/);
     assert.equal(pick!.file, 'app/rough-preview/[...slug]/pick.tsx');
     assert.match(pick!.content, /^"use client";\n\/\/ Roughbook preview route\./);
     assert.match(pick!.content, /postMessage\(\{ roughbook: "section", key \}, "\*"\)/);
