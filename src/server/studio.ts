@@ -7,7 +7,13 @@ import { ALL_AGENTS, hostLookup } from '../agents/index.js';
 import { runTarget, terminalSessions } from '../agents/session.js';
 import type { AgentAdapter, AgentEvent, Detection, TerminalAdapter } from '../agents/types.js';
 import type { StudioApi } from '../api/client.js';
-import type { AssetScope, ProjectTree, RatingSummary } from '../api/types.js';
+import {
+  PICTURE_KINDS,
+  type AssetScope,
+  type PictureKind,
+  type ProjectTree,
+  type RatingSummary
+} from '../api/types.js';
 import { describeError } from '../api/errors.js';
 import { outboxFor, type Outbox } from '../api/outbox.js';
 import { finishWithScreenshots } from '../commands/done.js';
@@ -38,7 +44,12 @@ import { readMap } from '../map/file.js';
 import { contextAddress, contextSections } from '../recipes/context.js';
 import { recipeFor } from '../recipes/index.js';
 import type { ComponentKind, Known, RepoMap } from '../map/types.js';
-import { pictureShot, picturesAfterShots, sharePagePictures } from '../pictures/share.js';
+import {
+  pictureShot,
+  picturesAfterShots,
+  picturesDir,
+  sharePagePictures
+} from '../pictures/share.js';
 import { resolveVariants, screenshotSet, type ResolvedVariant } from '../environment/variants.js';
 import { currentOs } from '../launch/platform.js';
 import { resolveCommandLine } from '../launch/processes.js';
@@ -55,7 +66,12 @@ import { forkFields } from '../runs/forkIntent.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
-import { findComponent, preparePromotion } from '../runs/promote.js';
+import {
+  findComponent,
+  preparePromotion,
+  publicDirFor,
+  type PreparedPromotion
+} from '../runs/promote.js';
 import { headCommit, readBase } from '../runs/base.js';
 import {
   commitPromotion,
@@ -69,6 +85,29 @@ import {
 } from '../runs/promotion.js';
 import type { Revert } from '../runs/snapshot.js';
 import { finishPromotionHere } from '../commands/finishPromotion.js';
+import {
+  COMPOSITION_ID,
+  describePlan,
+  type CompositionSection
+} from '../compositions/composition.js';
+import {
+  defaultPageBranch,
+  planPagePromote,
+  preparePagePromotion,
+  type PagePromotePlan
+} from '../compositions/promote.js';
+import {
+  composedAddress,
+  makeSection,
+  saveComposition,
+  shareComposition
+} from '../compositions/save.js';
+import {
+  COMPOSITIONS_DIR,
+  COMPOSITION_FILE,
+  compositionDir,
+  listCompositions
+} from '../compositions/store.js';
 import {
   driftView,
   finishView,
@@ -189,6 +228,22 @@ export type MapView = {
   }[];
   /** Why rough/map.md cannot be read, or null. */
   problem: string | null;
+};
+
+/** A page's composition kept in rough/ (B6), as the canvas and its own view show it. */
+export type CompositionView = {
+  page: string;
+  id: string;
+  number: number;
+  name: string;
+  parent: string | null;
+  sections: CompositionSection[];
+  /** When its composition.json was written, for the canvas's order. */
+  savedAt: string | null;
+  /** The composed preview's path on the app, where the recipe composes; null otherwise. */
+  address: string | null;
+  /** The pictures taken of it here: thumbnail, desktop and phone. */
+  pictures: PictureKind[];
 };
 
 /** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
@@ -890,6 +945,9 @@ export class LocalStudio {
       screenshots,
       screenshotsAt,
       map: this.mapView(),
+      // A page's compositions (B6), and where a composed preview is asked, where the recipe composes.
+      compositions: this.compositionsView(),
+      composeTemplate: composedAddress(environment, '{page}', []),
       inPage,
       // What the in-page view covers on this stack, beside In its page (decision 44).
       inPageNote: inPage ? (recipeFor(this.environment.recipe)?.contextPreview?.note ?? null) : null
@@ -1039,6 +1097,118 @@ export class LocalStudio {
     } catch {
       // The pictures wait for the next screenshots; the adoption itself is done.
     }
+  }
+
+  /** The compositions in rough/, newest of each page last, for the canvas and their own view. */
+  private compositionsView(): CompositionView[] {
+    const environment = this.environment;
+    return listCompositions(this.repoRoot).map(kept => {
+      let savedAt: string | null = null;
+      try {
+        savedAt = fs
+          .statSync(this.disk(`${compositionDir(kept.page, kept.id)}/${COMPOSITION_FILE}`))
+          .mtime.toISOString();
+      } catch {
+        // Gone since it was listed.
+      }
+      const pictures = picturesDir({ page: kept.page, composition: kept.id });
+      return {
+        page: kept.page,
+        id: kept.id,
+        number: kept.number,
+        name: kept.composition.name,
+        parent: kept.composition.parent,
+        sections: kept.composition.sections,
+        savedAt,
+        address: composedAddress(environment, kept.page, kept.composition.sections),
+        pictures: PICTURE_KINDS.filter(kind => fs.existsSync(this.disk(`${pictures}/${kind}.webp`)))
+      };
+    });
+  }
+
+  /**
+   * The composition editor's Save (B6): numbered by the backend, written with the page's base, its
+   * composed preview's pictures taken after, where the recipe composes and the app is running.
+   */
+  async saveComposition(body: Record<string, unknown>) {
+    const page = typeof body.page === 'string' ? body.page : '';
+    if (!SLUG.test(page)) throw new BadRequest('Name a page of the map.');
+    const sections = Array.isArray(body.sections) ? body.sections : null;
+    if (
+      !sections ||
+      !sections.every(
+        (item): item is CompositionSection =>
+          !!item &&
+          typeof item === 'object' &&
+          typeof (item as CompositionSection).component === 'string' &&
+          typeof (item as CompositionSection).iteration === 'string'
+      )
+    ) {
+      throw new BadRequest('sections is a list of { component, iteration }, in order.');
+    }
+    const name = typeof body.name === 'string' ? body.name : undefined;
+    const parent =
+      typeof body.parent === 'string' && body.parent ? (body.parent as string) : undefined;
+    const { api, link } = this.options;
+    const saved = await saveComposition(this.repoRoot, api, link, this.environment, {
+      page,
+      sections,
+      ...(name !== undefined ? { name } : {}),
+      ...(parent ? { parent } : {})
+    });
+    this.projectChanged();
+    void this.pictureComposition(page, saved.id);
+    const names = new Map(
+      (readMap(this.repoRoot)?.map.components ?? []).map(item => [item.slug, item.name])
+    );
+    return {
+      id: saved.id,
+      number: saved.number,
+      lines: describePlan(saved.plan, slug => names.get(slug) ?? slug)
+    };
+  }
+
+  /** A composition's pictures, after it is saved: none where the app does not answer. */
+  private async pictureComposition(page: string, id: string): Promise<void> {
+    try {
+      const shoot = pictureShot(this.context);
+      if (!shoot || !this.options.api.signedIn) return;
+      if (!(await this.context.askPreview(this.devUrl, APP_ASK_MS))) return;
+      await shareComposition(
+        {
+          repoRoot: this.repoRoot,
+          api: this.options.api,
+          outbox: this.outbox,
+          link: this.options.link,
+          environment: this.previewEnvironment(),
+          shoot
+        },
+        { page, id },
+        this.devUrl
+      );
+      this.changes.note(`${page}/${COMPOSITIONS_DIR}/${id}${IMAGES}`);
+    } catch {
+      // Taken with roughbook compose --pictures, or the next save.
+    }
+  }
+
+  /** The composition editor's new section (decision 47): made on the backend, its folder here. */
+  async makeSection(body: Record<string, unknown>) {
+    const page = typeof body.page === 'string' ? body.page : '';
+    if (!SLUG.test(page)) throw new BadRequest('Name a page of the map.');
+    const name = typeof body.name === 'string' ? body.name : '';
+    const { api, link } = this.options;
+    const made = await makeSection(this.repoRoot, api, link, this.environment, { page, name });
+    this.projectChanged();
+    return { slug: made.slug, name: made.name };
+  }
+
+  /** One of a composition's pictures, for the canvas's card; null when it has none. */
+  compositionPictureFile(page: string, id: string, kind: string): string | null {
+    if (!SLUG.test(page) || !COMPOSITION_ID.test(id)) return null;
+    if (!PICTURE_KINDS.includes(kind as PictureKind)) return null;
+    const file = this.disk(`${picturesDir({ page, composition: id })}/${kind}.webp`);
+    return fs.existsSync(file) ? file : null;
   }
 
   async runs(): Promise<RunView[]> {
@@ -1389,12 +1559,35 @@ export class LocalStudio {
     rows?: number;
     /** A new branch for the change (decision 18), by its name. */
     branch?: string;
+    /** A page's composition (B6), instead of an iteration. */
+    composition?: string;
   }): Promise<PromoteResult> {
-    this.assertIteration(body);
     const { api, link } = this.options;
+    const branch = body.branch?.trim();
+    if (body.composition !== undefined) {
+      if (!SLUG.test(body.page) || !COMPOSITION_ID.test(body.composition)) {
+        throw new BadRequest('Name a page and one of its compositions.');
+      }
+      const tree = await api.project(link.orgId, link.project);
+      const prepared = await preparePagePromotion(this.repoRoot, api, link, tree, {
+        page: body.page,
+        composition: body.composition,
+        ...(branch ? { branch } : {})
+      });
+      return this.handOffPromote(
+        prepared,
+        {
+          page: body.page,
+          component: `${COMPOSITIONS_DIR}/${body.composition}`,
+          componentName: `${body.page} ${body.composition}`
+        },
+        body,
+        "the page's files and its new sections"
+      );
+    }
+    this.assertIteration(body);
     const tree = await api.project(link.orgId, link.project);
     const record = findComponent(tree, body.page, body.component);
-    const branch = body.branch?.trim();
     const prepared = await preparePromotion(this.repoRoot, api, link, tree, {
       page: body.page,
       component: body.component,
@@ -1402,6 +1595,24 @@ export class LocalStudio {
       targetFile: body.targetFile?.trim() || undefined,
       ...(branch ? { branch } : {})
     });
+    return this.handOffPromote(
+      prepared,
+      { page: body.page, component: body.component, componentName: record.name },
+      body,
+      prepared.how === 'new' ? prepared.targetFile : "the app's own files"
+    );
+  }
+
+  /** Hands a prepared promote to the agent: an editor, a terminal, or the instruction to paste. */
+  private async handOffPromote(
+    prepared: Pick<
+      PreparedPromotion,
+      'promptFile' | 'promotionId' | 'copied' | 'missing' | 'branch'
+    >,
+    target: { page: string; component: string; componentName: string },
+    body: { agent?: string; terminal?: 'builtin' | 'external'; cols?: number; rows?: number },
+    writes: string
+  ): Promise<PromoteResult> {
     const assets = prepared.copied.map(to => ({ to }));
     const missingAssets = prepared.missing.map(item => ({ url: `${item.scope}/${item.file}` }));
     const instruction = `Follow the instructions in ${prepared.promptFile}`;
@@ -1424,14 +1635,7 @@ export class LocalStudio {
           terminal: null
         };
       }
-      session = promoteSession(
-        adapter,
-        detection,
-        this.repoRoot,
-        { page: body.page, component: body.component, componentName: record.name },
-        prepared,
-        null
-      );
+      session = promoteSession(adapter, detection, this.repoRoot, target, prepared, null);
     } catch (error) {
       return {
         ok: true,
@@ -1454,7 +1658,7 @@ export class LocalStudio {
       ok: true,
       launched: where !== null,
       message: where
-        ? `Wrote ${prepared.promptFile} and opened the agent in ${where} to write ${prepared.how === 'new' ? prepared.targetFile : "the app's own files"}${prepared.branch ? ` on ${prepared.branch.name}` : ''}. When it is done, Finish shows the diff and runs the app's checks.`
+        ? `Wrote ${prepared.promptFile} and opened the agent in ${where} to write ${writes}${prepared.branch ? ` on ${prepared.branch.name}` : ''}. When it is done, Finish shows the diff and runs the app's checks.`
         : `Wrote ${prepared.promptFile}. ${launched.kind === 'manual' ? launched.reason : ''}`.trim(),
       commands: launched.kind === 'manual' ? launched.commands : [],
       assets,
@@ -1484,7 +1688,8 @@ export class LocalStudio {
    * since the fork, whether a branch can be made, and what the last finish found.
    */
   async promotePlan(target: { page: string; component: string; iteration: string }) {
-    this.assertIteration(target);
+    this.assertPromoteTarget(target);
+    if (target.component === COMPOSITIONS_DIR) return this.pagePromotePlan(target);
     const relative = iterationDir(target.page, target.component, target.iteration);
     const base = readBase(this.repoRoot, relative);
     let drift: PromoteDriftView | null = null;
@@ -1518,6 +1723,58 @@ export class LocalStudio {
     };
   }
 
+  /**
+   * What a composition's Promote knows before it starts (B6): the page's files and the new
+   * sections' files, whether the page moved since it was saved, the sections that keep the app's
+   * own version, whether a branch can be made, and what the last finish found.
+   */
+  private async pagePromotePlan(target: { page: string; component: string; iteration: string }) {
+    const environment = this.previewEnvironment();
+    let planned: PagePromotePlan | null = null;
+    let problem: string | null = null;
+    try {
+      const map = readMap(this.repoRoot)?.map;
+      if (!map) throw new Error('There is no rough/map.md yet. Run roughbook map first.');
+      const { api, link } = this.options;
+      const tree = await this.cache.project(() => api.project(link.orgId, link.project));
+      planned = planPagePromote(
+        this.repoRoot,
+        environment,
+        map,
+        tree,
+        publicDirFor(this.repoRoot, link, tree, undefined, environment.assets.dir),
+        { page: target.page, composition: target.iteration }
+      );
+    } catch (error) {
+      problem = describeError(error);
+    }
+    const latest = await this.latestPromotion(target);
+    return {
+      defaultFile: null,
+      drift: planned ? driftView(planned.how, planned.targets) : null,
+      problem,
+      branchChoice: {
+        defaultName: defaultPageBranch(target.page, target.iteration),
+        unavailable: (await headCommit(this.repoRoot))
+          ? null
+          : 'This repo is not a git repository with a commit, so the change cannot go on a branch of its own.'
+      },
+      open: latest?.status === 'started',
+      finish:
+        latest?.status === 'finished'
+          ? finishView(latest, await promotionDiff(this.repoRoot, latest))
+          : null,
+      // What the promote writes: the page's files, then each new section's file.
+      targets: (planned?.targets ?? []).map(item => ({
+        path: item.path,
+        section: item.section ?? null,
+        drifted: item.drifted
+      })),
+      keepsApp: planned?.keepsApp ?? [],
+      counts: planned?.plan.counts ?? null
+    };
+  }
+
   /** The local UI's Finish of an iteration's open promote: its checks, then the refreshed baseline. */
   async finishPromote(body: {
     page: string;
@@ -1525,7 +1782,7 @@ export class LocalStudio {
     iteration: string;
     conflicts?: unknown;
   }): Promise<PromoteFinishView> {
-    this.assertIteration(body);
+    this.assertPromoteTarget(body);
     const conflicts = body.conflicts;
     if (
       conflicts !== undefined &&
@@ -1553,7 +1810,7 @@ export class LocalStudio {
 
   /** Puts back one file the iteration's last promote changed. */
   async revertPromoted(body: { page: string; component: string; iteration: string; path: string }) {
-    this.assertIteration(body);
+    this.assertPromoteTarget(body);
     const latest = await this.latestPromotion(body);
     if (!latest || latest.status !== 'finished') {
       throw new BadRequest('Finish the promote first; then a file it changed can be put back.');
@@ -1579,7 +1836,7 @@ export class LocalStudio {
     iteration: string;
     commit: boolean;
   }): Promise<PromoteCommitView> {
-    this.assertIteration(body);
+    this.assertPromoteTarget(body);
     const latest = await this.latestPromotion(body);
     if (!latest?.branch || !latest.commit) {
       return {
@@ -1935,6 +2192,18 @@ export class LocalStudio {
     }
     if (!run) throw new BadRequest(`There is no run ${runId} in this repo.`);
     return run;
+  }
+
+  /** An iteration, or a page's composition by its folder's key, `<page>/compositions/<id>` (B6). */
+  private assertPromoteTarget(target: { page: string; component: string; iteration: string }) {
+    if (
+      target.component === COMPOSITIONS_DIR &&
+      SLUG.test(target.page) &&
+      COMPOSITION_ID.test(target.iteration)
+    ) {
+      return;
+    }
+    this.assertIteration(target);
   }
 
   private assertIteration(target: { page: string; component: string; iteration: string }): void {

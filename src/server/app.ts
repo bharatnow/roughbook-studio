@@ -234,9 +234,15 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
         terminal: body.terminal === 'external' ? 'external' : 'builtin',
         cols: Number(body.cols) || undefined,
         rows: Number(body.rows) || undefined,
-        branch: typeof body.branch === 'string' ? body.branch : undefined
+        branch: typeof body.branch === 'string' ? body.branch : undefined,
+        composition: typeof body.composition === 'string' ? body.composition : undefined
       });
     }),
+    // A page's composition (B6): a new section, and Save; its Promote goes through /api/promote.
+    route('POST', '/api/sections', async request => studio.makeSection(await readBody(request))),
+    route('POST', '/api/compositions', async request =>
+      studio.saveComposition(await readBody(request))
+    ),
     // The promote panel's drift, branch choice, Finish, Revert and commit (B4).
     route('GET', '/api/promote/:page/:component/:iteration', (_request, params) =>
       studio.promotePlan(target(params))
@@ -342,7 +348,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     const mapped = /^\/api\/map\/(page|component)\/([^/]+)\/screenshots\/([a-z][a-z0-9-]*)$/.exec(
       url.pathname
     );
-    if ((!match && !mapped) || request.method !== 'GET') return false;
+    // A page composition's pictures (B6), for its card on the canvas.
+    const composed = /^\/api\/compositions\/([^/]+)\/([^/]+)\/pictures\/([a-z][a-z0-9-]*)$/.exec(
+      url.pathname
+    );
+    if ((!match && !mapped && !composed) || request.method !== 'GET') return false;
     const key = url.searchParams.get('key') ?? undefined;
     if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {
       sendJson(response, 401, { error: 'UNAUTHORIZED' });
@@ -350,12 +360,14 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }
     let file: string | null = null;
     try {
-      file = mapped
-        ? studio.mapShotFile(mapped[1] as 'page' | 'component', mapped[2]!, mapped[3]!)
-        : studio.screenshotFile(
-            { page: match![1]!, component: match![2]!, iteration: match![3]! },
-            match![4]!
-          );
+      file = composed
+        ? studio.compositionPictureFile(composed[1]!, composed[2]!, composed[3]!)
+        : mapped
+          ? studio.mapShotFile(mapped[1] as 'page' | 'component', mapped[2]!, mapped[3]!)
+          : studio.screenshotFile(
+              { page: match![1]!, component: match![2]!, iteration: match![3]! },
+              match![4]!
+            );
     } catch {
       file = null;
     }
@@ -370,7 +382,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       response.writeHead(304, headers).end();
       return true;
     }
-    response.writeHead(200, { 'content-type': 'image/png', ...headers });
+    response.writeHead(200, {
+      'content-type': file.endsWith('.webp') ? 'image/webp' : 'image/png',
+      ...headers
+    });
     fs.createReadStream(file).pipe(response);
     return true;
   }

@@ -10,7 +10,9 @@ import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import type { ProjectTree } from '../api/types.js';
 import { hasEnvironmentFile, readEnvironment } from '../environment/read.js';
+import type { RepoEnvironment } from '../environment/types.js';
 import { BASELINE } from '../map/adopt.js';
+import type { RepoMap } from '../map/types.js';
 import { recipeOf } from '../recipes/index.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
@@ -134,19 +136,33 @@ export type PagePromoteOptions = {
   now?: () => Date;
 };
 
+/** What a page composition's promote would do, worked out here alone: no request, no write. */
+export type PagePromotePlan = {
+  how: 'in-place' | 'merge';
+  /** The page's files, then each new section's file. */
+  targets: PromoteTarget[];
+  plan: CompositionPlan;
+  keepsApp: PreparedPagePromotion['keepsApp'];
+  /** The app's own order, from the map. */
+  current: string[];
+};
+
 /**
- * Starts a page composition's promote. Throws in words, before anything is asked or written, when
- * the composition or its base is not here, a page file is gone, a new section's iteration is
- * missing or its file would overwrite one, or the branch cannot be made.
+ * Where a page composition's promote writes and whether the page moved since it was saved (B6):
+ * the page's files, each against its copy in the composition's `.base/`, and a new file for each
+ * new section where the recipe puts a new component. Throws in words when the composition or its
+ * base is not here, a page file is gone, a new section's iteration is missing, or its file would
+ * overwrite one.
  */
-export async function preparePagePromotion(
+export function planPagePromote(
   repoRoot: string,
-  api: StudioApi,
-  link: RepoLink,
-  tree: ProjectTree,
-  options: PagePromoteOptions
-): Promise<PreparedPagePromotion> {
-  const { page, composition: id } = options;
+  environment: RepoEnvironment,
+  map: RepoMap,
+  tree: Pick<ProjectTree, 'pages' | 'delivery'>,
+  publicDir: string,
+  target: { page: string; composition: string }
+): PagePromotePlan {
+  const { page, composition: id } = target;
   const kept = readComposition(repoRoot, page, id);
   if (!kept) {
     throw new Error(`${compositionDir(page, id)} is not in this repo, so it cannot be promoted.`);
@@ -158,10 +174,7 @@ export async function preparePagePromotion(
       `${folder}/${BASE_DIR}/ is missing, so the studio cannot tell whether the page changed since the composition was saved. Save a new composition of the page as it is now.`
     );
   }
-  const environment = await readEnvironment(repoRoot, link);
   const recipe = recipeOf(environment);
-  // The app's own order, read fresh (decision 52).
-  const map = await freshMap(repoRoot, environment, link);
   const current = appOrder(map, page);
   const mapPage = map.pages.find(item => item.slug === page)!;
   const inApp = new Set(map.components.map(item => item.slug));
@@ -204,7 +217,6 @@ export async function preparePagePromotion(
   );
   const extensions = environment.promote.extensions;
   const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
-  const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir, environment.assets.dir);
   const isFolder = (relative: string) =>
     fs.statSync(toDisk(repoRoot, relative), { throwIfNoEntry: false })?.isDirectory() ?? false;
   for (const section of plan.sections.filter(item => !inApp.has(item.component))) {
@@ -243,6 +255,35 @@ export async function preparePagePromotion(
       iteration: item.iteration,
       name: names.get(item.component) ?? item.component
     }));
+  return { how, targets, plan, keepsApp, current };
+}
+
+/**
+ * Starts a page composition's promote. Throws in words, before anything is asked or written, when
+ * the composition or its base is not here, a page file is gone, a new section's iteration is
+ * missing or its file would overwrite one, or the branch cannot be made.
+ */
+export async function preparePagePromotion(
+  repoRoot: string,
+  api: StudioApi,
+  link: RepoLink,
+  tree: ProjectTree,
+  options: PagePromoteOptions
+): Promise<PreparedPagePromotion> {
+  const { page, composition: id } = options;
+  const environment = await readEnvironment(repoRoot, link);
+  const recipe = recipeOf(environment);
+  const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir, environment.assets.dir);
+  // The app's own order, read fresh (decision 52).
+  const map = await freshMap(repoRoot, environment, link);
+  const { how, targets, plan, keepsApp, current } = planPagePromote(
+    repoRoot,
+    environment,
+    map,
+    tree,
+    publicDir,
+    options
+  );
 
   // Refused before anything is asked or written: not git, a dirty target, a taken name.
   const plannedBranch =

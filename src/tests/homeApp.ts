@@ -58,8 +58,9 @@ export const TREE = {
 } as unknown as ProjectTree;
 
 /** A linked Next.js app, mapped, with Home's sections adopted and a new section's iteration. */
-export async function homeApp(): Promise<string> {
-  const repo = path.join(await tempDir('roughbook-compose-'), 'app');
+export async function homeApp(root?: string): Promise<string> {
+  // A `before` hook passes its own folder: tempDir's clean-up would run as soon as the hook ends.
+  const repo = path.join(root ?? (await tempDir('roughbook-compose-')), 'app');
   write(repo, 'package.json', '{ "dependencies": { "next": "16.0.0", "react": "19.0.0" } }\n');
   write(repo, 'tsconfig.json', '{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }\n');
   write(
