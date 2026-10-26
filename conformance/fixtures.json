@@ -45,6 +45,7 @@
       "app": "harbor-theme",
       "overlay": "wordpress",
       "map": true,
+      "inPage": ["front-page/hero", "front-page/newsletter"],
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npx wp-env start",
       "url": "http://localhost:8888",
@@ -87,6 +88,8 @@
       "version": "5.0.0",
       "app": "expo-app",
       "args": ["--template", "default@sdk-58", "--no-install", "--yes"],
+      "map": true,
+      "inPage": ["home/hint-row"],
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npx expo start --localhost --port {port}"
     },

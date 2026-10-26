@@ -149,7 +149,10 @@ zip, and doctor's gate asks the production WordPress for the sample's own files 
 the next request, so the studio reloads the frame (reload: studio). Start from that setup; change it only
 where this theme needs it: its header and footer template parts belong in the wrapper, and a theme that
 runs on another local WordPress (Local, ddev, Lando) needs the plugin copied into that site's mu-plugins
-and rough/ where it finds it. Keep recipe: wordpress so the studio keeps the plugin up to date.`;
+and rough/ where it finds it. Keep recipe: wordpress so the studio keeps the plugin up to date. For a mapped
+block theme the plugin also holds the in-page view's switch, local or development environment only: each adopted
+template part and pattern renders inside its marker, and ?roughbook-swap=<page>/<component>/<iteration> renders the
+iteration's copy in its place through WordPress's own rendering (rough/preview-context.json lists them).`;
 
 /** A folder name as a theme's name: `harbor-theme` is Harbor Theme. */
 function themeName(name: string): string {
