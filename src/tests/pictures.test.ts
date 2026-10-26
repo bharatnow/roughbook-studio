@@ -423,15 +423,19 @@ describe('a whole map, adopt and upload run', () => {
     );
     assert.equal(await run(['screenshot', 'home/hero/iteration-01']), 0, io.errors.join('\n'));
     assert.equal(await run(['screenshot', 'home/hero/iteration-02']), 0, io.errors.join('\n'));
+    // With its pictures in its page (B5), since Next.js has the in-page view.
+    const inPage = ['page-desktop', 'page-phone'];
     assert.deepEqual(
       puts(requests).slice(9),
-      kinds.map(kind => `/pages/home/components/hero/iterations/iteration-01/pictures/${kind}`)
+      [...kinds, ...inPage].map(
+        kind => `/pages/home/components/hero/iterations/iteration-01/pictures/${kind}`
+      )
     );
     assert.ok(!pictured.some(line => line.includes('iteration-02')), 'not even taken');
 
     // The same pictures again go nowhere; offline, changed ones wait, and go once it is back.
     assert.equal(await run(['screenshot', 'home/hero/iteration-01']), 0);
-    assert.equal(puts(requests).length, 12);
+    assert.equal(puts(requests).length, 14);
     change();
     write(
       repo,
@@ -442,11 +446,19 @@ describe('a whole map, adopt and upload run', () => {
     assert.equal(await run(['screenshot', 'home/hero/iteration-00']), 0);
     assert.ok(io.lines.some(line => line.includes('pictures 3 waiting to upload')));
     offline(false);
-    // Any later upload sends what waits; iteration-01's own pictures did not change.
+    // Any later upload sends what waits; iteration-01's own pictures did not change, and its
+    // pictures in its page, which show the app's hero around it, are taken again.
     assert.equal(await run(['screenshot', 'home/hero/iteration-01']), 0);
     assert.deepEqual(
-      puts(requests).slice(12),
-      kinds.map(kind => `/pages/home/components/hero/iterations/iteration-00/pictures/${kind}`)
+      puts(requests).slice(14).sort(),
+      [
+        ...kinds.map(
+          kind => `/pages/home/components/hero/iterations/iteration-00/pictures/${kind}`
+        ),
+        ...inPage.map(
+          kind => `/pages/home/components/hero/iterations/iteration-01/pictures/${kind}`
+        )
+      ].sort()
     );
 
     // Every request: no line of the app, its fixtures or the baselines, no path of this machine.
@@ -457,7 +469,7 @@ describe('a whole map, adopt and upload run', () => {
       assert.ok(isWebp(request.bytes), 'only a picture goes as bytes');
       assert.match(
         new URL(request.url).pathname,
-        /\/pages\/home\/(components\/(hero|pricing)\/iterations\/iteration-0[01]\/)?pictures\/(thumbnail|desktop|phone)$/
+        /\/pages\/home\/(components\/(hero|pricing)\/iterations\/iteration-0[01]\/)?pictures\/(thumbnail|desktop|phone|page-desktop|page-phone)$/
       );
     }
     assert.ok(
