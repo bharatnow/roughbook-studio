@@ -87,6 +87,22 @@ describe('the composed preview on Next.js', () => {
     assert.match(pick!.content, /postMessage\(\{ roughbook: "section", key \}, "\*"\)/);
   });
 
+  it('leaves a mapped repo with the route it had to setup --upgrade, as the switch is', async () => {
+    const next = recipeFor('next')!;
+    const repo = await nextApp(true);
+    for (const route of previewRouteFiles('app')) write(repo, route.file, route.content);
+    const route = (file: string) => `app/rough-preview/[...slug]/${file}`;
+    const pending = next.contextPreview!.missing(repo, LINK);
+    for (const file of ['page.tsx', 'error.tsx', 'not-found.tsx', 'pick.tsx']) {
+      assert.ok(pending.includes(route(file)), `${file}: ${pending.join(', ')}`);
+    }
+    assert.ok(!pending.includes(route('ready.tsx')));
+    for (const item of previewRouteFiles('app', { compose: true })) {
+      write(repo, item.file, item.content);
+    }
+    assert.ok(!next.contextPreview!.missing(repo, LINK).some(file => file.includes('[...slug]')));
+  });
+
   it('leaves a repo that maps nothing with the route it had', async () => {
     const next = recipeFor('next')!;
     const repo = await nextApp(false);

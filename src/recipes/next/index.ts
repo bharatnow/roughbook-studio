@@ -277,9 +277,20 @@ export const next: Recipe = {
             .map(item => item.file)
             .filter(file => !fs.existsSync(path.join(repo, ...file.split('/'))))
         : [];
+      // The route's page compositions (B6), in a route still as a repo that maps nothing has it.
+      const cacheComponents = usesCacheComponents(repo);
+      const plain = link.appDir ? previewRouteFiles(link.appDir, { cacheComponents }) : [];
+      const behind =
+        plain.length > 0 && plain.every(route => read(repo, route.file) === route.content);
+      const route = behind
+        ? previewRouteFiles(link.appDir!, { cacheComponents, compose: true })
+            .filter(item => plain.find(own => own.file === item.file)?.content !== item.content)
+            .map(item => item.file)
+        : [];
       const config = nextConfigFile(repo);
       const text = config ? read(repo, config) : null;
-      return text !== null && undoNextConfig(text) === null ? [...absent, config!] : absent;
+      const pending = [...absent, ...route];
+      return text !== null && undoNextConfig(text) === null ? [...pending, config!] : pending;
     },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL

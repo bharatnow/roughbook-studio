@@ -99,11 +99,13 @@ export function CompositionPromote({
   const newFiles = (plan?.targets ?? []).filter(item => item.section);
   return (
     <section id="promote" className="flex min-w-0 flex-col gap-3">
-      <h2 className="font-display text-base tracking-tight text-graphite">Promote</h2>
-      <p className="text-sm text-slate">
-        Hands the composition to {agentName}, which arranges the page’s own files in its order
-        {newFiles.length ? ' and writes each new section’s file' : ''}, and changes nothing else.
-      </p>
+      <h2 className="flex items-center gap-1 font-display text-base tracking-tight text-graphite">
+        Promote
+        <HelpTip label="About Promote">
+          Hands the composition to {agentName}, which arranges the page’s own files in its order
+          {newFiles.length ? ' and writes each new section’s file' : ''}, and changes nothing else.
+        </HelpTip>
+      </h2>
       {plan?.problem ? (
         <p role="alert" className="text-sm text-danger">
           {plan.problem}

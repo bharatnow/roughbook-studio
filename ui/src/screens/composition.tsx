@@ -1,5 +1,6 @@
 import {
   CompositionSections,
+  HelpTip,
   PreviewFrame,
   STACKED_NOTE,
   termLabel,
@@ -87,7 +88,10 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
         />
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-slate">{STACKED_NOTE}</p>
+          <h2 className="flex items-center gap-1 text-sm text-graphite">
+            Each section alone
+            <HelpTip label="About the sections shown alone">{STACKED_NOTE}</HelpTip>
+          </h2>
           {view.sections.map(section => {
             const key = `${page}/${section.component}/${section.iteration}`;
             return (

@@ -1188,7 +1188,7 @@ export class LocalStudio {
       );
       this.changes.note(`${page}/${COMPOSITIONS_DIR}/${id}${IMAGES}`);
     } catch {
-      // Taken with roughbook compose --pictures, or the next save.
+      // Taken again with the composition command's --pictures, or at the next save.
     }
   }
 
