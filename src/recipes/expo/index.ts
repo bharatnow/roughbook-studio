@@ -7,7 +7,7 @@ import { pascalCase } from '../../repo/names.js';
 import { OURS, read, type PrepChange } from '../../repo/plan.js';
 import { ROUGH_DIR, STATE_DIR } from '../../repo/root.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
-import type { PreviewPlan, Recipe } from '../types.js';
+import type { PreviewPlan, Recipe, RecipeEdit } from '../types.js';
 import {
   ENTRY,
   FIXTURE,
@@ -24,6 +24,19 @@ import {
 } from './preview.js';
 import { SNAPSHOT_SCRIPT, SNAPSHOT_SCRIPT_CONTENT, isOurSnapshotScript } from './snapshots.js';
 import { moduleFromApp, modulePointer } from '../modules/pointer.js';
+import { hasMapFile } from '../../map/file.js';
+import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import {
+  CONTEXT_DIR,
+  CONTEXT_MODULES,
+  METRO_CONFIG,
+  contextFiles,
+  isOwnMetroConfig,
+  planMetroConfig,
+  undoMetroConfig,
+  wrapperFiles,
+  writeContext
+} from './context.js';
 import { discoverExpo } from './discover.js';
 
 /** Metro's port, on this machine only (`--localhost` binds it to loopback). */
@@ -257,6 +270,26 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
       after: currentPreviewRegistry(repo)
     });
   }
+  // The in-page view's switch (B5b), for a mapped app only: its files and metro.config's block.
+  if (hasMapFile(repo)) {
+    for (const item of contextFiles()) {
+      const current = read(repo, item.file);
+      if (current === item.content) continue;
+      changes.push({
+        file: item.file,
+        action: current === null ? 'create' : 'edit',
+        summary:
+          current === null
+            ? 'Add the in-page view’s switch for the web target, development only.'
+            : 'Update the in-page view’s switch.',
+        after: item.content
+      });
+    }
+    const metro = planMetroConfig(repo);
+    if (metro && 'manual' in metro) manual.push(metro.manual);
+    else if (metro) changes.push(metro);
+    gitWanted.push(`/${CONTEXT_DIR}/`);
+  }
   const script = read(repo, `${ROUGH_DIR}/${SNAPSHOT_SCRIPT}`);
   if (script !== SNAPSHOT_SCRIPT_CONTENT && (script === null || isOurSnapshotScript(script))) {
     changes.push({
@@ -267,6 +300,24 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
     });
   }
   return { changes, manual, ignoredFromBuild, gitWanted };
+}
+
+/** The switch's files on disk, and metro.config.js when the switch wrote it whole. */
+function contextSetupFiles(repo: string): string[] {
+  const files = hasMapFile(repo)
+    ? contextFiles().map(item => item.file)
+    : contextFiles()
+        .map(item => item.file)
+        .filter(file => read(repo, file) !== null);
+  return isOwnMetroConfig(read(repo, METRO_CONFIG)) ? [...files, METRO_CONFIG] : files;
+}
+
+/** metro.config's block, in a config of the app's own. */
+function metroEdits(repo: string): RecipeEdit[] {
+  const text = read(repo, METRO_CONFIG);
+  return text !== null && !isOwnMetroConfig(text)
+    ? [{ file: METRO_CONFIG, undo: undoMetroConfig }]
+    : [];
 }
 
 const SETUP_NOTES = `This repo is on Expo with Expo Router, which has a recipe: roughbook init writes the
@@ -282,14 +333,19 @@ simulator, and takes the screen per shot (snapshot), and opens one key there (de
 that setup; change it only where this app's root layout, providers or theme need it (the wrapper is
 the place for providers), and keep recipe: expo so the studio keeps maintaining the registry. On the
 web target the app's own useColorScheme follows the browser, which the studio's screenshots emulate;
-a theme the app keeps itself should read the roughbook-scheme parameter in the wrapper.`;
+a theme the app keeps itself should read the roughbook-scheme parameter in the wrapper. For a mapped app, the in-page
+view's switch lives in rough/_context/ (development only, gitignored) and metro.config.js hands Metro's config to it:
+on the web target alone, the app's imports of an adopted component resolve to a wrapper that marks it and, for
+?roughbook-swap=<page>/<component>/<iteration>, renders the iteration in its place with the same props. Native
+screens show components alone.`;
 
 export const expo: Recipe = {
   id: 'expo',
   name: 'Expo',
   // 2: the root layout's edit keeps every hook on every render, and uninstall reverses it.
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
-  version: 3,
+  // 4: the in-page view's switch on the web target, and metro.config's block (brownfield B5b).
+  version: 4,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {
@@ -347,10 +403,32 @@ export const expo: Recipe = {
   discover: discoverExpo,
   pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: ENTRY, fixture: FIXTURE }),
-  setupFiles: (_repo, link) => (link.appDir ? [previewRouteFile(link.appDir)] : []),
-  // The root layout's edit, which uninstall reverses exactly.
-  edits: (_repo, link) =>
-    link.appDir ? [{ file: `${link.appDir}/_layout.tsx`, undo: undoLayout }] : [],
+  setupFiles: (repo, link) =>
+    link.appDir
+      ? [previewRouteFile(link.appDir), ...contextSetupFiles(repo), ...wrapperFiles(repo)]
+      : [],
+  // The root layout's edit, which uninstall reverses exactly, and metro.config's block.
+  edits: (repo, link) =>
+    link.appDir
+      ? [{ file: `${link.appDir}/_layout.tsx`, undo: undoLayout }, ...metroEdits(repo)]
+      : [],
+  contextPreview: {
+    files: repo => contextSetupFiles(repo),
+    edits: repo => metroEdits(repo),
+    generated: [CONTEXT_MODULES],
+    missing: (repo, link) => {
+      if (!link.appDir || !hasMapFile(repo)) return [];
+      const absent = contextFiles()
+        .map(item => item.file)
+        .filter(file => read(repo, file) === null);
+      const config = read(repo, METRO_CONFIG);
+      return config === null || (!isOwnMetroConfig(config) && undoMetroConfig(config) === null)
+        ? [...absent, METRO_CONFIG]
+        : absent;
+    },
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL
+  },
   agentRules:
     environment => `- \`${environment.entry}\` is a React Native component, shown through the app's Expo Router on
   its web target in the studio and on a device for final review, so it must run on both: View,
@@ -360,10 +438,12 @@ export const expo: Recipe = {
 `,
   roughTsconfig: repo => (read(repo, 'tsconfig.json') === null ? null : ROUGH_TSCONFIG),
   placeholder: () => PLACEHOLDER,
-  generatedFiles: [`${ROUGH_DIR}/${REGISTRY_FILE}`],
-  importAllowed: link => (link.appDir ? [`${link.appDir}/${PREVIEW_ROUTE}`] : []),
+  generatedFiles: [`${ROUGH_DIR}/${REGISTRY_FILE}`, CONTEXT_MODULES],
+  // metro.config hands Metro's config to the switch in rough/_context/, in development only.
+  importAllowed: link => (link.appDir ? [`${link.appDir}/${PREVIEW_ROUTE}`, METRO_CONFIG] : []),
   syncPreview: repo => {
     writePreviewRegistry(repo);
+    if (hasMapFile(repo)) writeContext(repo);
   },
   pullTransform: (_file, text) => text,
   promoteDefault: (componentsDir, componentName) =>
