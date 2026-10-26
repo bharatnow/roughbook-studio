@@ -88,6 +88,11 @@ export type ContextPreview = {
   ): string;
   /** The text every file of the switch holds, which no production build may: the gate's sentinel. */
   sentinel: string;
+  /**
+   * The page is drawn in the browser (a single-page app, as Vite's): the HTML the server sends
+   * holds none of the markers, so doctor reads them from the page the browser shows.
+   */
+  browser?: boolean;
 };
 
 /** What a recipe's preview setup adds to `init`'s plan. */

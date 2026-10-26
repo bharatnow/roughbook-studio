@@ -785,13 +785,19 @@ export async function probePreview({
   });
   var expected = ${JSON.stringify(expect ?? null)};
   var text = document.body ? document.body.innerText : '';
+  var markers = [];
+  document.querySelectorAll('roughbook-section').forEach(function (element) {
+    var html = element.outerHTML;
+    markers.push(html.slice(0, html.indexOf('>') + 1));
+  });
   return JSON.stringify({
     shows: expected === null || text.indexOf(expected) !== -1,
     ready: window.__roughbookReady === true,
     error: window.__roughbookError === undefined ? null : String(window.__roughbookError),
     visibleOverlays: visible,
     text: text.slice(0, 200000),
-    path: location.pathname
+    path: location.pathname,
+    markers: markers.slice(0, 500)
   });
 })()`;
   const kept = browserFor(browser);

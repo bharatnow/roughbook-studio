@@ -33,6 +33,9 @@
       "scaffold": "create-vite",
       "version": "9.3.1",
       "args": ["--template", "react-ts", "--no-interactive"],
+      "overlay": "vite",
+      "map": true,
+      "inPage": ["home/pricing"],
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npm run dev -- --port {port} --strictPort"
     },

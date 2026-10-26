@@ -1,0 +1,28 @@
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  text-align: left;
+}
+
+.hero h1 {
+  margin: 0 0 8px;
+}
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.plan {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.faq dt {
+  font-weight: 600;
+  margin-top: 16px;
+}

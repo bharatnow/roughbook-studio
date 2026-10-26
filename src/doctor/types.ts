@@ -80,6 +80,11 @@ export type Probe = {
    * browser on, as a sign-in guard does, which ends the wait at once. Absent when nothing loaded.
    */
   path?: string;
+  /**
+   * The opening tag of each in-page view's marker on the page (`<roughbook-section …>`), as the
+   * browser holds them once settled: a page drawn in the browser sent none of them (B5b).
+   */
+  markers?: string[];
 };
 
 /** A process the runtime gate started, answering at its address until stopped. */

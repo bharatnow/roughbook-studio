@@ -232,18 +232,18 @@ describe('map-context', () => {
     const none = await check(root, tools().tools);
     assert.equal(none.status, 'skip');
     assert.match(none.detail, /no adopted section has an iteration yet/);
-    const vite = await contextCheck({
+    const shopify = await contextCheck({
       repoRoot: root,
       environment: next.environment(LINK),
-      recipe: recipeFor('vite'),
+      recipe: recipeFor('shopify'),
       tools: tools().tools,
       base: DEV,
       shotsDir: root,
       gate: null,
       link: LINK
     });
-    assert.equal(vite.status, 'skip');
-    assert.match(vite.detail, /has no in-page view yet/);
+    assert.equal(shopify.status, 'skip');
+    assert.match(shopify.detail, /has no in-page view yet/);
   });
 
   it('reads a marker by its key and the iteration it says it swapped in', () => {

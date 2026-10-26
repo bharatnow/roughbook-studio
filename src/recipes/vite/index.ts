@@ -1,6 +1,8 @@
 // Vite with React (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Recipes", 2nd in the launch order): live, through
 // an extra HTML entry Vite serves in development and leaves out of its build. F3 proved the setup
 // on a fresh create-vite app built by the setup run; this recipe writes the same without an agent.
+import fs from 'node:fs';
+import path from 'node:path';
 import type { RepoEnvironment } from '../../environment/types.js';
 import type { RepoLink } from '../../repo/link.js';
 import { pascalCase } from '../../repo/names.js';
@@ -21,8 +23,31 @@ import {
 } from './preview.js';
 import { moduleFromApp, modulePointer } from '../modules/pointer.js';
 import { discoverVite } from './discover.js';
+import { hasMapFile } from '../../map/file.js';
+import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import {
+  CONTEXT_MODULES,
+  contextFiles,
+  isOurContextFile,
+  planViteConfig,
+  undoViteConfig,
+  viteConfigFile,
+  writeContext
+} from './context.js';
 
 const PORT = 5173;
+
+/** The in-page view's files that are in the repo, wherever they came from, for uninstall. */
+function contextOnDisk(repo: string): string[] {
+  return contextFiles()
+    .map(item => item.file)
+    .filter(file => fs.existsSync(path.join(repo, ...file.split('/'))));
+}
+
+function configEdits(repo: string) {
+  const file = viteConfigFile(repo);
+  return file ? [{ file, undo: undoViteConfig }] : [];
+}
 
 /**
  * rough/tsconfig.json: the app's own settings (create-vite keeps them in tsconfig.app.json, which
@@ -88,12 +113,32 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const tailwind = planTailwindSource(repo, ['src', 'src/styles', 'styles']);
   if (tailwind && 'manual' in tailwind) manual.push(tailwind.manual);
   else if (tailwind) changes.push(tailwind);
-  return {
-    changes,
-    manual,
-    ignoredFromBuild: [],
-    gitWanted: [`/${PAGE}`, `/${ROUGH_DIR}/${ENTRY_SCRIPT}`]
-  };
+  const gitWanted = [`/${PAGE}`, `/${ROUGH_DIR}/${ENTRY_SCRIPT}`];
+  // The in-page view (B5b), for a mapped repo alone: its plugin and wrapper, and vite.config's edit.
+  if (hasMapFile(repo)) {
+    for (const own of contextFiles()) {
+      const current = read(repo, own.file);
+      if (current === own.content) continue;
+      if (current !== null && !isOurContextFile(current)) {
+        manual.push(`${own.file} exists and was not written by Roughbook, so it was left alone.`);
+        continue;
+      }
+      changes.push({
+        file: own.file,
+        action: current === null ? 'create' : 'edit',
+        summary:
+          current === null
+            ? 'Add the in-page view, which shows an iteration in its real page in development.'
+            : `Update ${own.file}.`,
+        after: own.content
+      });
+    }
+    const config = planViteConfig(repo);
+    if (config && 'manual' in config) manual.push(config.manual);
+    else if (config) changes.push(config);
+    gitWanted.push(...contextFiles().map(item => `/${item.file}`), `/${CONTEXT_MODULES}`);
+  }
+  return { changes, manual, ignoredFromBuild: [], gitWanted };
 }
 
 const SETUP_NOTES = `This repo is on Vite with React, which has a recipe: roughbook init writes ${PAGE} at the
@@ -112,7 +157,8 @@ export const vite: Recipe = {
   id: 'vite',
   name: 'Vite with React',
   // 2: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
-  version: 2,
+  // 3: the in-page view's plugin and wrapper, and vite.config's edit (brownfield B5b).
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -169,7 +215,30 @@ export const vite: Recipe = {
   discover: discoverVite,
   pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: ENTRY, fixture: FIXTURE }),
-  setupFiles: () => [PAGE],
+  setupFiles: repo => [
+    ...new Set([
+      PAGE,
+      ...(hasMapFile(repo) ? contextFiles().map(item => item.file) : []),
+      ...contextOnDisk(repo)
+    ])
+  ],
+  edits: configEdits,
+  contextPreview: {
+    files: () => contextFiles().map(item => item.file),
+    edits: configEdits,
+    generated: [CONTEXT_MODULES],
+    missing: repo => {
+      const absent = contextFiles()
+        .map(item => item.file)
+        .filter(file => !fs.existsSync(path.join(repo, ...file.split('/'))));
+      const config = viteConfigFile(repo);
+      const text = config ? read(repo, config) : null;
+      return text !== null && undoViteConfig(text) === null ? [...absent, config!] : absent;
+    },
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL,
+    browser: true
+  },
   agentRules:
     environment => `- \`${environment.entry}\` renders in the browser through the app's own Vite dev server, so
   state, effects and browser APIs are fine. Style it as the app does: its global classes, a
@@ -177,9 +246,11 @@ export const vite: Recipe = {
 `,
   roughTsconfig,
   placeholder: () => PLACEHOLDER_INDEX,
-  generatedFiles: [],
+  generatedFiles: [CONTEXT_MODULES],
   importAllowed: () => [PAGE],
-  syncPreview: () => {},
+  syncPreview: repo => {
+    if (hasMapFile(repo)) writeContext(repo);
+  },
   pullTransform: (_file, text) => text,
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${pascalCase(componentName)}.tsx`,

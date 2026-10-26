@@ -98,6 +98,35 @@ async function askUntil(
   }
 }
 
+/**
+ * The same for a page drawn in the browser (B5b): its markers as the browser holds them once
+ * settled, and when they do not show, what the page threw. Status 200 once the page loaded.
+ */
+async function seeUntil(
+  tools: DoctorTools,
+  url: string,
+  timeoutMs: number,
+  overlays: string[],
+  shows: (html: string) => boolean
+): Promise<{ status: number | null; html: string; shown: boolean; why?: string }> {
+  const deadline = tools.now() + timeoutMs;
+  for (;;) {
+    const probe = await tools.probe({ url, overlays, timeoutMs, waitMs: PAGE_WAIT_MS });
+    const html = (probe.markers ?? []).join('\n');
+    if (shows(html)) return { status: 200, html, shown: true };
+    if (tools.now() >= deadline) {
+      const why = probe.error ?? probe.exceptions[0];
+      return {
+        status: probe.path === undefined ? null : 200,
+        html,
+        shown: false,
+        ...(why ? { why } : {})
+      };
+    }
+    await tools.sleep(500);
+  }
+}
+
 /** The map-context check. */
 export async function contextCheck(input: ContextCheckInput): Promise<CheckResult> {
   const { repoRoot, environment, recipe, tools } = input;
@@ -147,6 +176,18 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
     );
   }
   const previewMs = environment.timeouts.preview * 1000;
+  if (hook.browser && !tools.browser) {
+    return result(
+      'map-context',
+      'skip',
+      'Not checked: this app draws its pages in the browser, and no browser was found to read their markers.'
+    );
+  }
+  // The page as the server sent it, or, for a page drawn in the browser, as the browser shows it.
+  const ask = (url: string, shows: (html: string) => boolean) =>
+    hook.browser
+      ? seeUntil(tools, url, previewMs, environment.overlays, shows)
+      : askUntil(tools, url, previewMs, shows);
   const failures: string[] = [];
   const named: string[] = [];
   let swaps = 0;
@@ -160,20 +201,18 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
     }
     const url = (swap: string | null) => `${input.base}${hook.address(address, swap)}`;
     // Without a swap: the app's own component, marked, the first ask compiling the page.
-    const plain = await askUntil(tools, url(null), previewMs, html =>
-      hasMarker(html, section.key, null)
-    );
+    const plain = await ask(url(null), html => hasMarker(html, section.key, null));
     if (!plain.shown) {
       failures.push(
         plain.status === 200
-          ? `${section.key}: ${address} shows no marker naming it`
+          ? `${section.key}: ${address} shows no marker naming it${'why' in plain && plain.why ? ` (${plain.why})` : ''}`
           : `${section.key}: ${address} answered ${plain.status === null ? 'nothing' : `HTTP ${plain.status}`}`
       );
       continue;
     }
     pages.set(address, [...(pages.get(address) ?? []), section]);
     for (const iteration of section.iterations) {
-      const asked = await askUntil(tools, url(iteration.key), previewMs, html =>
+      const asked = await ask(url(iteration.key), html =>
         hasMarker(html, section.key, iteration.key)
       );
       if (asked.shown) {
@@ -182,7 +221,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
       }
       failures.push(
         asked.status === 200
-          ? `${iteration.key}: ${hook.address(address, iteration.key)} did not show it in its marker`
+          ? `${iteration.key}: ${hook.address(address, iteration.key)} did not show it in its marker${'why' in asked && asked.why ? ` (${asked.why})` : ''}`
           : `${iteration.key}: ${hook.address(address, iteration.key)} answered ${asked.status === null ? 'nothing' : `HTTP ${asked.status}: ${firstLine(asked.html)}`}`
       );
     }
