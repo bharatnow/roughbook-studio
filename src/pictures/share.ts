@@ -10,11 +10,19 @@ import path from 'node:path';
 import { picturePath, type StudioApi } from '../api/client.js';
 import { describeError, OfflineError } from '../api/errors.js';
 import { sha256, type Outbox } from '../api/outbox.js';
-import { PICTURE_KINDS, type PictureKind, type ProjectTree } from '../api/types.js';
+import {
+  PAGE_PICTURE_KINDS,
+  PICTURE_KINDS,
+  type PictureKind,
+  type ProjectTree
+} from '../api/types.js';
 import type { RepoEnvironment, Viewport } from '../environment/types.js';
 import { readJson, writeJsonAtomic } from '../fs/json.js';
-import { isDynamic } from '../map/file.js';
-import type { MapPage } from '../map/types.js';
+import { BASELINE } from '../map/adopt.js';
+import { isDynamic, readMap } from '../map/file.js';
+import type { MapPage, RepoMap } from '../map/types.js';
+import { contextAddress, contextSections } from '../recipes/context.js';
+import { recipeFor } from '../recipes/index.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { findBrowser, takePicture, type ScreenshotSize } from '../screenshot/browser.js';
 import { iterationHash, screenshotIteration, type Shots } from '../screenshot/iteration.js';
@@ -64,7 +72,20 @@ export function picturesDir(subject: PictureSubject): string {
     : `${ROUGH_DIR}/.screenshots/.pages/${subject.page}`;
 }
 
+/** What an iteration in its page is pictured at: full length, at the desktop and phone viewports. */
+export function inPageSizes(
+  viewports: Viewport[]
+): { kind: PictureKind; size: ScreenshotSize; full: boolean }[] {
+  const [, desktop, phone] = pictureSizes(viewports);
+  return [
+    { kind: 'page-desktop', size: desktop!.size, full: true },
+    { kind: 'page-phone', size: phone!.size, full: true }
+  ];
+}
+
 const MANIFEST = 'pictures.json';
+/** The in-page pictures' own manifest, beside the pictures alone: each is retaken on its own. */
+const PAGE_MANIFEST = 'in-page.json';
 
 type Manifest = { hash: string; files: Partial<Record<PictureKind, string>> };
 
@@ -115,23 +136,26 @@ async function share(
   subject: PictureSubject,
   url: string,
   hash: string,
-  waitMs?: number
+  waitMs?: number,
+  inPage = false
 ): Promise<PictureReport> {
   const { repoRoot } = input;
   const dir = picturesDir(subject);
   const disk = (file: string) => path.join(repoRoot, ...file.split('/'));
-  const manifestFile = disk(`${dir}/${MANIFEST}`);
+  const manifestFile = disk(`${dir}/${inPage ? PAGE_MANIFEST : MANIFEST}`);
+  const kinds = inPage ? PAGE_PICTURE_KINDS : PICTURE_KINDS;
+  const sizes = (inPage ? inPageSizes : pictureSizes)(input.environment.viewports as Viewport[]);
   const manifest = await readJson<Manifest>(manifestFile);
   let files: Manifest['files'] = {};
   const fresh =
     !input.force &&
     manifest?.hash === hash &&
-    PICTURE_KINDS.every(kind => manifest.files[kind] && fs.existsSync(disk(manifest.files[kind]!)));
+    kinds.every(kind => manifest.files[kind] && fs.existsSync(disk(manifest.files[kind]!)));
   const missed: PictureKind[] = [];
   if (fresh) {
     files = manifest.files;
   } else {
-    for (const { kind, size, full } of pictureSizes(input.environment.viewports as Viewport[])) {
+    for (const { kind, size, full } of sizes) {
       const bytes = await input.shoot({
         url,
         size,
@@ -155,7 +179,7 @@ async function share(
   }
   const report = empty();
   const problems: string[] = missed.length ? [`no ${missed.join(' or ')} picture came out`] : [];
-  for (const kind of PICTURE_KINDS) {
+  for (const kind of kinds) {
     const file = files[kind];
     if (!file) continue;
     const bytes = fs.readFileSync(disk(file));
@@ -199,6 +223,60 @@ export async function shareIterationPictures(
   const refusal = tree ? pictureRefusal(tree, target) : null;
   if (refusal) return empty(refusal);
   return share(input, target, url, hash);
+}
+
+/**
+ * Where an adopted component's iteration is seen in its page (B5), on the app at `base`: the page
+ * with the swap, as the frame's "In its page" asks it; and what those pictures show, the
+ * iteration's files and the app's files of the page and the component, so they are retaken when
+ * the app's source changes, as a baseline's are. Null for a baseline (it is the page itself), for a
+ * recipe with no in-page view, and for a section no page at a fixed address shows.
+ */
+export function inPageTarget(
+  repoRoot: string,
+  environment: Pick<RepoEnvironment, 'recipe' | 'entry' | 'viewports' | 'variants' | 'overlays'>,
+  target: { page: string; component: string; iteration: string },
+  base: string
+): { url: string; hash: string } | null {
+  if (target.iteration === BASELINE) return null;
+  const hook = recipeFor(environment.recipe)?.contextPreview;
+  if (!hook) return null;
+  let map: RepoMap | undefined;
+  try {
+    map = readMap(repoRoot)?.map;
+  } catch {
+    return null;
+  }
+  if (!map) return null;
+  const section = contextSections(repoRoot, environment.entry, map).find(
+    item => item.page === target.page && item.component === target.component
+  );
+  const key = `${target.page}/${target.component}/${target.iteration}`;
+  if (!section?.iterations.some(item => item.key === key)) return null;
+  const address = contextAddress(map, section);
+  if (!address) return null;
+  const page = map.pages.find(item => item.slug === target.page);
+  const sources = [...(page?.files ?? []), ...section.source.files];
+  const hash = iterationHash(repoRoot, target, environment, sources);
+  if (!hash) return null;
+  return {
+    url: new URL(hook.address(address, key), base.endsWith('/') ? base : `${base}/`).toString(),
+    hash: sha256(Buffer.from(`in-page\0${address}\0${hash}`))
+  };
+}
+
+/** An adopted component's iteration in its page: its page-desktop and page-phone pictures (decision 43). */
+export async function shareInPagePictures(
+  input: ShareInput,
+  target: { page: string; component: string; iteration: string },
+  url: string,
+  hash: string
+): Promise<PictureReport> {
+  const tree = await projectOf(input);
+  if (tree === 'refused') return empty('PROJECT_UNREADABLE');
+  const refusal = tree ? pictureRefusal(tree, target) : null;
+  if (refusal) return empty(refusal);
+  return share({ ...input, tree }, target, url, hash, PAGE_WAIT_MS, true);
 }
 
 /** The address an adopted page is pictured at, or why it is not (decision 13 and 14). */
@@ -292,7 +370,14 @@ export async function picturesAfterShots(
     iterationHash(input.repoRoot, target, input.environment)
   );
   const label = `${target.page}/${target.component}/${target.iteration}`;
-  return [describePictures(label, report), report.warning].filter(Boolean).join(' ') || null;
+  const lines = [describePictures(label, report), report.warning];
+  // In its page too, with the swap, where the recipe has the in-page view (B5).
+  const inPage = inPageTarget(input.repoRoot, input.environment, target, new URL(url).origin);
+  if (inPage && report.skipped === null) {
+    const shown = await shareInPagePictures({ ...input, shoot }, target, inPage.url, inPage.hash);
+    lines.push(describePictures(`${label} in its page`, shown), shown.warning);
+  }
+  return lines.filter(Boolean).join(' ') || null;
 }
 
 /** One line for the terminal: what went up, or why not. Null when there is nothing to say. */

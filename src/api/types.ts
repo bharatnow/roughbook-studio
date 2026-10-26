@@ -151,10 +151,17 @@ export type Adopted = {
   }[];
 };
 
-/** The three pictures the studio uploads of an iteration or an adopted page (decision 21). */
-export type PictureKind = 'thumbnail' | 'desktop' | 'phone';
+/**
+ * The pictures the studio uploads: three of an iteration alone or of an adopted page (decision
+ * 21), and two of an adopted component's iteration in its page, with the swap (decision 43).
+ */
+export type PictureKind = 'thumbnail' | 'desktop' | 'phone' | 'page-desktop' | 'page-phone';
 
+/** The pictures of an iteration alone, or of an adopted page. */
 export const PICTURE_KINDS: readonly PictureKind[] = ['thumbnail', 'desktop', 'phone'];
+
+/** The pictures of an iteration in its page (B5), where its recipe has the in-page view. */
+export const PAGE_PICTURE_KINDS: readonly PictureKind[] = ['page-desktop', 'page-phone'];
 
 /** `PUT …/pictures/:kind`: what the backend kept, after re-encoding it. */
 export type StoredPicture = { kind: PictureKind; width: number; height: number; updatedAt: string };
