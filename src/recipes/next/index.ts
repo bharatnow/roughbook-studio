@@ -60,7 +60,7 @@ export const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsco
   "extends": "../tsconfig.json",
   "compilerOptions": { "tsBuildInfoFile": "${STATE_DIR}/tsconfig.tsbuildinfo" },
   "include": ["../next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": []
+  "exclude": ["**/.base/**"]
 }
 `;
 
@@ -165,7 +165,8 @@ export const next: Recipe = {
   id: 'next',
   name: 'Next.js',
   // 2: the route applies the variant the studio asks for in the address (F4).
-  version: 2,
+  // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {

@@ -692,6 +692,29 @@ describe('a run from the app', () => {
       ['UNCHANGED_FROM_PARENT']
     );
   });
+
+  it('sets line endings aside: a copy with its line breaks turned over is unchanged (decision 39)', async () => {
+    const { repo, api } = await adopted([started('iteration-01', RUN_A, PROMPT, CHECKS)]);
+    const [run] = await startRuns(repo, api, LINK, FORK);
+    const sources = recipeFor('next')!.environment(LINK).sources;
+    const file = 'rough/pricing/pricing-section/iteration-01/pricing-section.tsx';
+    write(repo, file, read(repo, file).replace(/\n/g, '\r\n'));
+    assert.deepEqual(
+      checkIteration(repo, run!, sources).warnings.map(item => item.code),
+      ['UNCHANGED_FROM_PARENT']
+    );
+    // And for a studio iteration's parent, read as it is.
+    const parent = new Map([['index.tsx', 'a\r\nb\r\n']]);
+    const same = applyChecks([{ kind: 'changed-from-parent', parent: 'iteration-01' }], {
+      iterationId: 'iteration-02',
+      files: new Map([['index.tsx', 'a\nb\n']]),
+      parentFiles: parent
+    });
+    assert.deepEqual(
+      same.warnings.map(item => item.code),
+      ['UNCHANGED_FROM_PARENT']
+    );
+  });
 });
 
 describe('.base/ is left out', () => {
@@ -757,14 +780,12 @@ describe('a child the agent copies in', () => {
     ]);
     await startRuns(repo, api, LINK, FORK);
     const folder = 'rough/pricing/pricing-section/iteration-01';
-    // The agent copies the plan card in to change it, and imports the copy.
+    // The agent copies the plan card in and rewrites all of it, as B3's live cards fork did, and
+    // imports the copy: named as a file the original imports, it is a child (decision 39).
     write(
       repo,
       `${folder}/plan-card.tsx`,
-      read(repo, 'components/pricing/plan-card.tsx').replace(
-        'className="card"',
-        'className="card tight"'
-      )
+      'export function PlanCard({ plan }: { plan: { name: string } }) {\n  return <article>{plan.name}</article>;\n}\n'
     );
     write(
       repo,
@@ -776,8 +797,10 @@ describe('a child the agent copies in', () => {
     );
     // And copies the heading, which it names in its report.
     write(repo, `${folder}/parts/heading.tsx`, 'export function Heading() { return null; }\n');
-    // A new file of its own that shares a name with one of the app's is no copy of it.
+    // A file named as one the original imports is a child whatever it kept of it (decision 39).
     write(repo, `${folder}/pricing.css`, '.tight { gap: 4px }\n');
+    // A new file named as nothing of the app's is the iteration's own.
+    write(repo, `${folder}/toggle.tsx`, 'export function Toggle() { return null; }\n');
     // The app's plan card changes after the fork: the base keeps it as the fork's commit had it.
     const original = read(repo, 'components/pricing/plan-card.tsx');
     write(repo, 'components/pricing/plan-card.tsx', `${original}// later\n`);
@@ -787,6 +810,7 @@ describe('a child the agent copies in', () => {
     });
     assert.deepEqual(finished.children, [
       'components/pricing/plan-card.tsx',
+      'components/pricing/pricing.css',
       'components/ui/heading.tsx'
     ]);
     const base = readBase(repo, folder)!;
@@ -794,6 +818,7 @@ describe('a child the agent copies in', () => {
       base.children.map(child => [child.path, child.copy]),
       [
         ['components/pricing/plan-card.tsx', 'plan-card.tsx'],
+        ['components/pricing/pricing.css', 'pricing.css'],
         ['components/ui/heading.tsx', 'parts/heading.tsx']
       ]
     );

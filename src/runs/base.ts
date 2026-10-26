@@ -288,31 +288,44 @@ function importedByOriginals(repoRoot: string, record: BaseRecord, relative: str
   return [...found];
 }
 
+/** Text with its line endings set aside: what drift and `changed-from-parent` compare (decision 39). */
+export function withoutLineEndings(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
+/** Whether two texts are the same once their line endings are set aside. */
+export function sameText(a: string | Buffer, b: string | Buffer): boolean {
+  return withoutLineEndings(a.toString()) === withoutLineEndings(b.toString());
+}
+
+/** Whether `text` is what `hash` was taken of, with its line endings either way. */
+export function sameHash(hash: string | undefined, text: string): boolean {
+  if (hash === undefined) return false;
+  const unix = withoutLineEndings(text);
+  return [text, unix, unix.replace(/\n/g, '\r\n')].some(form => sha256(form) === hash);
+}
+
 /**
- * Whether `copy` reads as a changed copy of the app's `file` rather than a new file that shares
- * its name: a third or more of the original's lines are in it, however it was changed.
+ * `text` with the line endings `like` uses, so a write back keeps the app file's own (decision
+ * 39): Windows ones when most of its line breaks are, else Unix ones. Text with no line break to
+ * go by, or a `like` without one, is left as it is.
  */
-function looksCopied(repoRoot: string, file: string, copy: string): boolean {
-  const lines = (relative: string) =>
-    new Set(
-      (readBytes(repoRoot, relative)?.toString('utf8') ?? '')
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line.length > 2)
-    );
-  const original = lines(file);
-  if (!original.size) return false;
-  const copied = lines(copy);
-  return [...original].filter(line => copied.has(line)).length * 3 >= original.size;
+export function inLineEndingsOf(text: string, like: string): string {
+  const breaks = like.match(/\n/g)?.length ?? 0;
+  if (!breaks || !/\n/.test(text)) return text;
+  const windows = like.match(/\r\n/g)?.length ?? 0;
+  const unix = withoutLineEndings(text);
+  return windows * 2 > breaks ? unix.replace(/\n/g, '\r\n') : unix;
 }
 
 /**
  * Records the child components the agent copied into a fork from the app (decision 32): those it
- * reported, by repository path, and those found without a word: a new file in the iteration named
- * as one of the map's other components' files, or as a file the component imports, that keeps a
- * third or more of the original's lines (a new file of the same name is not a copy). Each is kept in
- * `.base/` as the fork's commit has it (or as it is now, outside git), and listed in
- * `.base/base.json` for B4. Returns the children recorded this time.
+ * reported, by repository path, and those found without a word: a file in the iteration named as
+ * one of the map's other components' files, or as a file the component's originals import by a
+ * relative path, whatever share of the original's lines it kept (decision 39: the cards fork of
+ * B3's live run rewrote most of its plan card). Each is kept in `.base/` as the fork's commit has
+ * it (or as it is now, outside git), and listed in `.base/base.json` for B4. A promote looks for
+ * them again at its start. Returns the children recorded this time.
  */
 export async function recordChildren(
   repoRoot: string,
@@ -342,9 +355,7 @@ export async function recordChildren(
   const candidates = new Map<string, string | null>();
   for (const file of [...others, ...importedByOriginals(repoRoot, record, relative)]) {
     const copy = byName.get(name(file));
-    if (copy && !candidates.has(file) && looksCopied(repoRoot, file, `${relative}/${copy}`)) {
-      candidates.set(file, copy);
-    }
+    if (copy && !candidates.has(file)) candidates.set(file, copy);
   }
   for (const raw of reported) {
     const file = raw.replace(/\\/g, '/').replace(/^\.\//, '');

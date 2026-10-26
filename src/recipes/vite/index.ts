@@ -38,7 +38,7 @@ function roughTsconfig(repo: string): string | null {
   "extends": "../${base}",
   "compilerOptions": { "tsBuildInfoFile": "${STATE_DIR}/tsconfig.tsbuildinfo", "types": ["vite/client"] },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": []
+  "exclude": ["**/.base/**"]
 }
 `;
 }
@@ -111,7 +111,8 @@ providers main.tsx puts around the app. Keep recipe: vite so the studio keeps th
 export const vite: Recipe = {
   id: 'vite',
   name: 'Vite with React',
-  version: 1,
+  // 2: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {

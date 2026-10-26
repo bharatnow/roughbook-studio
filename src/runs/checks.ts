@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
-import { fromTheApp, readBase, sha256 } from './base.js';
+import { fromTheApp, readBase, sameHash, sameText } from './base.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
 import { nativeFloorFindings, unescapeNative } from './nativeFloor.js';
@@ -148,10 +148,15 @@ function parentFindings(parentId: string, subject: CheckSubject): Finding[] {
   const parent = subject.parentFiles;
   const hashes = subject.parentHashes;
   if (parent || hashes) {
+    // Line endings set aside: an editor or a checkout that turns them over changes nothing.
     const same = hashes
       ? own.size === hashes.size &&
-        [...own].every(([name, text]) => hashes.get(name) === sha256(text))
-      : own.size === parent!.size && [...own].every(([name, text]) => parent!.get(name) === text);
+        [...own].every(([name, text]) => sameHash(hashes.get(name), text))
+      : own.size === parent!.size &&
+        [...own].every(([name, text]) => {
+          const theirs = parent!.get(name);
+          return theirs !== undefined && sameText(theirs, text);
+        });
     if (same) {
       findings.push({
         code: 'UNCHANGED_FROM_PARENT',

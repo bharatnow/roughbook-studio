@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { previewUrl } from '../environment/read.js';
 import { detectFramework } from '../recipes/detect.js';
-import { usesCacheComponents } from '../recipes/next/index.js';
+import { next, ROUGH_TSCONFIG, usesCacheComponents } from '../recipes/next/index.js';
 import {
   previewRouteFiles,
   renderPreviewRegistry,
@@ -148,7 +148,8 @@ describe('preparing a repo', () => {
       // Build info from a `tsc -p rough` stays in the state folder, out of git.
       compilerOptions: { tsBuildInfoFile: '.roughbook/tsconfig.tsbuildinfo' },
       include: ['../next-env.d.ts', '**/*.ts', '**/*.tsx'],
-      exclude: []
+      // A fork's kept base imports the app as it lay in the repo, which does not resolve here (B4).
+      exclude: ['**/.base/**']
     });
     assert.match(read(repo, 'eslint.config.mjs'), /globalIgnores\(\["rough\/\*\*", "\.next\/\*\*"/);
     assert.equal(
@@ -303,6 +304,20 @@ describe('preparing a repo', () => {
       plan.manual.join(' '),
       /rough\/tsconfig\.json exists and was not written by Roughbook/
     );
+  });
+
+  it('rewrites the 0.3.16 rough/tsconfig.json, which still checked the kept bases, on an upgrade', async () => {
+    const repo = await tempRepo({
+      'package.json': '{}',
+      'tsconfig.json': NEXT_TSCONFIG,
+      'src/app/layout.tsx': '',
+      'rough/tsconfig.json': ROUGH_TSCONFIG.replace('"exclude": ["**/.base/**"]', '"exclude": []')
+    });
+    const change = planPrep(repo, { link: LINK }).changes.find(
+      item => item.file === 'rough/tsconfig.json'
+    );
+    assert.equal(change?.action, 'edit');
+    assert.equal(next.version, 3);
   });
 });
 

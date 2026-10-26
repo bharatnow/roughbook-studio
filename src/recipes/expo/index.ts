@@ -35,7 +35,7 @@ const ROUGH_TSCONFIG = `// ${OURS}; it rewrites this file. The app's tsconfig.js
   "extends": "../tsconfig.json",
   "compilerOptions": { "tsBuildInfoFile": "${STATE_DIR}/tsconfig.tsbuildinfo" },
   "include": ["**/*.ts", "**/*.tsx", "../expo-env.d.ts", "../.expo/types/**/*.ts"],
-  "exclude": []
+  "exclude": ["**/.base/**"]
 }
 `;
 
@@ -288,7 +288,8 @@ export const expo: Recipe = {
   id: 'expo',
   name: 'Expo',
   // 2: the root layout's edit keeps every hook on every render, and uninstall reverses it.
-  version: 2,
+  // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {
