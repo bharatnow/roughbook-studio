@@ -308,7 +308,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
   ]
     .filter(Boolean)
     .join('; ');
-  // What the in-page view covers on this stack, when the recipe says (Expo's native screens).
+  // What the in-page view covers on this stack, when the recipe says (a native target that has none).
   const note = hook.note ? ` ${hook.note}` : '';
   return failures.length
     ? result(
