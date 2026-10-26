@@ -453,7 +453,7 @@
       }
     },
     "iteration.promoted": {
-      "description": "An iteration was handed to an agent to write the real component, with the repo's framework.",
+      "description": "An iteration was handed to an agent to write the real component, with the repo's framework, and how it goes into the app: a new component, in place of the app's own, or a merge with the app's changes since the fork.",
       "sentBy": "server",
       "props": {
         "origin": {
@@ -471,6 +471,56 @@
         "roughCommitted": {
           "kind": "boolean",
           "nullable": true
+        },
+        "how": {
+          "kind": "enum",
+          "values": [
+            "new",
+            "in-place",
+            "merge"
+          ]
+        }
+      }
+    },
+    "promotion.finished": {
+      "description": "A promote's agent finished and the studio checked it: how it went into the app, its outcome, how the app's build and the repo's checks went, and whether it was put on a new branch.",
+      "sentBy": "server",
+      "props": {
+        "how": {
+          "kind": "enum",
+          "values": [
+            "new",
+            "in-place",
+            "merge"
+          ]
+        },
+        "outcome": {
+          "kind": "enum",
+          "values": [
+            "done",
+            "conflict",
+            "out-of-scope",
+            "failed"
+          ]
+        },
+        "build": {
+          "kind": "enum",
+          "values": [
+            "passed",
+            "failed",
+            "skipped"
+          ]
+        },
+        "checks": {
+          "kind": "enum",
+          "values": [
+            "passed",
+            "failed",
+            "skipped"
+          ]
+        },
+        "branch": {
+          "kind": "boolean"
         }
       }
     },
