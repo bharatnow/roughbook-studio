@@ -202,6 +202,12 @@ export type Promotion = {
     assetBase?: string;
     rules?: string;
     usage?: string;
+    /**
+     * For an `in-place` or `merge` promote (B4): where the "original ← copy" pairs go, one per
+     * line, and the iteration's `.base/` folder.
+     */
+    promoteFiles?: string;
+    base?: string;
   };
   copyMarkdown: string | null;
   componentName: string;

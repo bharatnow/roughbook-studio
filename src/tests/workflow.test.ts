@@ -25,6 +25,7 @@ import type { TerminalPlan } from '../launch/terminal.js';
 import type { RepoLink } from '../repo/link.js';
 import { defaultComponentFile, withClientDirective } from '../recipes/next/index.js';
 import { checkTargetFile, fillInPrompt, referencedAssets } from '../runs/promote.js';
+import { promoteFinishingSection } from '../runs/promotion.js';
 import { importedPackages } from '../runs/pull.js';
 import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
@@ -1914,14 +1915,16 @@ describe('roughbook promote', () => {
         { scope: 'library', file: 'mark.svg' }
       ],
       // A family token, so the server leaves what the stack decides for this studio to fill (F7).
-      family: 'react-like'
+      family: 'react-like',
+      // A component with no kept base is a new file (B4).
+      how: 'new'
     });
     assert.equal(read(studio.repo, 'public/rough/home/hero/hero.png'), 'PNG-BYTES');
     assert.equal(read(studio.repo, 'rough/home/hero/copy.md'), promotion.copyMarkdown);
     const promptFile = `rough/home/hero/prompts/promote-${PROMOTION}.md`;
     assert.equal(
       read(studio.repo, promptFile),
-      'Write: src/components/Hero.tsx\nRead components near src/components/\n- /api/files/project/site/hero.png -> /rough/home/hero/hero.png (already copied to public/rough/home/hero/hero.png)\n'
+      `Write: src/components/Hero.tsx\nRead components near src/components/\n- /api/files/project/site/hero.png -> /rough/home/hero/hero.png (already copied to public/rough/home/hero/hero.png)\n\n${promoteFinishingSection(PROMOTION, 'new')}`
     );
     const plan = studio.plans[0]!;
     assert.equal(plan.kind, 'spawn');
@@ -2024,7 +2027,7 @@ describe('roughbook promote', () => {
     assert.equal(read(studio.repo, 'public/images/rough/home/hero/hero.png'), 'PNG-BYTES');
     assert.equal(
       read(studio.repo, `rough/home/hero/prompts/promote-${PROMOTION}.md`),
-      `<first>\n${ENVIRONMENT_LINE}\nRead its manifests, how styling is done (stylesheets, a theme\nor design tokens) near resources/views/components/\n</first>\n- The approved copy, word for word, in lang/en/sections.php: add each string there under keys of this component's own, in that file's own format, and use them from the component. Do not rewrite, shorten or add claims.\nReplace each studio URL in the reference with its public path in this repo:\n- /api/files/project/site/hero.png -> /images/rough/home/hero/hero.png (already copied to public/images/rough/home/hero/hero.png)\n- Write resources/views/components/hero.blade.php; do not edit any existing file, except lang/en/sections.php, where the approved copy goes.\n- Do not commit. Then say how to use it: how this stack includes it and what it takes.\n`
+      `<first>\n${ENVIRONMENT_LINE}\nRead its manifests, how styling is done (stylesheets, a theme\nor design tokens) near resources/views/components/\n</first>\n- The approved copy, word for word, in lang/en/sections.php: add each string there under keys of this component's own, in that file's own format, and use them from the component. Do not rewrite, shorten or add claims.\nReplace each studio URL in the reference with its public path in this repo:\n- /api/files/project/site/hero.png -> /images/rough/home/hero/hero.png (already copied to public/images/rough/home/hero/hero.png)\n- Write resources/views/components/hero.blade.php; do not edit any existing file, except lang/en/sections.php, where the approved copy goes.\n- Do not commit. Then say how to use it: how this stack includes it and what it takes.\n\n${promoteFinishingSection(PROMOTION, 'new')}`
     );
     assert.ok(
       studio.io.lines.includes(
@@ -2056,5 +2059,85 @@ describe('roughbook promote', () => {
     assert.equal(await studio.run(['promote', 'home/hero', '--iteration', 'iteration-09']), 1);
     assert.match(studio.io.errors.at(-1)!, /no index\.tsx/);
     assert.ok(!studio.requests.some(request => request.url.endsWith('/promotions')));
+  });
+
+  it('goes on a branch of its own, and done commits only its files there on --commit (B4)', async () => {
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () =>
+        ok({ ...promotion, copyMarkdown: null, assets: [], missingAssets: [] }, 201),
+      [`POST ${PROJECT}/promotions/${PROMOTION}/finish`]: () => ok({ recorded: true })
+    });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=T', ...args], {
+        cwd: studio.repo,
+        encoding: 'utf8'
+      }).trim();
+    write(studio.repo, 'rough/home/hero/iteration-02/index.tsx', 'export default () => null;\n');
+    const start = git('rev-parse', 'HEAD');
+    const from = git('symbolic-ref', '--short', 'HEAD');
+    assert.equal(
+      await studio.run(['promote', 'home/hero', '--branch']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.equal(git('symbolic-ref', '--short', 'HEAD'), 'roughbook/home-hero-iteration-02');
+    assert.ok(
+      studio.io.lines.some(line => /On a new branch, roughbook\/home-hero-iteration-02/.test(line)),
+      studio.io.lines.join('\n')
+    );
+    // The agent writes the new component.
+    write(studio.repo, 'src/components/Hero.tsx', 'export function Hero() { return null; }\n');
+    assert.equal(
+      await studio.run(['done', '--commit', '--no-screenshots']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.equal(git('rev-list', '--count', `${start}..HEAD`), '1');
+    assert.equal(git('show', '--name-only', '--format=', 'HEAD'), 'src/components/Hero.tsx');
+    assert.equal(git('rev-parse', from), start);
+    assert.ok(studio.io.lines.some(line => /\+\+\+ src\/components\/Hero\.tsx/.test(line)));
+    assert.ok(
+      studio.io.lines.some(line =>
+        /Committed 1 file on roughbook\/home-hero-iteration-02/.test(line)
+      )
+    );
+    const finish = studio.requests.find(request => request.url.endsWith('/finish'))!;
+    assert.deepEqual(finish.body, {
+      how: 'new',
+      outcome: 'done',
+      build: 'skipped',
+      checks: 'skipped',
+      branch: true
+    });
+  });
+
+  it("is finished by the agent's finish_run with its promotion, which never commits", async () => {
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () =>
+        ok({ ...promotion, copyMarkdown: null, assets: [], missingAssets: [] }, 201),
+      [`POST ${PROJECT}/promotions/${PROMOTION}/finish`]: () => ok({ recorded: true })
+    });
+    write(studio.repo, 'rough/home/hero/iteration-02/index.tsx', 'export default () => null;\n');
+    assert.equal(await studio.run(['promote', 'home/hero', '--branch', 'design/hero']), 0);
+    write(studio.repo, 'src/components/Hero.tsx', 'export function Hero() { return null; }\n');
+    const mcp = mcpSession(studio);
+    await mcp.start();
+    // With no run open, the one open promote is the one finished.
+    const finished = await mcp.call('finish_run', {});
+    assert.equal(finished.error, false, finished.text);
+    const answer = finished.json as Record<string, unknown>;
+    assert.equal(answer.promotion, PROMOTION);
+    assert.equal(answer.outcome, 'done');
+    assert.deepEqual(answer.changed, ['src/components/Hero.tsx']);
+    assert.equal(answer.commit, 'pending');
+    assert.match(String(answer.next), /the designer decides the commit/);
+    const status = execFileSync('git', ['status', '--porcelain'], {
+      cwd: studio.repo,
+      encoding: 'utf8'
+    });
+    assert.match(status, /\?\? src\/components\//);
+    assert.equal(await mcp.close(), 0);
   });
 });

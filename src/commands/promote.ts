@@ -40,16 +40,80 @@ export function promoteSession(
   };
 }
 
+/**
+ * `--branch` with or without a name (decision 18), which parseArgs cannot take: `--branch=<name>`,
+ * or `--branch <name>` when another word is left for the component; the other arguments as given.
+ */
+export function branchArgument(args: string[]): { branch?: string | true; rest: string[] } {
+  const rest: string[] = [];
+  let branch: string | true | undefined;
+  let named = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg.startsWith('--branch=')) {
+      branch = arg.slice('--branch='.length) || true;
+    } else if (arg === '--branch') {
+      branch = true;
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        branch = next;
+        named = true;
+        i++;
+      }
+    } else {
+      rest.push(arg);
+    }
+  }
+  // `promote --branch home/hero`: the word was the component, and the branch takes its default.
+  if (named && typeof branch === 'string') {
+    const valued = new Set(['--iteration', '--to', '--public', '--agent', '--model']);
+    const positional = rest.filter(
+      (arg, index) => !arg.startsWith('-') && !valued.has(rest[index - 1] ?? '')
+    );
+    if (!positional.length) {
+      rest.unshift(branch);
+      branch = true;
+    }
+  }
+  return { ...(branch !== undefined ? { branch } : {}), rest };
+}
+
+/** What the start found, as the terminal says it: where the change goes, how, and on what branch. */
+export function describeStart(label: string, prepared: PreparedPromotion): string[] {
+  const lines: string[] = [];
+  if (prepared.how === 'new') {
+    lines.push(`Promoting ${label} to ${prepared.targetFile}.`);
+  } else {
+    lines.push(
+      prepared.how === 'merge'
+        ? `Promoting ${label} into the app's own files as a merge: the app changed since the fork, so the agent keeps both changes, or writes nothing and says where they conflict.`
+        : `Promoting ${label} into the app's own files, in place: none changed since the fork.`
+    );
+    for (const target of prepared.targets) {
+      lines.push(
+        `  ${target.path}${target.child ? ' (a child it copied in)' : ''}${target.drifted ? ': changed in the app since the fork' : ''}`
+      );
+    }
+  }
+  if (prepared.branch) {
+    lines.push(
+      `  On a new branch, ${prepared.branch.name}, from ${prepared.branch.from ?? 'the current commit'}; the studio commits there only on your yes, and never pushes.`
+    );
+  }
+  return lines;
+}
+
 export const promote: Command = {
   name: 'promote',
   summary: 'Hand the selected iteration to your agent to write the real component',
   usage:
-    'promote <page>/<component> [--iteration <id>] [--to <file>] [--public <folder>] [--agent <id>]',
+    'promote <page>/<component> [--iteration <id>] [--to <file>] [--branch [<name>]] [--public <folder>] [--agent <id>]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
+    const { branch, rest } = branchArgument(args);
     const { values, positionals } = parseArgs({
-      args,
+      args: rest,
       allowPositionals: true,
       options: {
         iteration: { type: 'string' },
@@ -72,9 +136,10 @@ export const promote: Command = {
       component,
       iteration,
       targetFile: values.to,
-      publicDir: values.public
+      publicDir: values.public,
+      ...(branch !== undefined ? { branch } : {})
     });
-    io.out(`Promoting ${page}/${component}/${iteration} to ${prepared.targetFile}.`);
+    for (const line of describeStart(`${page}/${component}/${iteration}`, prepared)) io.out(line);
     for (const file of prepared.copied) io.out(`  Copied ${file}`);
     if (prepared.wroteCopy)
       io.out(`  Wrote the approved copy to rough/${page}/${component}/copy.md`);
@@ -99,7 +164,9 @@ export const promote: Command = {
           await openInEditor(context, adapter, detection, repoRoot, prompts),
           prompts
         );
-        io.out('Review the diff when it is done; nothing is committed.');
+        io.out(
+          "When it is done, finish it with roughbook done: the studio shows the diff and runs the app's checks."
+        );
         return 0;
       }
       session = promoteSession(
@@ -127,7 +194,9 @@ export const promote: Command = {
     if (plan.kind !== 'manual') {
       try {
         await context.launchTerminal(plan);
-        io.out(`Opened ${plan.terminal}. Review the diff when it is done; nothing is committed.`);
+        io.out(
+          `Opened ${plan.terminal}. When it is done, finish it with roughbook done: the studio shows the diff and runs the app's checks.`
+        );
         return 0;
       } catch (error) {
         io.err(`${plan.terminal} could not be opened: ${(error as Error).message}`);

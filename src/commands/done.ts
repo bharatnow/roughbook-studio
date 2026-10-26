@@ -13,7 +13,18 @@ import { picturesAfterShots } from '../pictures/share.js';
 import { listRuns, namesRun } from '../runs/store.js';
 import type { RunRecord } from '../runs/types.js';
 import { confirm } from '../io.js';
+import { unifiedText } from '../repo/diff.js';
+import {
+  commitPromotion,
+  declinePromotionCommit,
+  describePromotion,
+  listPromotions,
+  namesPromotion,
+  promotionDiff,
+  type PromotionRecord
+} from '../runs/promotion.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
+import { finishPromotionHere, type PromotionFinishOptions } from './finishPromotion.js';
 
 /**
  * Where the app's dev server runs: the flag, then ROUGHBOOK_DEV_URL, then the repo's environment
@@ -189,7 +200,7 @@ export const done: Command = {
   name: 'done',
   summary: 'Finish a run: check its iteration, take screenshots, report it',
   usage:
-    'done [<run or iteration>] [--all] [--failed | --cancelled] [--mine <path>]... [--dev-url <url>]',
+    'done [<run, promote or iteration>] [--all] [--failed | --cancelled] [--mine <path>]... [--conflict <where>]... [--commit | --no-commit] [--dev-url <url>]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
@@ -202,32 +213,57 @@ export const done: Command = {
         cancelled: { type: 'boolean', default: false },
         'dev-url': { type: 'string' },
         mine: { type: 'string', multiple: true },
-        'no-screenshots': { type: 'boolean', default: false }
+        'no-screenshots': { type: 'boolean', default: false },
+        conflict: { type: 'string', multiple: true },
+        commit: { type: 'boolean' },
+        'no-commit': { type: 'boolean', default: false }
       }
     });
     if (values.failed && values.cancelled) throw new Error('Choose --failed or --cancelled.');
+    if (values.commit && values['no-commit']) throw new Error('Choose --commit or --no-commit.');
     const repoRoot = context.repoRoot!;
     const open = (await listRuns(repoRoot)).filter(run => run.status === 'started');
-    if (!open.length) {
+    const promotions = await listPromotions(repoRoot);
+    const openPromotions = promotions.filter(record => record.status === 'started');
+    // A finished promote's commit, decided later: roughbook done <promote> --commit.
+    const name = positionals[0];
+    if (name && (values.commit || values['no-commit'])) {
+      const waiting = promotions.find(
+        record =>
+          record.status === 'finished' &&
+          record.commit !== null &&
+          record.commit.state !== 'committed' &&
+          namesPromotion(record, name)
+      );
+      if (waiting) return (await decideCommit(context, waiting, values.commit === true)) ? 0 : 1;
+    }
+    if (!open.length && !openPromotions.length) {
       io.out('No run is open in this repo.');
       return 0;
     }
 
     let runs: RunRecord[];
-    if (positionals[0]) {
-      runs = open.filter(run => namesRun(run, positionals[0]!));
-      if (!runs.length) throw new Error(`No open run matches ${positionals[0]}.`);
-      if (runs.length > 1) {
-        throw new Error(
-          `${positionals[0]} matches ${runs.length} open runs; name one by its page and component.`
-        );
+    let promotes: PromotionRecord[];
+    if (name) {
+      runs = open.filter(run => namesRun(run, name));
+      promotes = openPromotions.filter(record => namesPromotion(record, name));
+      const count = runs.length + promotes.length;
+      if (!count) throw new Error(`No open run or promote matches ${name}.`);
+      if (count > 1) {
+        throw new Error(`${name} matches ${count} open runs; name one by its page and component.`);
       }
-    } else if (values.all || open.length === 1) {
+    } else if (values.all || open.length + openPromotions.length === 1) {
       runs = open;
+      promotes = openPromotions;
     } else {
       io.out('Several runs are open:');
       for (const run of open) {
         io.out(`  ${run.page}/${run.component}/${run.iteration}  (${run.agent}, ${run.runId})`);
+      }
+      for (const record of openPromotions) {
+        io.out(
+          `  ${record.page}/${record.component}/${record.iteration}  (promote, ${record.promotionId})`
+        );
       }
       throw new Error('Name one, or pass --all to finish them all.');
     }
@@ -253,6 +289,89 @@ export const done: Command = {
       // A run the designer marked failed is not the command failing.
       failed ||= finished.outcome === 'failed' && !values.failed;
     }
+    for (const record of promotes) {
+      const finished = await completePromotion(context, api, outbox, link, record, {
+        outcome: values.failed || values.cancelled ? 'failed' : undefined,
+        conflicts: values.conflict ?? [],
+        devUrl: url,
+        refresh: !values['no-screenshots'],
+        commit: values.commit === true ? true : values['no-commit'] ? false : undefined
+      });
+      const outcome = finished.result?.outcome;
+      failed ||= (outcome === 'failed' && !values.failed) || outcome === 'conflict';
+    }
     return failed ? 1 : 0;
   }
 };
+
+/**
+ * Finishes one promote and shows what it did: the outcome, the diff of every app file it changed,
+ * the scope check, the build's and the checks' results and the refreshed baseline; then, on a
+ * branch, asks whether to commit (`commit` answers for the designer).
+ */
+export async function completePromotion(
+  context: CommandContext,
+  api: StudioApi,
+  outbox: Outbox,
+  link: RepoLink,
+  record: PromotionRecord,
+  options: PromotionFinishOptions & { commit?: boolean }
+): Promise<PromotionRecord> {
+  const { io } = context;
+  const { record: finished, refreshed } = await finishPromotionHere(
+    context,
+    api,
+    outbox,
+    link,
+    record.promotionId,
+    options
+  );
+  for (const diff of await promotionDiff(context.repoRoot!, finished)) {
+    io.out(diff.hunks ? unifiedText(diff.path, diff.hunks) : `${diff.path}: ${diff.note}`);
+  }
+  for (const line of describePromotion(finished)) io.out(line);
+  for (const line of refreshed) io.out(`  ${line}`);
+  if (finished.commit?.state === 'pending') {
+    await decideCommit(context, finished, options.commit);
+  }
+  return finished;
+}
+
+/**
+ * The designer's yes or no to committing a promote on its branch (decision 18); asked when not
+ * given, and no without an answer. Never pushed. False when the commit was refused.
+ */
+async function decideCommit(
+  context: CommandContext,
+  record: PromotionRecord,
+  answer?: boolean
+): Promise<boolean> {
+  const { io } = context;
+  const branch = record.branch!.name;
+  const files = record.commit?.files ?? [];
+  const yes =
+    answer ??
+    (await confirm(
+      io,
+      `Commit the promote's ${files.length} file${files.length === 1 ? '' : 's'} on ${branch}? Nothing is pushed.`,
+      false
+    ));
+  const label = `${record.page}/${record.component}/${record.iteration}`;
+  if (!yes) {
+    await declinePromotionCommit(context.repoRoot!, record.promotionId);
+    io.out(
+      `  Left uncommitted on ${branch}: ${files.join(', ')}. Commit them yourself, or run roughbook done ${label} --commit.`
+    );
+    return true;
+  }
+  try {
+    const committed = await commitPromotion(context.repoRoot!, record.promotionId);
+    io.out(
+      `  Committed ${files.length} file${files.length === 1 ? '' : 's'} on ${branch} as ${committed.commit?.sha?.slice(0, 7) ?? 'a new commit'}. Nothing was pushed${record.branch!.from ? `; ${record.branch!.from} is as it was` : ''}.`
+    );
+    return true;
+  } catch (error) {
+    io.err((error as Error).message);
+    return false;
+  }
+}

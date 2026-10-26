@@ -135,6 +135,8 @@ export class StudioApi {
       assets: { scope: AssetScope; file: string }[];
       /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
       family?: Family;
+      /** A new file, the app component's own files, or a merge with the app's changes (B4). */
+      how: 'new' | 'in-place' | 'merge';
     }
   ): Promise<Promotion> {
     return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);

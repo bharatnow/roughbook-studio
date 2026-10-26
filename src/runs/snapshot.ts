@@ -195,14 +195,24 @@ function snapshotDir(repoRoot: string, runId: string): string {
   return statePath(repoRoot, 'snapshots', assertRunId(runId));
 }
 
-/** Records the repo before a run; one snapshot can serve several runs started together. */
+/**
+ * Records the repo before a run; one snapshot can serve several runs started together. `keep`
+ * names files copied aside whether or not they have uncommitted changes: a promote's targets,
+ * which a commit on its branch would otherwise take out of reach of git's HEAD (B4).
+ */
 export async function takeSnapshot(
   repoRoot: string,
   runIds: string[],
-  ignore?: string[]
+  ignore?: string[],
+  keep: string[] = []
 ): Promise<Snapshot> {
   const { files, git: isGit } = await hashRepo(repoRoot, ignore);
-  const dirty = isGit ? (await uncommitted(repoRoot)).filter(file => file in files) : [];
+  const dirty = [
+    ...new Set([
+      ...keep.filter(file => file in files),
+      ...(isGit ? (await uncommitted(repoRoot)).filter(file => file in files) : [])
+    ])
+  ];
   const backedUp: string[] = [];
   const notBackedUp: string[] = [];
   let total = 0;
@@ -281,6 +291,39 @@ export async function recordOwnWritesForOpenRuns(repoRoot: string, files: string
   );
 }
 
+/**
+ * A file as the snapshot found it: its copy, or git's HEAD when that is what the snapshot saw;
+ * null for a file the snapshot did not have or kept no copy of.
+ */
+export async function snapshotContent(
+  repoRoot: string,
+  runId: string,
+  file: string,
+  snapshot?: Snapshot | null
+): Promise<Buffer | null> {
+  const taken = snapshot ?? (await readSnapshot(repoRoot, runId));
+  const expected = taken?.files[file];
+  if (!taken || expected === undefined || file.split('/').includes('..')) return null;
+  const candidates: (Buffer | null)[] = [];
+  if (taken.backedUp.includes(file)) {
+    candidates.push(
+      await readFile(path.join(snapshotDir(repoRoot, runId), 'files', ...file.split('/'))).catch(
+        () => null
+      )
+    );
+  } else if (taken.git && !taken.notBackedUp.includes(file)) {
+    // The committed file as a checkout would write it, line-ending filters and all, or as stored:
+    // whichever the snapshot saw. ./ makes the path relative to the app, not the git repo.
+    candidates.push(await gitBuffer(repoRoot, ['cat-file', '--filters', `HEAD:./${file}`]));
+    candidates.push(await gitBuffer(repoRoot, ['cat-file', 'blob', `HEAD:./${file}`]));
+  }
+  return (
+    candidates.find(
+      candidate => candidate && createHash('sha1').update(candidate).digest('hex') === expected
+    ) ?? null
+  );
+}
+
 export async function readSnapshot(repoRoot: string, runId: string): Promise<Snapshot | null> {
   return readJson<Snapshot>(path.join(snapshotDir(repoRoot, runId), 'snapshot.json'));
 }
@@ -327,20 +370,7 @@ export async function revertFile(repoRoot: string, runId: string, file: string):
     return 'removed';
   }
   if ((await hashFile(target)) === expected) return 'unchanged';
-  const candidates: (Buffer | null)[] = [];
-  if (snapshot.backedUp.includes(file)) {
-    candidates.push(
-      await readFile(path.join(snapshotDir(repoRoot, runId), 'files', ...file.split('/')))
-    );
-  } else if (snapshot.git && !snapshot.notBackedUp.includes(file)) {
-    // The committed file as a checkout would write it, line-ending filters and all, or as stored:
-    // whichever the snapshot saw. ./ makes the path relative to the app, not the git repo.
-    candidates.push(await gitBuffer(repoRoot, ['cat-file', '--filters', `HEAD:./${file}`]));
-    candidates.push(await gitBuffer(repoRoot, ['cat-file', 'blob', `HEAD:./${file}`]));
-  }
-  const content = candidates.find(
-    candidate => candidate && createHash('sha1').update(candidate).digest('hex') === expected
-  );
+  const content = await snapshotContent(repoRoot, runId, file, snapshot);
   if (!content) return 'cannot';
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, content);

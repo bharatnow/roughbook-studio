@@ -7,9 +7,16 @@ import { fileURLToPath } from 'node:url';
 import { outboxFor } from '../api/outbox.js';
 import { finishWithScreenshots } from '../commands/done.js';
 import { requireApi, type CommandContext } from '../commands/context.js';
+import { finishPromotionHere } from '../commands/finishPromotion.js';
 import { requireRepoLink } from '../repo/link.js';
 import { findRepoRoot } from '../repo/root.js';
 import { assessRun } from '../runs/lifecycle.js';
+import {
+  describeRun,
+  listPromotions,
+  namesPromotion,
+  type PromotionRecord
+} from '../runs/promotion.js';
 import { unnamedButtonIn } from '../runs/nativeFloor.js';
 import { finishingSection } from '../runs/slots.js';
 import { listRuns, namesRun } from '../runs/store.js';
@@ -93,6 +100,40 @@ async function runsIn(repos: string[]): Promise<Found[]> {
     repos.map(async repoRoot => (await listRuns(repoRoot)).map(run => ({ repoRoot, run })))
   );
   return lists.flat();
+}
+
+type FoundPromotion = { repoRoot: string; record: PromotionRecord };
+
+/**
+ * One promote (B4): the one named, open ones first; or, named by nothing, the only open one when
+ * no run is open. Null when nothing names a promote, so finish_run finishes a run.
+ */
+async function findPromotion(
+  repos: string[],
+  name: string | undefined,
+  runNamed: boolean
+): Promise<FoundPromotion | null> {
+  const all = (
+    await Promise.all(
+      repos.map(async repoRoot =>
+        (await listPromotions(repoRoot)).map(record => ({ repoRoot, record }))
+      )
+    )
+  ).flat();
+  const open = all.filter(item => item.record.status === 'started');
+  if (!name) {
+    if (runNamed || open.length !== 1) return null;
+    const runs = (await runsIn(repos)).filter(item => item.run.status === 'started');
+    return runs.length ? null : open[0]!;
+  }
+  for (const pool of [open, all]) {
+    const matches = pool.filter(item => namesPromotion(item.record, name));
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1) {
+      throw new Error(`${name} matches ${matches.length} promotes; name one by its id.`);
+    }
+  }
+  throw new Error(`No promote matches ${name}. Its id is in the promote prompt's <finishing>.`);
 }
 
 /** One run: the one named, open runs first, or the only open one. */
@@ -297,6 +338,17 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
           description:
             "For a fork or refine of the app's own component: the app's other files you copied into the iteration to change them (a child component), by their repository paths, as your report names them. The studio keeps them for the promote."
         },
+        promotion: {
+          type: 'string',
+          description:
+            "For a promote, instead of run: the promotion id in the promote prompt's <finishing>. The studio shows the designer the diff, runs the app's build and checks, and refreshes the app's pictures; it never commits on your call."
+        },
+        conflicts: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'For a promote that merges and could not keep both changes: each conflict in a few words (the file, its lines, what each side changed). You wrote no file; the studio puts back any it finds written.'
+        },
         repo: REPO
       },
       additionalProperties: false
@@ -315,6 +367,20 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
       const mine = strings(args.mine, 'mine');
       const copied = strings(args.copied, 'copied');
       const repos = await reposFor(context, text(args.repo, 'repo'), call);
+      const promoted = await findPromotion(
+        repos,
+        text(args.promotion, 'promotion'),
+        text(args.run, 'run') !== undefined
+      );
+      if (promoted) {
+        const conflicts = args.conflicts === undefined ? [] : strings(args.conflicts, 'conflicts');
+        return finishPromote(
+          promoted,
+          outcome === undefined ? undefined : 'failed',
+          conflicts ?? [],
+          call
+        );
+      }
       const { repoRoot, run } = await findRun(repos, text(args.run, 'run'));
       refuseUnattended(run);
       const wasFinished = run.status === 'finished';
@@ -364,6 +430,76 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
       });
     }
   };
+
+  /** finish_run for a promote (B4): the studio's checks and the refreshed baseline, never a commit. */
+  async function finishPromote(
+    { repoRoot, record }: FoundPromotion,
+    outcome: 'failed' | undefined,
+    conflicts: string[],
+    call: ToolCall
+  ) {
+    const wasFinished = record.status === 'finished';
+    let finished = record;
+    let refreshed: string[] = [];
+    if (!wasFinished) {
+      const scoped = { ...context, repoRoot };
+      const api = await requireApi(scoped);
+      const link = await requireRepoLink(repoRoot);
+      call.progress("Checking the app's files, running its build and checks");
+      ({ record: finished, refreshed } = await finishPromotionHere(
+        scoped,
+        api,
+        outboxFor(repoRoot),
+        link,
+        record.promotionId,
+        { outcome, conflicts, devUrl: options.devUrl, refresh: true }
+      ));
+    }
+    const result = finished.result;
+    const name = `${finished.page}/${finished.component}/${finished.iteration}`;
+    const tell: string[] = [];
+    if (result?.outcome === 'conflict') {
+      tell.push(
+        'Nothing was written to the app. Tell the designer where the two changes conflict; they resolve it in the app or fork again from its current version.'
+      );
+    } else {
+      tell.push(
+        `Tell the designer ${name} is written back to the app; they review the diff in the Roughbook studio or with roughbook done.`
+      );
+      if (result?.outOfScope.length) {
+        tell.push(
+          `Files outside the promote's own changed: ${result.outOfScope.join(', ')}. The designer can put each back with roughbook revert ${name} <file>.`
+        );
+      }
+      for (const run of [result?.build, ...(result?.checks ?? [])]) {
+        if (run && run.result === 'failed') {
+          tell.push(`${describeRun(run === result?.build ? 'The build' : 'A check', run)}`);
+        }
+      }
+      if (finished.commit?.state === 'pending') {
+        tell.push(
+          `The change is on ${finished.branch!.name}, uncommitted: the designer decides the commit, in the studio or with roughbook done ${name} --commit. Do not commit it yourself.`
+        );
+      }
+    }
+    return json({
+      promotion: finished.promotionId,
+      iteration: name,
+      alreadyFinished: wasFinished,
+      how: finished.how,
+      outcome: result?.outcome ?? null,
+      changed: result?.changed.map(item => item.path) ?? [],
+      outOfScope: result?.outOfScope ?? [],
+      conflicts: result?.conflicts ?? [],
+      build: result?.build ? describeRun('The build', result.build) : 'skipped',
+      checks: result?.checks.map(item => describeRun('Check', item)) ?? [],
+      branch: finished.branch?.name ?? null,
+      commit: finished.commit?.state ?? null,
+      refreshed,
+      reported: result?.reported ?? null,
+      next: tell.join(' ')
+    });
+  }
 
   return [listRunsTool, getPrompt, getChecks, finishRun];
 }

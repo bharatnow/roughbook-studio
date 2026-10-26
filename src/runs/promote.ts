@@ -2,7 +2,8 @@
 // repo. The backend renders the prompt from the brief; the studio copies the assets the iteration
 // uses into the app's public folder and the approved copy beside the reference, fills in the
 // paths the server never sees, and hands the prompt to the designer's agent. Ported from roughbook
-// src/lib/delivery/promote.ts (v2-local). The studio never edits the app's code and never commits.
+// src/lib/delivery/promote.ts (v2-local). The studio never edits the app's code itself, and
+// commits only on a branch the designer asked for, on their yes (B4, in promotion.ts).
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
@@ -15,9 +16,22 @@ import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { pascalCase } from '../repo/names.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { readBase, recordChildren } from './base.js';
 import { hasExtension } from './checks.js';
+import {
+  createBranch,
+  defaultBranch,
+  fillPromoteStandIns,
+  planBranch,
+  planTargets,
+  promoteFinishingSection,
+  savePromotion,
+  type PromoteHow,
+  type PromoteTarget,
+  type PromotionRecord
+} from './promotion.js';
 import { assertTarget } from './slots.js';
-import { recordOwnWritesForOpenRuns } from './snapshot.js';
+import { recordOwnWritesForOpenRuns, takeSnapshot } from './snapshot.js';
 import { assertRunId } from './store.js';
 
 export type AssetName = { scope: AssetScope; file: string };
@@ -242,6 +256,12 @@ export type PromoteOptions = {
   targetFile?: string;
   /** The app's public folder, repo-relative; `public` beside the app's package.json by default. */
   publicDir?: string;
+  /**
+   * Put the change on a new branch (decision 18): its name, or true for
+   * `roughbook/<page>-<component>-<iteration>`.
+   */
+  branch?: string | true;
+  now?: () => Date;
 };
 
 export type PreparedPromotion = {
@@ -256,6 +276,12 @@ export type PreparedPromotion = {
   wroteCopy: boolean;
   /** The localized file approved copy lands in, when the environment says so (decision 34). */
   copyFile: string | null;
+  /** A new file, the component's own files, or a merge with the app's changes since the fork (B4). */
+  how: PromoteHow;
+  /** The app files the promote writes, each with the iteration's copy of it. */
+  targets: PromoteTarget[];
+  /** The branch it is on, when the designer asked for one. */
+  branch: PromotionRecord['branch'];
 };
 
 /** The app's public folder: given, beside the app's package.json, or the project's. */
@@ -306,32 +332,59 @@ export async function preparePromotion(
   }
 
   const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir, environment.assets.dir);
-  // Where components go and what they are named: the environment's promote field decides
-  // (decision 31); the project's delivery is the default, through the recipe for a recipe repo.
-  const extensions = environment.promote.extensions;
-  const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
-  const targetFile = (
-    options.targetFile ??
-    (recipe
-      ? recipe.promoteDefault(
-          componentsDir,
-          record.name,
-          folder =>
-            fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
-        )
-      : `${componentsDir}/${pascalCase(record.name)}${extensions[0] ?? ''}`)
-  ).replace(/\\/g, '/');
-  const problem = checkTargetFile(targetFile, publicDir, extensions, environment.ignore);
-  if (problem) throw new Error(problem);
+  const relative = iterationDir(page, component, iteration);
+  // A fork or refine of the app's own component goes back into the component's own files, with
+  // each child it copied in (B4); its children are looked for again first (decision 39). --to
+  // still makes it a new file.
+  if (options.targetFile === undefined && readBase(repoRoot, relative)) {
+    await recordChildren(repoRoot, { page, component, iteration });
+  }
+  const base = options.targetFile === undefined ? readBase(repoRoot, relative) : null;
+  let how: PromoteHow = 'new';
+  let targets: PromoteTarget[];
+  let targetFile: string;
+  if (base) {
+    ({ how, targets } = planTargets(repoRoot, relative, base, environment));
+    targetFile = targets[0]!.path;
+  } else {
+    // Where components go and what they are named: the environment's promote field decides
+    // (decision 31); the project's delivery is the default, through the recipe for a recipe repo.
+    const extensions = environment.promote.extensions;
+    const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
+    targetFile = (
+      options.targetFile ??
+      (recipe
+        ? recipe.promoteDefault(
+            componentsDir,
+            record.name,
+            folder =>
+              fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ??
+              false
+          )
+        : `${componentsDir}/${pascalCase(record.name)}${extensions[0] ?? ''}`)
+    ).replace(/\\/g, '/');
+    const problem = checkTargetFile(targetFile, publicDir, extensions, environment.ignore);
+    if (problem) throw new Error(problem);
+    if (fs.existsSync(toDisk(repoRoot, targetFile))) {
+      throw new Error(
+        `${targetFile} already exists. Choose another file with --to; Roughbook never overwrites the app's code.`
+      );
+    }
+    targets = [{ path: targetFile, copy: null, child: false, drifted: false }];
+  }
   if (environment.copy.kind === 'localized') {
     const wrong = checkCopyFile(environment.copy.file, environment.ignore);
     if (wrong) throw new Error(wrong);
   }
-  if (fs.existsSync(toDisk(repoRoot, targetFile))) {
-    throw new Error(
-      `${targetFile} already exists. Choose another file with --to; Roughbook never overwrites the app's code.`
-    );
-  }
+  // Refused before anything is asked or written: not git, a dirty target, a taken name.
+  const plannedBranch =
+    options.branch === undefined
+      ? null
+      : await planBranch(
+          repoRoot,
+          options.branch === true ? defaultBranch(page, component, iteration) : options.branch,
+          targets.map(target => target.path)
+        );
 
   const sources = textFiles(folder, environment.sources).map(file => fs.readFileSync(file, 'utf8'));
   const promotion = await api.promote(link.orgId, link.project, {
@@ -340,8 +393,20 @@ export async function preparePromotion(
     iteration,
     assets: referencedAssets(sources, link.project),
     // What the prompt says of the stack is then left for this studio to fill (F7).
-    family: environment.family
+    family: environment.family,
+    how
   });
+  assertRunId(promotion.promotionId);
+
+  // Before anything is written, so revert puts the targets back whatever the agent does; their
+  // copies are kept, since a commit on the branch moves HEAD past them.
+  await takeSnapshot(
+    repoRoot,
+    [promotion.promotionId],
+    environment.ignore,
+    targets.map(target => target.path)
+  );
+  if (plannedBranch) await createBranch(repoRoot, plannedBranch.name, plannedBranch.commit);
 
   const copied: string[] = [];
   const missing: AssetName[] = [...promotion.missingAssets];
@@ -360,16 +425,18 @@ export async function preparePromotion(
   }
   const promptFile = promotePromptFile(page, component, promotion.promotionId);
   fs.mkdirSync(path.dirname(toDisk(repoRoot, promptFile)), { recursive: true });
+  let prompt = fillInPrompt(
+    promotion,
+    targetFile,
+    publicDir,
+    promoteWords(environment, recipe, publicDir, {
+      hasEnvironmentFile: hasEnvironmentFile(repoRoot)
+    })
+  );
+  if (base) prompt = fillPromoteStandIns(prompt, relative, targets, promotion.placeholders);
   fs.writeFileSync(
     toDisk(repoRoot, promptFile),
-    fillInPrompt(
-      promotion,
-      targetFile,
-      publicDir,
-      promoteWords(environment, recipe, publicDir, {
-        hasEnvironmentFile: hasEnvironmentFile(repoRoot)
-      })
-    )
+    `${prompt.trimEnd()}\n\n${promoteFinishingSection(promotion.promotionId, how)}`
   );
   // Runs still open did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(repoRoot, [
@@ -377,8 +444,32 @@ export async function preparePromotion(
     ...(promotion.copyMarkdown !== null ? [`${workspace}/copy.md`] : []),
     promptFile
   ]);
+  const branch = plannedBranch
+    ? { name: plannedBranch.name, from: plannedBranch.from, commit: plannedBranch.commit }
+    : null;
+  await savePromotion(repoRoot, {
+    promotionId: promotion.promotionId,
+    orgId: link.orgId,
+    project: link.project,
+    page,
+    component,
+    iteration,
+    how,
+    targets,
+    studioWrites: copied,
+    promptFile,
+    branch,
+    startedAt: (options.now?.() ?? new Date()).toISOString(),
+    status: 'started',
+    finishedAt: null,
+    result: null,
+    commit: null
+  });
 
   return {
+    how,
+    targets,
+    branch,
     promotionId: promotion.promotionId,
     promptFile,
     targetFile,
