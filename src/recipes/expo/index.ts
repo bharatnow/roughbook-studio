@@ -336,8 +336,8 @@ web target the app's own useColorScheme follows the browser, which the studio's 
 a theme the app keeps itself should read the roughbook-scheme parameter in the wrapper. For a mapped app, the in-page
 view's switch lives in rough/_context/ (development only, gitignored) and metro.config.js hands Metro's config to it:
 on the web target alone, the app's imports of an adopted component resolve to a wrapper that marks it and, for
-?roughbook-swap=<page>/<component>/<iteration>, renders the iteration in its place with the same props. Native
-screens show components alone.`;
+?roughbook-swap=<page>/<component>/<iteration>, renders the iteration in its place with the same props. In its page works
+on the web target (react-native-web); on a device or simulator, screens show components alone.`;
 
 export const expo: Recipe = {
   id: 'expo',
@@ -436,6 +436,8 @@ export const expo: Recipe = {
   Text, Pressable, Image and the app's own components, never DOM elements or browser APIs.
 - Style with StyleSheet or the app's own styling, and take colours from the app's theme, so the
   dark variant follows.
+- In its page (an iteration in the app's real page) works on the web target (react-native-web); on a
+  device or simulator, screens show components alone.
 `,
   roughTsconfig: repo => (read(repo, 'tsconfig.json') === null ? null : ROUGH_TSCONFIG),
   placeholder: () => PLACEHOLDER,
