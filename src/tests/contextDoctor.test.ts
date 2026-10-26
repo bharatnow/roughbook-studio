@@ -254,6 +254,33 @@ describe('map-context', () => {
     assert.ok(!hasMarker(html, 'a/b', null));
     assert.ok(!hasMarker(html, 'a/c'));
   });
+
+  it('says what the recipe notes of its in-page view, passing or failing', async () => {
+    const note = 'Native screens show components alone; In its page is the web target’s.';
+    const noted = { ...next, contextPreview: { ...next.contextPreview!, note } };
+    const root = await repo();
+    const shotsDir = path.join(root, '.shots');
+    fs.mkdirSync(shotsDir, { recursive: true });
+    const run = (fake: DoctorTools) =>
+      contextCheck({
+        repoRoot: root,
+        environment: next.environment(LINK),
+        recipe: noted,
+        tools: fake,
+        base: DEV,
+        shotsDir,
+        gate: { leaked: [], where: 'the production build' },
+        link: LINK
+      });
+    const passed = await run(tools().tools);
+    assert.equal(passed.status, 'pass', passed.detail);
+    assert.ok(passed.detail.endsWith(` ${note}`), passed.detail);
+    const failed = await run(tools({ unmarked: true }).tools);
+    assert.equal(failed.status, 'fail');
+    assert.ok(failed.detail.endsWith(` ${note}`), failed.detail);
+    // Without a note, the detail is as it was.
+    assert.ok(!(await check(root, tools().tools)).detail.includes(note));
+  });
 });
 
 describe('the gate and the switch', () => {

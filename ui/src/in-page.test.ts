@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  inPageNote,
   inPageSrc,
   pageViewAddress,
   pageViewSrc,
@@ -50,5 +51,18 @@ describe('the in-page view', () => {
     });
     assert.equal(pickedAddress('pricing'), null);
     assert.equal(pickedAddress('<script>/x'), null);
+  });
+});
+
+describe('the in-page view’s note', () => {
+  it('is shown beside In its page where the frame offers it, and nowhere else', () => {
+    const noted = { ...local, inPageNote: 'Native screens show components alone.' };
+    assert.equal(
+      inPageNote(noted, 'pricing/pricing-section/iteration-01'),
+      'Native screens show components alone.'
+    );
+    assert.equal(inPageNote(noted, 'pricing/faq/iteration-01'), null);
+    assert.equal(inPageNote(local, 'pricing/pricing-section/iteration-01'), null);
+    assert.equal(inPageNote({ inPage: null, inPageNote: 'x' }, 'pricing/faq/iteration-01'), null);
   });
 });

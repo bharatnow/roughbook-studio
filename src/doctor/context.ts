@@ -291,12 +291,14 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
   ]
     .filter(Boolean)
     .join('; ');
+  // What the in-page view covers on this stack, when the recipe says (Expo's native screens).
+  const note = hook.note ? ` ${hook.note}` : '';
   return failures.length
     ? result(
         'map-context',
         'fail',
-        `${listed(failures)}. ${detail}.`,
+        `${listed(failures)}. ${detail}.${note}`,
         "Open the page with the swap in a browser to see why, or run roughbook setup --upgrade if the switch is behind. Markers that change a page's picture meet a selector of the app's that counts children (main > *, :first-child): show that section alone until the selector allows for them."
       )
-    : result('map-context', 'pass', `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`);
+    : result('map-context', 'pass', `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.${note}`);
 }

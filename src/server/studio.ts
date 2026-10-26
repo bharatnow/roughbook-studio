@@ -884,12 +884,15 @@ export class LocalStudio {
     }
     // An iteration pulled or started from the CLI is new on the backend too.
     this.cache.notice('iterations', JSON.stringify(iterations));
+    const inPage = this.inPageView();
     return {
       iterations,
       screenshots,
       screenshotsAt,
       map: this.mapView(),
-      inPage: this.inPageView()
+      inPage,
+      // What the in-page view covers on this stack, beside In its page (decision 44).
+      inPageNote: inPage ? (recipeFor(this.environment.recipe)?.contextPreview?.note ?? null) : null
     };
   }
 

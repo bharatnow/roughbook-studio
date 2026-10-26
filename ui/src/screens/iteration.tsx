@@ -25,7 +25,7 @@ import {
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
-import { inPageSrc } from '../in-page';
+import { inPageNote, inPageSrc } from '../in-page';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
@@ -474,6 +474,10 @@ export function IterationScreen({
                 </button>
               ))}
             </div>
+          ) : null}
+          {/* What In its page covers on this stack, where the recipe says (decision 44). */}
+          {inPageNote(project.local, key) ? (
+            <HelpTip label="About In its page">{inPageNote(project.local, key)}</HelpTip>
           ) : null}
         </PreviewFrame>
       </Stage>

@@ -5,7 +5,7 @@
 import { addressFor } from './router.ts';
 import type { ProjectView } from './types.ts';
 
-type Local = Pick<ProjectView['local'], 'inPage'>;
+type Local = Pick<ProjectView['local'], 'inPage' | 'inPageNote'>;
 
 /** An address on the app, on the dev server the frame asks: null without one. */
 function onApp(address: string | undefined, devUrl: string): string | null {
@@ -20,6 +20,11 @@ function onApp(address: string | undefined, devUrl: string): string | null {
 /** The page with `key` (`<page>/<component>/<iteration>`) swapped in, for In its page; null when not offered. */
 export function inPageSrc(local: Local, devUrl: string, key: string): string | null {
   return onApp(local.inPage?.[key], devUrl);
+}
+
+/** What the in-page view covers on this stack, beside In its page where the frame offers it. */
+export function inPageNote(local: Local, key: string): string | null {
+  return local.inPage?.[key] ? (local.inPageNote ?? null) : null;
 }
 
 /** An adopted page's own view, with its markers; null when the page has none here. */

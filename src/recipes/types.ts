@@ -93,6 +93,12 @@ export type ContextPreview = {
    * holds none of the markers, so doctor reads them from the page the browser shows.
    */
   browser?: boolean;
+  /**
+   * What the in-page view covers on this stack, when it is not every screen (decision 44: Expo's
+   * native screens show components alone), in a sentence: doctor's map-context ends its detail
+   * with it, and the local UI shows it beside In its page.
+   */
+  note?: string;
 };
 
 /** What a recipe's preview setup adds to `init`'s plan. */

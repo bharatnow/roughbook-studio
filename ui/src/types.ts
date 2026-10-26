@@ -184,6 +184,8 @@ export type ProjectView = {
      * where the recipe has no in-page view or it is not set up.
      */
     inPage?: Record<string, string> | null;
+    /** What the in-page view covers on this stack, shown beside In its page (decision 44). */
+    inPageNote?: string | null;
   };
 };
 
