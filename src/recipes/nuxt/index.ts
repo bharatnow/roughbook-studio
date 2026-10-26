@@ -1,8 +1,10 @@
 // Nuxt (ROUGHBOOK-FRAMEWORKS-PLAN.md, "Recipes", 8th in the launch order): live, on the app's own
 // `nuxt dev`, through a local module that shows previews in development only, so `nuxt build`
 // holds nothing from rough/ (the build gate). Iterations are Vue single-file components.
+import fs from 'node:fs';
 import path from 'node:path';
 import type { RepoEnvironment } from '../../environment/types.js';
+import { hasMapFile } from '../../map/file.js';
 import type { RepoLink } from '../../repo/link.js';
 import { pascalCase } from '../../repo/names.js';
 import { planTailwindSource, read, type PrepChange } from '../../repo/plan.js';
@@ -26,6 +28,14 @@ import {
 } from './preview.js';
 import type { MapComponent } from '../../map/types.js';
 import { discoverNuxt } from './discover.js';
+import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import {
+  CONTEXT_MODULES,
+  CONTEXT_REGISTRY,
+  contextFiles,
+  isOurContextFile,
+  writeContext
+} from './context.js';
 
 const PORT = 3000;
 
@@ -86,12 +96,40 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   ]);
   if (tailwind && 'manual' in tailwind) manual.push(tailwind.manual);
   else if (tailwind) changes.push(tailwind);
-  return {
-    changes,
-    manual,
-    ignoredFromBuild: [],
-    gitWanted: [`/${MODULE_FILE}`, `/${PAGE_FILE}`, `/${REGISTRY_FILE}`]
-  };
+  const gitWanted = [`/${MODULE_FILE}`, `/${PAGE_FILE}`, `/${REGISTRY_FILE}`];
+  // The in-page view (B5b), for a mapped repo alone: a second module and its wrapper, no edit.
+  if (hasMapFile(repo)) {
+    for (const own of contextFiles()) {
+      const current = read(repo, own.file);
+      if (current === own.content) continue;
+      if (current !== null && !isOurContextFile(current)) {
+        manual.push(`${own.file} exists and was not written by Roughbook, so it was left alone.`);
+        continue;
+      }
+      changes.push({
+        file: own.file,
+        action: current === null ? 'create' : 'edit',
+        summary:
+          current === null
+            ? 'Add the in-page view, which shows an iteration in its real page in development.'
+            : `Update ${own.file}.`,
+        after: own.content
+      });
+    }
+    gitWanted.push(
+      ...contextFiles().map(item => `/${item.file}`),
+      `/${CONTEXT_MODULES}`,
+      `/${CONTEXT_REGISTRY}`
+    );
+  }
+  return { changes, manual, ignoredFromBuild: [], gitWanted };
+}
+
+/** The in-page view's files that are in the repo, wherever they came from, for uninstall. */
+function contextOnDisk(repo: string): string[] {
+  return contextFiles()
+    .map(item => item.file)
+    .filter(file => fs.existsSync(path.join(repo, ...file.split('/'))));
 }
 
 const SETUP_NOTES = `This repo is on Nuxt, which has a recipe: roughbook init writes ${MODULE_FILE}, a local module (Nuxt
@@ -171,7 +209,8 @@ export function vueFromApp(component: MapComponent, input: AppCopyInput): AppCop
 export const nuxt: Recipe = {
   id: 'nuxt',
   name: 'Vue with Nuxt',
-  version: 1,
+  // 2: the in-page view's module and wrapper (brownfield B5b).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -227,7 +266,25 @@ export const nuxt: Recipe = {
   discover: discoverNuxt,
   pointer: vuePointer,
   fromApp: vueFromApp,
-  setupFiles: () => [MODULE_FILE],
+  setupFiles: repo => [
+    ...new Set([
+      MODULE_FILE,
+      ...(hasMapFile(repo) ? contextFiles().map(item => item.file) : []),
+      ...contextOnDisk(repo)
+    ])
+  ],
+  contextPreview: {
+    files: () => contextFiles().map(item => item.file),
+    // Nuxt registers a module in modules/ on its own: nothing of the app's is edited.
+    edits: () => [],
+    generated: [CONTEXT_MODULES, CONTEXT_REGISTRY],
+    missing: repo =>
+      contextFiles()
+        .map(item => item.file)
+        .filter(file => !fs.existsSync(path.join(repo, ...file.split('/')))),
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL
+  },
   agentRules:
     environment => `- \`${environment.entry}\` is a Vue single-file component, rendered by the app's own Nuxt on the
   server and in the browser: \`<script setup lang="ts">\`, a template, and scoped styles or the app's
@@ -242,9 +299,12 @@ export const nuxt: Recipe = {
   </div>
 </template>
 `,
-  generatedFiles: [REGISTRY_FILE],
+  generatedFiles: [REGISTRY_FILE, CONTEXT_MODULES, CONTEXT_REGISTRY],
   importAllowed: () => [MODULE_FILE],
-  syncPreview: writeRegistry,
+  syncPreview: repo => {
+    writeRegistry(repo);
+    if (hasMapFile(repo)) writeContext(repo);
+  },
   pullTransform: (_file, text) => text,
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${pascalCase(componentName)}.vue`,

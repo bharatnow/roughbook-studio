@@ -102,6 +102,9 @@
       "scaffold": "create-nuxt",
       "version": "4.0.1",
       "args": ["--template", "minimal", "--packageManager", "npm", "--no-gitInit", "--no-install"],
+      "overlay": "nuxt",
+      "map": true,
+      "inPage": ["pricing/pricing-plans"],
       "install": ["npm ci --no-audit --no-fund"],
       "dev": "npm run dev -- --port {port} --host 127.0.0.1",
       "url": "http://127.0.0.1:{port}"
