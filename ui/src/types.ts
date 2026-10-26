@@ -178,6 +178,12 @@ export type ProjectView = {
     screenshotsAt?: Record<string, string>;
     /** The app's map, when the repo has one. */
     map?: MapView | null;
+    /**
+     * Where the frame shows an iteration in its page, by `<page>/<component>/<iteration>`, and an
+     * adopted page's own view with its markers, by page slug: addresses on the app (B5). Null
+     * where the recipe has no in-page view or it is not set up.
+     */
+    inPage?: Record<string, string> | null;
   };
 };
 

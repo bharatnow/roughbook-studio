@@ -9,6 +9,7 @@ import type {
   CanvasSectionInput
 } from '@roughbook/ui/canvas';
 import { BASELINE, type StudioCanvas } from './canvas-input.ts';
+import { pageViewAddress } from './in-page.ts';
 import { runRunning } from './runs.ts';
 
 export type SelectionActionId =
@@ -29,7 +30,8 @@ export type SelectionActionId =
   | 'web'
   | 'brief'
   | 'fold'
-  | 'adopt';
+  | 'adopt'
+  | 'in-page';
 
 export type CanvasWideActionId =
   | 'prompt'
@@ -72,6 +74,8 @@ export type SelectionState = {
   compare: readonly string[];
   /** Frames, by key, whose rejected cards show. */
   unfolded: readonly string[];
+  /** Adopted pages with a view of their own in the app here (B5). */
+  inPage?: readonly string[];
 };
 
 /** Compare shows up to four iterations side by side. */
@@ -178,6 +182,16 @@ export function selectionActions(
     );
     return [
       ...(toAdopt ? [{ id: 'adopt' as const, label: 'Adopt page', toolbar: true }] : []),
+      ...(state.inPage?.includes(page)
+        ? [
+            {
+              id: 'in-page' as const,
+              label: 'In the app',
+              toolbar: true,
+              href: pageViewAddress(page)
+            }
+          ]
+        : []),
       ...(onServer ? webAction(state, page, 'Open on the web') : [])
     ];
   }

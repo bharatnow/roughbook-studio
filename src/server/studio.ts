@@ -35,7 +35,9 @@ import {
   type AdoptChoice
 } from '../map/adopt.js';
 import { readMap } from '../map/file.js';
-import type { ComponentKind, Known } from '../map/types.js';
+import { contextAddress, contextSections } from '../recipes/context.js';
+import { recipeFor } from '../recipes/index.js';
+import type { ComponentKind, Known, RepoMap } from '../map/types.js';
 import { pictureShot, picturesAfterShots, sharePagePictures } from '../pictures/share.js';
 import { resolveVariants, screenshotSet, type ResolvedVariant } from '../environment/variants.js';
 import { currentOs } from '../launch/platform.js';
@@ -882,7 +884,42 @@ export class LocalStudio {
     }
     // An iteration pulled or started from the CLI is new on the backend too.
     this.cache.notice('iterations', JSON.stringify(iterations));
-    return { iterations, screenshots, screenshotsAt, map: this.mapView() };
+    return {
+      iterations,
+      screenshots,
+      screenshotsAt,
+      map: this.mapView(),
+      inPage: this.inPageView()
+    };
+  }
+
+  /**
+   * Where the frame shows each adopted section's iterations in their page, and each adopted
+   * page's own view with its markers (B5): addresses on the app, by iteration key and by page
+   * slug. Null where the recipe has no in-page view, the preview is not live, or the switch is
+   * not set up yet (doctor's map-context asks for setup --upgrade).
+   */
+  private inPageView(): Record<string, string> | null {
+    const environment = this.environment;
+    const hook = recipeFor(environment.recipe)?.contextPreview;
+    if (!hook || environment.mode !== 'live') return null;
+    let map: RepoMap | undefined;
+    try {
+      map = readMap(this.repoRoot)?.map;
+    } catch {
+      return null;
+    }
+    if (!map || hook.missing(this.repoRoot, this.options.link).length) return null;
+    const view: Record<string, string> = {};
+    for (const section of contextSections(this.repoRoot, environment.entry, map)) {
+      const address = contextAddress(map, section);
+      if (!address) continue;
+      view[section.page] ??= hook.address(address, null);
+      for (const iteration of section.iterations) {
+        view[iteration.key] = hook.address(address, iteration.key);
+      }
+    }
+    return view;
   }
 
   /** rough/map.md for the canvas, or null when the repo has none. */

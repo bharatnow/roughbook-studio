@@ -7,6 +7,7 @@ import { useRoute } from './router';
 import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
 import { IterationScreen } from './screens/iteration';
+import { PageScreen } from './screens/page';
 
 function Screen() {
   const route = useRoute();
@@ -33,6 +34,12 @@ function Screen() {
             iteration={route.iteration}
             refine={route.refine}
           />
+        </Shell>
+      );
+    case 'page':
+      return (
+        <Shell bare>
+          <PageScreen page={route.page} />
         </Shell>
       );
     default:

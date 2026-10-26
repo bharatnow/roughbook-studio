@@ -25,6 +25,7 @@ import {
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
+import { inPageSrc } from '../in-page';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
@@ -133,7 +134,7 @@ function useSnapshotState(
  * The app's state, asked again often while it starts or is down, so the frame's progress moves,
  * and rarely once it answers.
  */
-function useApp(initial: AppView | null): AppView {
+export function useApp(initial: AppView | null): AppView {
   const { state, refreshState } = useStudio();
   const [app, setApp] = useState<AppView | null>(initial);
   const current = app ?? state?.app ?? null;
@@ -418,10 +419,13 @@ export function IterationScreen({
                 ? { status: snapshot.status, message: snapshot.message }
                 : undefined,
               fallbackSrc: shot,
+              // In its page, beside Alone, for an adopted component's iteration (B5).
+              inPageSrc: inPageSrc(project.local, state.devUrl, key),
               making: run?.status === 'started',
               exists: true
             }
           ]}
+          pick
           viewports={environment.viewports}
           variants={environment.variants}
           kicker={kicker}

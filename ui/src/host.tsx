@@ -11,6 +11,7 @@ import {
 import { useMemo, type ReactNode } from 'react';
 import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
+import { pickedAddress } from './in-page';
 import { navigate } from './router';
 
 /** The screens are in the fragment. `prefetch` is for hosts that load pages ahead; an anchor drops it. */
@@ -207,7 +208,12 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         // The map's list (B2 of the brownfield plan): names reach the server, nothing else.
         adopt: ({ page, component }) => adopt(component ? { page, component } : { page }),
         // The list asked first, with the count, above 50 components (decision 29).
-        adoptAll: () => adopt({ all: true, yes: true })
+        adoptAll: () => adopt({ all: true, yes: true }),
+        // A click on the app's page picked a section (B5): the canvas, with it selected.
+        pickSection: key => {
+          const to = pickedAddress(key);
+          if (to) navigate(to);
+        }
       }
     };
   }, [devUrl, previewTemplate, refresh, say]);

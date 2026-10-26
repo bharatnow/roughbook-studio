@@ -12,6 +12,8 @@ export type Route =
   | { screen: 'canvas'; focus: CanvasFocus; session?: string }
   | { screen: 'compare'; page: string; component: string; ids: string[] }
   | { screen: 'iteration'; page: string; component: string; iteration: string; refine: boolean }
+  /** An adopted page's own view in the app, with its markers (B5): `/<page>?view=page`. */
+  | { screen: 'page'; page: string }
   | { screen: 'missing' };
 
 const ITERATION = /^iteration-\d{2,}$/;
@@ -27,6 +29,7 @@ export function parseRoute(hash: string): Route {
     return { screen: 'canvas', focus: { kind: 'project' }, session: parts[1] };
   }
   const [page, component, third, fourth] = parts;
+  if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
   if (page && component && third === 'iterations' && fourth === 'compare' && parts.length === 4) {
     return {
       screen: 'compare',

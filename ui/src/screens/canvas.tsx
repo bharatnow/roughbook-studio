@@ -47,6 +47,7 @@ import {
 import { studioCanvasInput, type StudioCanvas } from '../canvas-input';
 import { studioCommands, type StudioCommand } from '../commands';
 import { describe, findComponent, useStudio } from '../data';
+import { pagesWithView } from '../in-page';
 import { BriefDrawer } from '../parts/brief';
 import { useChrome } from '../parts/chrome';
 import { usePromotePlan } from '../parts/promote-plan';
@@ -289,7 +290,8 @@ function StudioCanvasView({
     project: project.tree.slug,
     webUrl: state.webUrl,
     compare,
-    unfolded
+    unfolded,
+    inPage: pagesWithView(project.local)
   };
 
   function toggleCompare(key: string) {
