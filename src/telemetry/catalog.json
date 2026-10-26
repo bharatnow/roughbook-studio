@@ -623,7 +623,9 @@
           "values": [
             "thumbnail",
             "desktop",
-            "phone"
+            "phone",
+            "page-desktop",
+            "page-phone"
           ]
         },
         "of": {
