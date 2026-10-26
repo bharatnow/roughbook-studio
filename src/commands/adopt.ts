@@ -102,7 +102,7 @@ export function describeAdoption({ adopted, baselines }: AdoptOutcome): string[]
  * With the app answering: each adopted component's baseline screenshotted and pictured, and each
  * adopted page pictured at its address. A line for each, as the terminal says it.
  */
-async function pictureAdopted(
+export async function pictureAdopted(
   context: CommandContext,
   api: StudioApi,
   link: RepoLink,

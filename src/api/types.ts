@@ -244,6 +244,25 @@ export type PagePromoteBody = {
   assets: { scope: AssetScope; file: string }[];
 };
 
+/** What the backend answers a page composition's promote: its prompt, and its new sections. */
+export type PagePromotion = {
+  promotionId: string;
+  /** With stand-ins for the page's files, the new sections and the base, which the studio fills in. */
+  prompt: string;
+  placeholders: Promotion['placeholders'];
+  compositionName?: string;
+  /** The sections whose files the agent writes, each from its iteration, with its approved copy. */
+  newSections?: {
+    component: string;
+    name: string;
+    iteration: string;
+    copyMarkdown: string | null;
+  }[];
+  defaults?: { componentsDir: string; publicDir: string };
+  assets: { scope: AssetScope; file: string; publicUrl: string }[];
+  missingAssets: { scope: AssetScope; file: string }[];
+};
+
 /** `POST …/pages/:page/components`: the new section's slug (decision 47). */
 export type NewSection = { slug: string; name?: string };
 

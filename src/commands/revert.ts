@@ -1,4 +1,7 @@
 import { parseArgs } from 'node:util';
+import { COMPOSITION_ID } from '../compositions/composition.js';
+import { COMPOSITIONS_DIR } from '../compositions/store.js';
+import { SLUG } from '../repo/iterations.js';
 import { putBack } from '../runs/lifecycle.js';
 import { listPromotions, putBackPromoted } from '../runs/promotion.js';
 import { listRuns } from '../runs/store.js';
@@ -12,6 +15,15 @@ const SAID = {
   cannot: 'Cannot put it back: the studio kept no copy of it. Restore it from git or your editor.'
 } as const;
 
+/** A page composition's promote is named by its folder, `<page>/compositions/composition-NN` (B6). */
+function parseTarget(text: string | undefined) {
+  const [page = '', folder, id = '', ...rest] = (text ?? '').replace(/\/+$/, '').split('/');
+  if (folder === COMPOSITIONS_DIR && SLUG.test(page) && COMPOSITION_ID.test(id) && !rest.length) {
+    return { page, component: COMPOSITIONS_DIR, iteration: id };
+  }
+  return parseIteration(text);
+}
+
 const SAID_PROMOTE = {
   restored: 'Put back as it was before the promote.',
   removed: 'Removed: the promote created it.',
@@ -22,12 +34,13 @@ const SAID_PROMOTE = {
 export const revert: Command = {
   name: 'revert',
   summary: 'Put back a file a run changed outside its iteration, or one a promote changed',
-  usage: 'revert <page>/<component>/<iteration> <file>',
+  usage:
+    'revert <page>/<component>/<iteration> <file> | revert <page>/compositions/composition-NN <file>',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
     const { positionals } = parseArgs({ args, allowPositionals: true, options: {} });
-    const target = parseIteration(positionals[0]);
+    const target = parseTarget(positionals[0]);
     const file = (positionals[1] ?? '').replace(/\\/g, '/');
     if (!file) throw new Error('Name the file to put back, as roughbook done listed it.');
     const repoRoot = context.repoRoot!;

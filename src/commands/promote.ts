@@ -1,6 +1,10 @@
 import { parseArgs } from 'node:util';
 import type { Detection, TerminalAdapter } from '../agents/types.js';
 import { manualCommand, planTerminal, sessionTitle, type Session } from '../launch/terminal.js';
+import { describePageStart, preparePagePromotion } from '../compositions/promote.js';
+import { COMPOSITIONS_DIR } from '../compositions/store.js';
+import { readMap } from '../map/file.js';
+import { SLUG } from '../repo/iterations.js';
 import { requireRepoLink } from '../repo/link.js';
 import {
   findComponent,
@@ -18,7 +22,7 @@ export function promoteSession(
   detection: Detection,
   repoRoot: string,
   target: { page: string; component: string; componentName: string },
-  prepared: PreparedPromotion,
+  prepared: Pick<PreparedPromotion, 'promptFile' | 'promotionId'>,
   model: string | null
 ): Session {
   const title = sessionTitle(`Promote ${target.componentName}`);
@@ -66,7 +70,14 @@ export function branchArgument(args: string[]): { branch?: string | true; rest: 
   }
   // `promote --branch home/hero`: the word was the component, and the branch takes its default.
   if (named && typeof branch === 'string') {
-    const valued = new Set(['--iteration', '--to', '--public', '--agent', '--model']);
+    const valued = new Set([
+      '--iteration',
+      '--to',
+      '--public',
+      '--agent',
+      '--model',
+      '--composition'
+    ]);
     const positional = rest.filter(
       (arg, index) => !arg.startsWith('-') && !valued.has(rest[index - 1] ?? '')
     );
@@ -107,7 +118,7 @@ export const promote: Command = {
   name: 'promote',
   summary: 'Hand the selected iteration to your agent to write the real component',
   usage:
-    'promote <page>/<component> [--iteration <id>] [--to <file>] [--branch [<name>]] [--public <folder>] [--agent <id>]',
+    'promote <page>/<component> [--iteration <id>] [--to <file>] [--branch [<name>]] [--public <folder>] [--agent <id>] | promote <page> --composition composition-NN [--branch [<name>]] [--agent <id>]',
   needsRepo: true,
   async run(args, context) {
     const { io } = context;
@@ -120,38 +131,92 @@ export const promote: Command = {
         to: { type: 'string' },
         public: { type: 'string' },
         agent: { type: 'string' },
-        model: { type: 'string' }
+        model: { type: 'string' },
+        composition: { type: 'string' }
       }
     });
-    const { page, component } = parseComponent(positionals[0]);
     const repoRoot = context.repoRoot!;
-    const link = await requireRepoLink(repoRoot);
-    const api = await requireApi(context);
-    const tree = await api.project(link.orgId, link.project);
-    const record = findComponent(tree, page, component);
-    const iteration = iterationToPromote(record, values.iteration);
-
-    const prepared = await preparePromotion(repoRoot, api, link, tree, {
-      page,
-      component,
-      iteration,
-      targetFile: values.to,
-      publicDir: values.public,
-      ...(branch !== undefined ? { branch } : {})
-    });
-    for (const line of describeStart(`${page}/${component}/${iteration}`, prepared)) io.out(line);
-    for (const file of prepared.copied) io.out(`  Copied ${file}`);
-    if (prepared.wroteCopy)
-      io.out(`  Wrote the approved copy to rough/${page}/${component}/copy.md`);
-    if (prepared.copyFile) {
-      io.out(
-        `  This repo keeps copy in ${prepared.copyFile} (rough/environment.md, copy: localized): the agent lands the approved copy there.`
+    let target: { page: string; component: string; componentName: string };
+    let prepared: Pick<PreparedPromotion, 'promptFile' | 'promotionId'>;
+    if (values.composition !== undefined) {
+      // A page's composition (B6): its page's files and its new sections' files, nothing else.
+      const page = (positionals[0] ?? '').replace(/\/+$/, '');
+      if (!SLUG.test(page)) {
+        throw new Error(
+          'Name the page by its slug: roughbook promote home --composition composition-02.'
+        );
+      }
+      if (values.iteration !== undefined || values.to !== undefined) {
+        throw new Error(
+          "A composition's promote writes the page's own files and its new sections' files: it takes no --iteration or --to."
+        );
+      }
+      const link = await requireRepoLink(repoRoot);
+      const api = await requireApi(context);
+      const tree = await api.project(link.orgId, link.project);
+      const started = await preparePagePromotion(repoRoot, api, link, tree, {
+        page,
+        composition: values.composition,
+        publicDir: values.public,
+        ...(branch !== undefined ? { branch } : {})
+      });
+      const names = new Map(
+        (readMap(repoRoot)?.map.components ?? []).map(item => [item.slug, item.name])
       );
+      for (const line of describePageStart(
+        started,
+        page,
+        values.composition,
+        slug => names.get(slug) ?? slug
+      )) {
+        io.out(line);
+      }
+      for (const file of started.copied) io.out(`  Copied ${file}`);
+      for (const asset of started.missing) {
+        io.out(
+          `  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`
+        );
+      }
+      io.out(`  Prompt: ${started.promptFile}`);
+      prepared = started;
+      target = {
+        page,
+        component: `${COMPOSITIONS_DIR}/${values.composition}`,
+        componentName: `${page} ${values.composition}`
+      };
+    } else {
+      const { page, component } = parseComponent(positionals[0]);
+      const link = await requireRepoLink(repoRoot);
+      const api = await requireApi(context);
+      const tree = await api.project(link.orgId, link.project);
+      const record = findComponent(tree, page, component);
+      const iteration = iterationToPromote(record, values.iteration);
+
+      const made = await preparePromotion(repoRoot, api, link, tree, {
+        page,
+        component,
+        iteration,
+        targetFile: values.to,
+        publicDir: values.public,
+        ...(branch !== undefined ? { branch } : {})
+      });
+      for (const line of describeStart(`${page}/${component}/${iteration}`, made)) io.out(line);
+      for (const file of made.copied) io.out(`  Copied ${file}`);
+      if (made.wroteCopy) io.out(`  Wrote the approved copy to rough/${page}/${component}/copy.md`);
+      if (made.copyFile) {
+        io.out(
+          `  This repo keeps copy in ${made.copyFile} (rough/environment.md, copy: localized): the agent lands the approved copy there.`
+        );
+      }
+      for (const asset of made.missing) {
+        io.out(
+          `  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`
+        );
+      }
+      io.out(`  Prompt: ${made.promptFile}`);
+      prepared = made;
+      target = { page, component, componentName: record.name };
     }
-    for (const asset of prepared.missing) {
-      io.out(`  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`);
-    }
-    io.out(`  Prompt: ${prepared.promptFile}`);
 
     const instruction = handoffLine(prepared.promptFile);
     let session: Session | null = null;
@@ -173,7 +238,7 @@ export const promote: Command = {
         adapter,
         detection,
         repoRoot,
-        { page, component, componentName: record.name },
+        target,
         prepared,
         values.model ?? null
       );

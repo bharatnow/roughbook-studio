@@ -1,13 +1,17 @@
 // A promote's finish where a person or an agent asks for it (roughbook done, MCP finish_run, the
 // local UI's Finish): the studio's checks of what the agent wrote (src/runs/promotion.ts), then the
 // baseline refreshed. Its pointer already renders the app's new code, so its screenshots and
-// pictures, and those of the adopted pages that show it, are taken again (B4's contract).
+// pictures, and those of the adopted pages that show it, are taken again (B4's contract). A page
+// composition's promote (B6, decision 53), once done, maps the app again, adopts its new sections
+// so each gains its baseline, and pictures the page again.
 import type { StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
 import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { BASELINE } from '../map/adopt.js';
-import { readMap } from '../map/file.js';
+import { BASELINE, type Adoption } from '../map/adopt.js';
+import { readMap, writeMap } from '../map/file.js';
+import { mapRepo } from '../map/run.js';
+import type { RepoMap } from '../map/types.js';
 import {
   describePictures,
   pictureShot,
@@ -24,6 +28,7 @@ import { queued } from '../runs/queue.js';
 import { iterationExists } from '../runs/slots.js';
 import { iterationHash } from '../screenshot/iteration.js';
 import { withPreviews } from '../standalone/server.js';
+import { adoptHere, describeAdoption, pictureAdopted } from './adopt.js';
 import type { CommandContext } from './context.js';
 
 export type PromotionFinishOptions = FinishPromotionOptions & {
@@ -131,6 +136,111 @@ export async function refreshAfterPromote(
   return lines;
 }
 
+/**
+ * The map after a page's promote, with each new section under the slug the backend gave it: the
+ * component the discoverers found at the section's new file takes the section's slug and name,
+ * which later maps keep (the slug follows the file). The new sections found, and those not.
+ */
+export function placeNewSections(
+  map: RepoMap,
+  record: Pick<PromotionRecord, 'page' | 'targets'>
+): { map: RepoMap; found: string[]; missing: string[] } {
+  let components = [...map.components];
+  let pages = map.pages;
+  const found: string[] = [];
+  const missing: string[] = [];
+  for (const target of record.targets) {
+    const section = target.section;
+    if (!section) continue;
+    const at = components.find(item => item.files[0] === target.path);
+    if (!at) {
+      missing.push(section.component);
+      continue;
+    }
+    // A slug the map already gives another component stays that one's.
+    const free = !components.some(item => item.slug === section.component && item !== at);
+    if (at.slug !== section.component && free) {
+      const from = at.slug;
+      components = components.map(item =>
+        item === at ? { ...item, slug: section.component, name: section.name } : item
+      );
+      pages = pages.map(page => ({
+        ...page,
+        sections: page.sections.map(slug => (slug === from ? section.component : slug))
+      }));
+    }
+    found.push(free ? section.component : at.slug);
+  }
+  return { map: { ...map, components, pages }, found, missing };
+}
+
+/**
+ * After a page composition's promote that is done (decision 53): the app mapped again, its new
+ * sections adopted with their baselines, and the page pictured again, with the baselines' own
+ * screenshots and pictures where the app is running. A line for each, as the terminal says it.
+ */
+export async function refreshAfterPagePromote(
+  context: CommandContext,
+  input: { api: StudioApi; outbox: Outbox; link: RepoLink },
+  record: PromotionRecord,
+  devUrl: string,
+  environment?: RepoEnvironment
+): Promise<string[]> {
+  const repoRoot = context.repoRoot!;
+  const read = environment ?? (await readEnvironment(repoRoot, input.link));
+  const lines: string[] = [];
+  const mapped = await mapRepo(repoRoot, read, input.link);
+  let map = mapped?.map ?? readMap(repoRoot)?.map;
+  if (!map) return [`${record.page}: the app could not be mapped again, so nothing was adopted.`];
+  const placed = placeNewSections(map, record);
+  if (placed.found.length) {
+    writeMap(repoRoot, placed.map);
+    map = placed.map;
+  }
+  for (const slug of placed.missing) {
+    lines.push(
+      `${record.page}/${slug}: its new file is not in the map, so it was not adopted. Run roughbook map, then roughbook adopt ${record.page}/${slug}.`
+    );
+  }
+  const page = map.pages.find(item => item.slug === record.page);
+  if (!page) return [...lines, `rough/map.md no longer has the ${record.page} page.`];
+  const adoption: Adoption[] = placed.found.length
+    ? [
+        {
+          page,
+          components: map.components.filter(item => placed.found.includes(item.slug))
+        }
+      ]
+    : [];
+  const outcome = adoption.length
+    ? await adoptHere(repoRoot, input.api, input.link, read, map, adoption)
+    : null;
+  if (outcome) lines.push(...describeAdoption(outcome));
+
+  // Pictures need the app: the page at its address, and the new baselines' previews.
+  if (read.mode !== 'live' || !input.api.signedIn) return lines;
+  if (!(await context.askPreview(devUrl, 5000))) {
+    lines.push(`Nothing answered at ${devUrl}, so the page was not pictured again.`);
+    return lines;
+  }
+  if (outcome) {
+    lines.push(
+      ...(await pictureAdopted(context, input.api, input.link, read, map, outcome, devUrl))
+    );
+    return lines;
+  }
+  const shoot = pictureShot(context);
+  if (!shoot) return lines;
+  const report = await sharePagePictures(
+    { repoRoot, ...input, environment: read, force: true, shoot },
+    page,
+    devUrl
+  ).catch(() => null);
+  const line = report && describePictures(`The ${page.slug} page`, report);
+  if (line) lines.push(line);
+  return lines;
+}
+
 /** Finishes a promote, then, when the app's files changed, refreshes the baselines it changed. */
 export async function finishPromotionHere(
   context: CommandContext,
@@ -144,6 +254,19 @@ export async function finishPromotionHere(
   const environment = options.environment ?? (await readEnvironment(repoRoot, link));
   const record = await finishPromotion(repoRoot, api, outbox, environment, promotionId, options);
   const wrote = record.result?.changed.some(item => item.inScope) ?? false;
+  if (record.subject === 'page') {
+    const refreshed =
+      options.refresh && record.result?.outcome === 'done'
+        ? await refreshAfterPagePromote(
+            context,
+            { api, outbox, link },
+            record,
+            options.devUrl,
+            options.environment
+          ).catch(error => [`The page could not be refreshed: ${(error as Error).message}`])
+        : [];
+    return { record, refreshed };
+  }
   const refreshed =
     options.refresh && wrote && record.result?.outcome !== 'conflict'
       ? await refreshAfterPromote(

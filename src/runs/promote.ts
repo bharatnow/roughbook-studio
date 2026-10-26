@@ -188,7 +188,7 @@ export function promoteWords(
  * stand on lines of their own, which go with their line breaks when they have nothing to say.
  */
 export function fillInPrompt(
-  promotion: Promotion,
+  promotion: Pick<Promotion, 'prompt' | 'placeholders'>,
   targetFile: string,
   publicDir: string,
   words?: PromoteWords

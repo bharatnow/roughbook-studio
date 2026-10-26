@@ -458,13 +458,18 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     const result = finished.result;
     const name = `${finished.page}/${finished.component}/${finished.iteration}`;
     const tell: string[] = [];
+    const page = finished.subject === 'page';
     if (result?.outcome === 'conflict') {
       tell.push(
-        'Nothing was written to the app. Tell the designer where the two changes conflict; they resolve it in the app or fork again from its current version.'
+        page
+          ? 'Nothing was written to the app. Tell the designer where the two changes conflict; they resolve it in the page or save a new composition of the page as it is now.'
+          : 'Nothing was written to the app. Tell the designer where the two changes conflict; they resolve it in the app or fork again from its current version.'
       );
     } else {
       tell.push(
-        `Tell the designer ${name} is written back to the app; they review the diff in the Roughbook studio or with roughbook done.`
+        page
+          ? `Tell the designer the ${finished.page} page is arranged as ${finished.iteration}; they review the diff in the Roughbook studio or with roughbook done.`
+          : `Tell the designer ${name} is written back to the app; they review the diff in the Roughbook studio or with roughbook done.`
       );
       if (result?.outOfScope.length) {
         tell.push(

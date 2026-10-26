@@ -59,6 +59,8 @@ export type PromoteTarget = {
   child: boolean;
   /** Changed in the app since the fork, against its kept base. */
   drifted: boolean;
+  /** In a page composition's promote (B6): the new section this file is written from. */
+  section?: { component: string; iteration: string; name: string };
 };
 
 /** One command the finish ran: the environment's build, or one of its checks (decision 35). */
@@ -107,8 +109,14 @@ export type PromotionRecord = {
   orgId: string;
   project: string;
   page: string;
+  /**
+   * The component and iteration promoted; for a page composition's (B6), `compositions` and the
+   * composition's id, so `<page>/<component>/<iteration>` is its folder in rough/ either way.
+   */
   component: string;
   iteration: string;
+  /** A page composition's promote (B6); a component's when absent. */
+  subject?: 'page';
   how: PromoteHow;
   targets: PromoteTarget[];
   /** Files the studio itself wrote for the promote outside rough/: the assets it copied in. */
@@ -730,7 +738,10 @@ export async function commitPromotion(
   const added = await git(repoRoot, ['add', '--all', '--', ...pathspecs]);
   if (added.code !== 0) throw new Error(`git add refused: ${added.stderr.trim()}`);
   const label = `${record.page}/${record.component}/${record.iteration}`;
-  const message = `Promote ${label} from Roughbook\n\nWritten back into the app ${record.how === 'merge' ? 'as a merge with its changes since the fork' : 'in place'}.`;
+  const message =
+    record.subject === 'page'
+      ? `Promote the ${record.page} page's ${record.iteration} from Roughbook\n\nIts sections arranged ${record.how === 'merge' ? 'as a merge with the page’s changes since it was saved' : 'in place'}${record.targets.some(target => target.section) ? ', with its new sections’ files' : ''}.`
+      : `Promote ${label} from Roughbook\n\nWritten back into the app ${record.how === 'merge' ? 'as a merge with its changes since the fork' : 'in place'}.`;
   const made = await git(repoRoot, ['commit', '--quiet', '-m', message, '--', ...pathspecs]);
   if (made.code !== 0) {
     throw new Error(`git commit refused: ${(made.stderr || made.stdout).trim()}`);
@@ -791,9 +802,12 @@ export function describePromotion(record: PromotionRecord): string[] {
   if (!result) return [];
   const label = `${record.page}/${record.component}/${record.iteration}`;
   const lines: string[] = [];
+  const page = record.subject === 'page';
   const how =
     record.how === 'merge'
-      ? 'as a merge with the app’s changes since the fork'
+      ? page
+        ? 'as a merge with the page’s changes since the composition was saved'
+        : 'as a merge with the app’s changes since the fork'
       : record.how === 'in-place'
         ? 'in place'
         : 'as a new file';
@@ -807,7 +821,9 @@ export function describePromotion(record: PromotionRecord): string[] {
       lines.push(`  Put back ${file}, which the agent had written anyway.`);
     }
     lines.push(
-      '  Resolve it in the app, or fork again from the app’s current version, then promote that.'
+      page
+        ? '  Resolve it in the page, or save a new composition of the page as it is now, then promote that.'
+        : '  Resolve it in the app, or fork again from the app’s current version, then promote that.'
     );
     return lines;
   }
@@ -815,7 +831,7 @@ export function describePromotion(record: PromotionRecord): string[] {
   lines.push(
     result.outcome === 'failed' && !inScope.length
       ? `${label}: nothing was written to the app.`
-      : `${label}: written back ${how}, ${inScope.length} file${inScope.length === 1 ? '' : 's'} changed.`
+      : `${label}: ${page ? 'arranged' : 'written back'} ${how}, ${inScope.length} file${inScope.length === 1 ? '' : 's'} changed.`
   );
   for (const item of inScope)
     lines.push(
@@ -824,7 +840,9 @@ export function describePromotion(record: PromotionRecord): string[] {
   for (const file of result.lineEndings) lines.push(`  Kept ${file}'s own line endings.`);
   if (result.outOfScope.length) {
     lines.push(
-      `  Changed outside the promote's files, which it must leave alone (decision 36); put each back with roughbook revert:`
+      page
+        ? `  Changed outside the page's files and its new sections', which it must leave alone (decision 50); put each back with roughbook revert:`
+        : `  Changed outside the promote's files, which it must leave alone (decision 36); put each back with roughbook revert:`
     );
     for (const file of result.outOfScope) lines.push(`    roughbook revert ${label} ${file}`);
   }

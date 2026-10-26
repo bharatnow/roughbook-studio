@@ -7,6 +7,7 @@ import type {
   CreatedComposition,
   NewSection,
   PagePromoteBody,
+  PagePromotion,
   Adopted,
   AssetScope,
   DeviceLogin,
@@ -132,19 +133,22 @@ export class StudioApi {
   promote(
     orgId: string,
     project: string,
-    body:
-      | {
-          page: string;
-          component: string;
-          iteration: string;
-          assets: { scope: AssetScope; file: string }[];
-          /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
-          family?: Family;
-          /** A new file, the app component's own files, or a merge with the app's changes (B4). */
-          how: 'new' | 'in-place' | 'merge';
-        }
-      | PagePromoteBody
+    body: {
+      page: string;
+      component: string;
+      iteration: string;
+      assets: { scope: AssetScope; file: string }[];
+      /** The repo's family of checks: the server then leaves what the stack decides to fill in. */
+      family?: Family;
+      /** A new file, the app component's own files, or a merge with the app's changes (B4). */
+      how: 'new' | 'in-place' | 'merge';
+    }
   ): Promise<Promotion> {
+    return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
+  }
+
+  /** Renders a page composition's promote prompt (B6), from slugs and the new sections' assets. */
+  promotePage(orgId: string, project: string, body: PagePromoteBody): Promise<PagePromotion> {
     return this.request('POST', `${projectPath(orgId, project)}/promotions`, body);
   }
 
