@@ -427,7 +427,8 @@ export const expo: Recipe = {
         : absent;
     },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
-    sentinel: CONTEXT_SENTINEL
+    sentinel: CONTEXT_SENTINEL,
+    note: 'In its page works on the web target (react-native-web); on a device or simulator, screens show components alone.'
   },
   agentRules:
     environment => `- \`${environment.entry}\` is a React Native component, shown through the app's Expo Router on

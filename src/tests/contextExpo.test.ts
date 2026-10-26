@@ -539,6 +539,8 @@ describe('the Expo switch in the setup', () => {
     assert.ok(expo.generatedFiles.includes(CONTEXT_MODULES));
     assert.deepEqual(link.generated, [CONTEXT_MODULES]);
     assert.ok(expo.importAllowed(LINK).includes(METRO_CONFIG));
+    // Native screens show components alone (decision 44), which doctor and the frame say.
+    assert.match(link.note ?? '', /web target/);
     expo.syncPreview(repo);
     assert.ok(fs.existsSync(path.join(repo, CONTEXT_MODULES)));
     assert.equal(
