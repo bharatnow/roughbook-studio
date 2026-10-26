@@ -185,8 +185,8 @@ describe('an iteration’s pictures in its page', () => {
     const { repo } = await setup();
     const target = { page: 'home', component: 'hero', iteration: 'iteration-01' };
     assert.ok(inPageTarget(repo, environment, target, DEV));
-    const vite = recipeFor('vite')!.environment(LINK);
-    assert.equal(inPageTarget(repo, vite, target, DEV), null);
+    const shopify = recipeFor('shopify')!.environment(LINK);
+    assert.equal(inPageTarget(repo, shopify, target, DEV), null);
     fs.rmSync(path.join(repo, 'rough/home/hero/iteration-00'), { recursive: true });
     assert.equal(inPageTarget(repo, environment, target, DEV), null);
   });
