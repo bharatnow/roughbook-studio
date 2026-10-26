@@ -241,8 +241,9 @@ export function selectionActions(
     }
   } else if (facts.generated) {
     const picked = state.compare.includes(key);
-    // A baseline is forked and refined like any card, from a copy of the app's files (B3); it is
-    // not promoted until B4. Any other iteration of an adopted component compares with it.
+    // A baseline is forked and refined like any card, from a copy of the app's files (B3), but is
+    // never promoted: it is the app. Its forks are, back into the app's files (B4). Any other
+    // iteration of an adopted component compares with it.
     const baseline = canvas.cards[`iteration:${page}/${component}/${BASELINE}`];
     const withApp =
       !facts.baseline && baseline?.kind === 'local' && baseline.baseline && baseline.generated;

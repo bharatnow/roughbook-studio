@@ -529,8 +529,9 @@ function appFile(file: string): boolean {
  * Finishes a promote (B4's contract): the changed app files against its snapshot; in a merge the
  * agent reported conflicts for, every target put back, since a conflict writes nothing; else the
  * targets' line endings kept as the app had them, the out-of-scope files named, and the build and
- * checks run when a target changed. The outcome goes to the backend through the outbox, with the
- * fields of `promotion.finished` only. A finished promote is returned as it is.
+ * checks run when a target changed. The outcome goes to the backend through the outbox, with
+ * `promotion.finished`'s fields but `how`, which it has from the start: no path, no code. A
+ * finished promote is returned as it is.
  */
 export async function finishPromotion(
   repoRoot: string,
@@ -619,8 +620,8 @@ export async function finishPromotion(
     const sent = await outbox.send(
       api,
       `/orgs/${record.orgId}/projects/${record.project}/promotions/${record.promotionId}/finish`,
+      // The backend knows `how` from the promote's start and refuses any other field.
       {
-        how: record.how,
         outcome,
         build: buildResult,
         checks: checksResult,

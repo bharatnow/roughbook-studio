@@ -77,6 +77,11 @@ export function iterationPath(page: string, component: string, iteration: string
   return `/api/iterations/${encodeURIComponent(page)}/${encodeURIComponent(component)}/${encodeURIComponent(iteration)}`;
 }
 
+/** An iteration's promote on this machine (B4): its plan, Finish, Revert and commit. */
+export function promotePath(page: string, component: string, iteration: string): string {
+  return `/api/promote/${encodeURIComponent(page)}/${encodeURIComponent(component)}/${encodeURIComponent(iteration)}`;
+}
+
 /** A screenshot as an object URL, since an image cannot send the token itself. */
 export async function screenshotUrl(
   page: string,

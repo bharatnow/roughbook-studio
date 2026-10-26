@@ -2104,7 +2104,6 @@ describe('roughbook promote', () => {
     );
     const finish = studio.requests.find(request => request.url.endsWith('/finish'))!;
     assert.deepEqual(finish.body, {
-      how: 'new',
       outcome: 'done',
       build: 'skipped',
       checks: 'skipped',

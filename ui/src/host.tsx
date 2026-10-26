@@ -3,11 +3,13 @@ import {
   REVIEW_FIELDS,
   UiHostProvider,
   type LinkProps,
+  type PromoteCommitResult,
+  type PromoteFinish,
   type PromoteResult,
   type UiHost
 } from '@roughbook/ui';
 import { useMemo, type ReactNode } from 'react';
-import { iterationPath, post } from './api';
+import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
 import { navigate } from './router';
 
@@ -171,7 +173,8 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
             page: input.page,
             component: input.component,
             iteration: input.iteration,
-            targetFile: input.targetFile
+            targetFile: input.targetFile,
+            ...(input.branch ? { branch: input.branch } : {})
           }).catch((error): PromoteResult => ({
             ok: false,
             launched: false,
@@ -183,6 +186,24 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
           await refresh();
           return result;
         },
+        // The promote's finish, back in the app's own files (B4 of the brownfield plan).
+        finishPromotion: async target => {
+          const finished = await post<PromoteFinish>(
+            `${promotePath(target.page, target.component, target.iteration)}/finish`
+          );
+          await refresh();
+          return finished;
+        },
+        revertPromoteFile: async input => {
+          await post(`${promotePath(input.page, input.component, input.iteration)}/revert`, {
+            path: input.path
+          });
+        },
+        commitPromotion: input =>
+          post<PromoteCommitResult>(
+            `${promotePath(input.page, input.component, input.iteration)}/commit`,
+            { commit: input.commit }
+          ).catch((error): PromoteCommitResult => ({ ok: false, message: describe(error) })),
         // The map's list (B2 of the brownfield plan): names reach the server, nothing else.
         adopt: ({ page, component }) => adopt(component ? { page, component } : { page }),
         // The list asked first, with the count, above 50 components (decision 29).

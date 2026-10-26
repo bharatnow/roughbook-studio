@@ -233,9 +233,26 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
         agent: typeof body.agent === 'string' ? body.agent : undefined,
         terminal: body.terminal === 'external' ? 'external' : 'builtin',
         cols: Number(body.cols) || undefined,
-        rows: Number(body.rows) || undefined
+        rows: Number(body.rows) || undefined,
+        branch: typeof body.branch === 'string' ? body.branch : undefined
       });
     }),
+    // The promote panel's drift, branch choice, Finish, Revert and commit (B4).
+    route('GET', '/api/promote/:page/:component/:iteration', (_request, params) =>
+      studio.promotePlan(target(params))
+    ),
+    route('POST', '/api/promote/:page/:component/:iteration/finish', async (request, params) =>
+      studio.finishPromote({ ...target(params), conflicts: (await readBody(request)).conflicts })
+    ),
+    route('POST', '/api/promote/:page/:component/:iteration/revert', async (request, params) =>
+      studio.revertPromoted({
+        ...target(params),
+        path: String((await readBody(request)).path ?? '')
+      })
+    ),
+    route('POST', '/api/promote/:page/:component/:iteration/commit', async (request, params) =>
+      studio.commitPromote({ ...target(params), commit: (await readBody(request)).commit === true })
+    ),
     route('GET', '/api/terminals', async () => studio.terminals?.list() ?? []),
     route('POST', '/api/terminals/:id/stop', async (_request, params) => ({
       stopped: studio.terminals?.stop(params.id!) ?? false

@@ -335,11 +335,15 @@ export async function preparePromotion(
   const relative = iterationDir(page, component, iteration);
   // A fork or refine of the app's own component goes back into the component's own files, with
   // each child it copied in (B4); its children are looked for again first (decision 39). --to
-  // still makes it a new file.
-  if (options.targetFile === undefined && readBase(repoRoot, relative)) {
-    await recordChildren(repoRoot, { page, component, iteration });
-  }
-  const base = options.targetFile === undefined ? readBase(repoRoot, relative) : null;
+  // still makes it a new file, unless it names one of those files, as the promote panel's field
+  // does by default.
+  const kept = readBase(repoRoot, relative);
+  const named = options.targetFile?.replace(/\\/g, '/').replace(/^\.\//, '');
+  const overridden =
+    named !== undefined &&
+    !(kept && [...kept.files, ...kept.children].some(file => file.path === named));
+  if (kept && !overridden) await recordChildren(repoRoot, { page, component, iteration });
+  const base = overridden ? null : readBase(repoRoot, relative);
   let how: PromoteHow = 'new';
   let targets: PromoteTarget[];
   let targetFile: string;

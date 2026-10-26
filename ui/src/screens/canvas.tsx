@@ -49,6 +49,7 @@ import { studioCommands, type StudioCommand } from '../commands';
 import { describe, findComponent, useStudio } from '../data';
 import { BriefDrawer } from '../parts/brief';
 import { useChrome } from '../parts/chrome';
+import { usePromotePlan } from '../parts/promote-plan';
 import { Missing } from '../parts/missing';
 import { useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
@@ -595,6 +596,24 @@ function StudioCanvasView({
         item => item.number === promoteOf.component.selectedIteration
       )
     : undefined;
+  const promoteIteration =
+    promoteOf &&
+    promoteSelected &&
+    project.local.iterations.includes(
+      `${promoteOf.page.slug}/${promoteOf.component.slug}/${promoteSelected.id}`
+    )
+      ? promoteSelected.id
+      : null;
+  // A fork from the app goes back into its own files, perhaps as a merge (B4).
+  const promotePlan = usePromotePlan(
+    promoteOf && promoteIteration
+      ? {
+          page: promoteOf.page.slug,
+          component: promoteOf.component.slug,
+          iteration: promoteIteration
+        }
+      : null
+  );
   const refineOf = refine ? findComponent(project, refine.page, refine.component) : null;
   const refineIteration = refineOf?.component.iterations.find(item => item.id === refine?.id);
   const webBase = state.webUrl ? `${state.webUrl}/projects/${project.tree.slug}` : null;
@@ -700,19 +719,19 @@ function StudioCanvasView({
             project={project.tree.slug}
             page={promoteOf.page.slug}
             component={promoteOf.component.slug}
-            iteration={
-              promoteSelected &&
-              project.local.iterations.includes(
-                `${promoteOf.page.slug}/${promoteOf.component.slug}/${promoteSelected.id}`
-              )
-                ? promoteSelected.id
-                : null
-            }
+            iteration={promoteIteration}
             iterationName={promoteSelected?.name ?? ''}
             linked
-            defaultFile={defaultFile(project.tree.delivery.componentsDir, promoteOf.component.name)}
+            defaultFile={
+              promotePlan?.defaultFile ??
+              defaultFile(project.tree.delivery.componentsDir, promoteOf.component.name)
+            }
             promotions={promoteOf.component.promotions}
             agentName={promoteAgent}
+            drift={promotePlan?.drift ?? null}
+            branchChoice={promotePlan?.branchChoice ?? null}
+            finish={promotePlan?.finish ?? null}
+            componentName={promoteOf.component.name}
           />
         ) : null}
       </Drawer>

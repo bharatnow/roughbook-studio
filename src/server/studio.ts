@@ -47,13 +47,33 @@ import type { RepoLink } from '../repo/link.js';
 import type { RepoEnvironment, Terms, Viewport } from '../environment/types.js';
 import { isApproved, readApprovals } from '../repo/approvals.js';
 import { syncIterations } from '../repo/mirror.js';
-import { ITERATION, SLUG, listIterations } from '../repo/iterations.js';
+import { ITERATION, SLUG, iterationDir, listIterations } from '../repo/iterations.js';
 import { roughPath } from '../repo/root.js';
 import { forkFields } from '../runs/forkIntent.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
 import { findComponent, preparePromotion } from '../runs/promote.js';
+import { headCommit, readBase } from '../runs/base.js';
+import {
+  commitPromotion,
+  declinePromotionCommit,
+  defaultBranch,
+  listPromotions,
+  planTargets,
+  promotionDiff,
+  putBackPromoted,
+  type PromotionRecord
+} from '../runs/promotion.js';
+import type { Revert } from '../runs/snapshot.js';
+import { finishPromotionHere } from '../commands/finishPromotion.js';
+import {
+  driftView,
+  finishView,
+  type PromoteCommitView,
+  type PromoteDriftView,
+  type PromoteFinishView
+} from './promoteView.js';
 import {
   addPackages,
   portSketch,
@@ -1327,16 +1347,20 @@ export class LocalStudio {
     terminal?: 'builtin' | 'external';
     cols?: number;
     rows?: number;
+    /** A new branch for the change (decision 18), by its name. */
+    branch?: string;
   }): Promise<PromoteResult> {
     this.assertIteration(body);
     const { api, link } = this.options;
     const tree = await api.project(link.orgId, link.project);
     const record = findComponent(tree, body.page, body.component);
+    const branch = body.branch?.trim();
     const prepared = await preparePromotion(this.repoRoot, api, link, tree, {
       page: body.page,
       component: body.component,
       iteration: body.iteration,
-      targetFile: body.targetFile?.trim() || undefined
+      targetFile: body.targetFile?.trim() || undefined,
+      ...(branch ? { branch } : {})
     });
     const assets = prepared.copied.map(to => ({ to }));
     const missingAssets = prepared.missing.map(item => ({ url: `${item.scope}/${item.file}` }));
@@ -1353,7 +1377,7 @@ export class LocalStudio {
         return {
           ok: true,
           launched: opened.opened !== null,
-          message: `Wrote ${prepared.promptFile}${opened.opened === 'editor' ? ` and opened it in ${where}` : opened.opened === 'default-app' ? ' and opened it with your default app' : ''}. ${opened.copied ? 'The instruction is on the clipboard' : 'Paste this instruction'} for a new chat with ${where === 'your editor' ? 'your agent' : `${where}'s agent`}: ${instruction} Review the diff when it is done; nothing is committed.`,
+          message: `Wrote ${prepared.promptFile}${opened.opened === 'editor' ? ` and opened it in ${where}` : opened.opened === 'default-app' ? ' and opened it with your default app' : ''}. ${opened.copied ? 'The instruction is on the clipboard' : 'Paste this instruction'} for a new chat with ${where === 'your editor' ? 'your agent' : `${where}'s agent`}: ${instruction} When it is done, Finish shows the diff and runs the app's checks.`,
           commands: [],
           assets,
           missingAssets,
@@ -1390,13 +1414,157 @@ export class LocalStudio {
       ok: true,
       launched: where !== null,
       message: where
-        ? `Wrote ${prepared.promptFile} and opened the agent in ${where} to write ${prepared.targetFile}. Review the diff when it is done; nothing is committed.`
+        ? `Wrote ${prepared.promptFile} and opened the agent in ${where} to write ${prepared.how === 'new' ? prepared.targetFile : "the app's own files"}${prepared.branch ? ` on ${prepared.branch.name}` : ''}. When it is done, Finish shows the diff and runs the app's checks.`
         : `Wrote ${prepared.promptFile}. ${launched.kind === 'manual' ? launched.reason : ''}`.trim(),
       commands: launched.kind === 'manual' ? launched.commands : [],
       assets,
       missingAssets,
       terminal: launched.kind === 'builtin' ? (launched.terminals[0] ?? null) : null
     };
+  }
+
+  /** The latest promote of an iteration on this machine, open or finished, or null. */
+  private async latestPromotion(target: {
+    page: string;
+    component: string;
+    iteration: string;
+  }): Promise<PromotionRecord | null> {
+    return (
+      (await listPromotions(this.repoRoot)).find(
+        item =>
+          item.page === target.page &&
+          item.component === target.component &&
+          item.iteration === target.iteration
+      ) ?? null
+    );
+  }
+
+  /**
+   * What the promote panel knows before the promote (B4): where it goes, whether the app moved
+   * since the fork, whether a branch can be made, and what the last finish found.
+   */
+  async promotePlan(target: { page: string; component: string; iteration: string }) {
+    this.assertIteration(target);
+    const relative = iterationDir(target.page, target.component, target.iteration);
+    const base = readBase(this.repoRoot, relative);
+    let drift: PromoteDriftView | null = null;
+    let defaultFile: string | null = null;
+    let problem: string | null = null;
+    if (base) {
+      try {
+        const planned = planTargets(this.repoRoot, relative, base, this.previewEnvironment());
+        drift = driftView(planned.how, planned.targets);
+        defaultFile = planned.targets[0]!.path;
+      } catch (error) {
+        problem = describeError(error);
+      }
+    }
+    const latest = await this.latestPromotion(target);
+    return {
+      defaultFile,
+      drift,
+      problem,
+      branchChoice: {
+        defaultName: defaultBranch(target.page, target.component, target.iteration),
+        unavailable: (await headCommit(this.repoRoot))
+          ? null
+          : 'This repo is not a git repository with a commit, so the change cannot go on a branch of its own.'
+      },
+      open: latest?.status === 'started',
+      finish:
+        latest?.status === 'finished'
+          ? finishView(latest, await promotionDiff(this.repoRoot, latest))
+          : null
+    };
+  }
+
+  /** The local UI's Finish of an iteration's open promote: its checks, then the refreshed baseline. */
+  async finishPromote(body: {
+    page: string;
+    component: string;
+    iteration: string;
+    conflicts?: unknown;
+  }): Promise<PromoteFinishView> {
+    this.assertIteration(body);
+    const conflicts = body.conflicts;
+    if (
+      conflicts !== undefined &&
+      (!Array.isArray(conflicts) || !conflicts.every(item => typeof item === 'string'))
+    ) {
+      throw new BadRequest('conflicts is a list of where the two changes conflict, in words.');
+    }
+    const latest = await this.latestPromotion(body);
+    if (!latest) throw new BadRequest('This iteration has not been promoted from this repo.');
+    const { record } = await finishPromotionHere(
+      this.context,
+      this.options.api,
+      this.outbox,
+      this.options.link,
+      latest.promotionId,
+      {
+        conflicts: (conflicts as string[] | undefined) ?? [],
+        devUrl: this.devUrl,
+        environment: this.previewEnvironment(),
+        refresh: true
+      }
+    );
+    return finishView(record, await promotionDiff(this.repoRoot, record));
+  }
+
+  /** Puts back one file the iteration's last promote changed. */
+  async revertPromoted(body: { page: string; component: string; iteration: string; path: string }) {
+    this.assertIteration(body);
+    const latest = await this.latestPromotion(body);
+    if (!latest || latest.status !== 'finished') {
+      throw new BadRequest('Finish the promote first; then a file it changed can be put back.');
+    }
+    let result: Revert;
+    try {
+      result = await putBackPromoted(this.repoRoot, latest, body.path.replace(/\\/g, '/'));
+    } catch (error) {
+      throw new BadRequest(describeError(error));
+    }
+    if (result === 'cannot') {
+      throw new BadRequest(
+        'The studio kept no copy of it, so it cannot be put back here. Restore it from git or your editor.'
+      );
+    }
+    return { result };
+  }
+
+  /** The designer's Yes or No to committing the promote's files on its branch (decision 18). */
+  async commitPromote(body: {
+    page: string;
+    component: string;
+    iteration: string;
+    commit: boolean;
+  }): Promise<PromoteCommitView> {
+    this.assertIteration(body);
+    const latest = await this.latestPromotion(body);
+    if (!latest?.branch || !latest.commit) {
+      return {
+        ok: false,
+        message: 'This promote is not on a branch of its own; nothing is committed.'
+      };
+    }
+    if (!body.commit) {
+      await declinePromotionCommit(this.repoRoot, latest.promotionId);
+      return {
+        ok: true,
+        message: `Left uncommitted on ${latest.branch.name}. Commit it yourself, or run roughbook done ${body.page}/${body.component}/${body.iteration} --commit.`,
+        commit: null
+      };
+    }
+    try {
+      const committed = await commitPromotion(this.repoRoot, latest.promotionId);
+      return {
+        ok: true,
+        message: `Committed the promote's files on ${latest.branch.name}. Nothing was pushed.`,
+        commit: committed.commit?.sha ?? null
+      };
+    } catch (error) {
+      return { ok: false, message: describeError(error) };
+    }
   }
 
   /**

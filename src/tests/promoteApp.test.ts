@@ -7,7 +7,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
@@ -37,7 +40,17 @@ import {
   type CommandRunner
 } from '../runs/promotion.js';
 import type { Shots } from '../screenshot/iteration.js';
-import { fakeFetch, ok, refused, tempDir, type RecordedRequest } from './helpers.js';
+import { createLocalServer } from '../server/app.js';
+import { LocalStudio } from '../server/studio.js';
+import {
+  fakeFetch,
+  notFound,
+  ok,
+  recordingIo,
+  refused,
+  tempDir,
+  type RecordedRequest
+} from './helpers.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const PROMOTION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -263,7 +276,14 @@ async function forked(options: { git?: boolean } = {}) {
       iteration: 'iteration-01',
       ...extra
     });
-  return { repo, api, requests: fake.requests, outbox: outboxFor(repo), promote };
+  return {
+    repo,
+    api,
+    fetch: fake.fetch,
+    requests: fake.requests,
+    outbox: outboxFor(repo),
+    promote
+  };
 }
 
 /** What the agent writes back: each target from its copy, as the prompt pairs them. */
@@ -546,8 +566,8 @@ describe('the finish', () => {
       finish.url,
       new RegExp(`/orgs/${ORG}/projects/site/promotions/${PROMOTION}/finish$`)
     );
+    // `how` the backend has from the start; it refuses any field but these.
     assert.deepEqual(finish.body, {
-      how: 'in-place',
       outcome: 'failed',
       build: 'passed',
       checks: 'failed',
@@ -583,7 +603,6 @@ describe('the finish', () => {
     );
     const finish = requests.find(request => request.url.endsWith('/finish'))!;
     assert.deepEqual(finish.body, {
-      how: 'merge',
       outcome: 'conflict',
       build: 'skipped',
       checks: 'skipped',
@@ -682,5 +701,141 @@ describe('the diff', () => {
     assert.equal(inLineEndingsOf('x\ny\n', 'a\r\nb\r\n'), 'x\r\ny\r\n');
     assert.equal(inLineEndingsOf('x\r\ny\r\n', 'a\nb\n'), 'x\ny\n');
     assert.equal(inLineEndingsOf('x', 'a\r\n'), 'x');
+  });
+});
+
+describe("the local UI's promote panel", () => {
+  it('knows the drift and the branch before, then finishes, shows the diff and commits on Yes', async () => {
+    const { repo, api, fetch: backend, requests } = await forked();
+    const token = 'local-token-for-the-promote-tests';
+    const probe = http.createServer();
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
+    const { port } = probe.address() as AddressInfo;
+    await new Promise(resolve => probe.close(resolve));
+    const configDir = path.join(repo, '..', 'config');
+    const context: CommandContext & { repoRoot: string } = {
+      io: recordingIo(),
+      cwd: repo,
+      env: { ROUGHBOOK_CONFIG_DIR: configDir },
+      repoRoot: repo,
+      configDir,
+      home: configDir,
+      fetch: backend,
+      sleep: async () => {},
+      openUrl: async () => true,
+      platform: 'win32',
+      detect: async adapter => notFound(adapter),
+      launchTerminal: async () => {},
+      launchEditor: async () => {},
+      copyText: async () => true,
+      runHeadless: async () => ({
+        ok: true,
+        exitCode: 0,
+        cancelled: false,
+        error: null,
+        usage: null
+      }),
+      screenshot: async () => ({ files: {}, warning: null }),
+      askPreview: async () => null,
+      runCommand: async () => ({ ok: false, stdout: '', stderr: 'not run', code: null }),
+      waitForStop: async () => {},
+      stdio: { input: new PassThrough(), output: new PassThrough(), interactive: false }
+    };
+    const studio = new LocalStudio({
+      context,
+      api,
+      link: LINK,
+      devUrl: 'http://localhost:3100',
+      port,
+      pty: { ok: false, reason: 'not in tests' }
+    });
+    const server = createLocalServer({
+      studio,
+      port,
+      token,
+      uiDir: null,
+      devUrl: 'http://localhost:3100',
+      project: 'site'
+    });
+    await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
+    const call = async (method: 'GET' | 'POST', pathname: string, body?: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          origin: `http://127.0.0.1:${port}`,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' })
+        },
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return { status: response.status, json: (await response.json()) as any };
+    };
+    try {
+      const at = '/api/promote/pricing/pricing-section/iteration-01';
+      const plan = (await call('GET', at)).json.data;
+      assert.equal(plan.defaultFile, SECTION);
+      assert.deepEqual(plan.drift, { state: 'in-place' });
+      assert.deepEqual(plan.branchChoice, { defaultName: BRANCH, unavailable: null });
+      assert.equal(plan.finish, null);
+
+      // The panel's field holds the original's path: that is in place, not a new file.
+      const started = await call('POST', '/api/promote', {
+        page: 'pricing',
+        component: 'pricing-section',
+        iteration: 'iteration-01',
+        targetFile: SECTION,
+        branch: BRANCH
+      });
+      assert.equal(started.status, 200, JSON.stringify(started.json));
+      assert.equal(started.json.data.ok, true);
+      assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), BRANCH);
+      assert.equal(
+        (requests.find(request => request.url.endsWith('/promotions'))!.body as { how: string })
+          .how,
+        'in-place'
+      );
+      assert.equal((await call('GET', at)).json.data.open, true);
+
+      writeBack(repo);
+      write(repo, 'lib/plans.ts', 'export const plans = [];\n');
+      const finish = (await call('POST', `${at}/finish`, {})).json.data;
+      assert.equal(finish.outcome, 'out-of-scope');
+      assert.deepEqual(
+        finish.files.map((file: { path: string; status: string }) => [file.path, file.status]),
+        [
+          [CARD, 'modified'],
+          [SECTION, 'modified'],
+          ['lib/plans.ts', 'modified']
+        ]
+      );
+      assert.match(
+        finish.files[1].patch,
+        /^--- components\/pricing\/pricing-section\.tsx\n\+\+\+ .*\n@@ /
+      );
+      assert.deepEqual(finish.outOfScope, [{ path: 'lib/plans.ts' }]);
+      assert.equal(finish.branch, BRANCH);
+      assert.equal(finish.commit, null);
+      assert.deepEqual(
+        finish.checks.map((check: { name: string; result: string }) => [check.name, check.result]),
+        [['Build', 'skipped']]
+      );
+
+      assert.equal((await call('POST', `${at}/revert`, { path: 'lib/plans.ts' })).status, 200);
+      const committed = (await call('POST', `${at}/commit`, { commit: true })).json.data;
+      assert.equal(committed.ok, true, committed.message);
+      assert.match(committed.commit, /^[0-9a-f]{40}$/);
+      assert.deepEqual(git(repo, 'show', '--name-only', '--format=', BRANCH).split('\n'), [
+        CARD,
+        SECTION
+      ]);
+      const after = (await call('GET', at)).json.data.finish;
+      assert.deepEqual(after.outOfScope, [{ path: 'lib/plans.ts', reverted: true }]);
+      assert.equal(after.commit.commit, committed.commit);
+    } finally {
+      studio.close();
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+    }
   });
 });
