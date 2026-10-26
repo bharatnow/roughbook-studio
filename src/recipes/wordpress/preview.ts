@@ -183,6 +183,39 @@ export const OVERRIDE = `${JSON.stringify(
   2
 )}\n`;
 
+/** Whether the repo says itself what its WordPress runs, in a .wp-env.json of its own. */
+function hasOwnConfig(repo: string): boolean {
+  return fs.existsSync(path.join(repo, '.wp-env.json'));
+}
+
+/** wp-env's command that makes the repo's theme the active one, after each start. */
+function activateTheme(repo: string, config: string | null): string {
+  const folder = path.basename(path.resolve(repo));
+  const name = /^[\w.-]+$/.test(folder) ? folder : `'${folder.replace(/'/g, `'\\''`)}'`;
+  return `npx wp-env run cli${config ? ` --config ${config}` : ''} wp theme activate ${name}`;
+}
+
+/**
+ * The overrides as the recipe writes them for this repo. With no .wp-env.json, wp-env would take
+ * the folder for the theme, but any config file stops it guessing, the override among them: so the
+ * override says it, and makes the theme the active one after each start, as the previews (the
+ * theme's styles) and the in-page view (its templates) need. A repo with its own .wp-env.json
+ * keeps its themes and the theme it chose.
+ */
+export function overrideFor(repo: string): string {
+  if (hasOwnConfig(repo)) return OVERRIDE;
+  return `${JSON.stringify(
+    {
+      config: { WP_ENVIRONMENT_TYPE: 'local' },
+      mappings: MAPPINGS,
+      themes: ['.'],
+      lifecycleScripts: { afterStart: activateTheme(repo, null) }
+    },
+    null,
+    2
+  )}\n`;
+}
+
 type WpEnvConfig = Record<string, unknown> & {
   config?: Record<string, unknown>;
   mappings?: Record<string, unknown>;
@@ -210,6 +243,10 @@ export function productionConfig(repo: string): string {
   config.testsPort = PRODUCTION_PORT + 1;
   config.config = { ...(own.config ?? {}), WP_ENVIRONMENT_TYPE: 'production', WP_DEBUG: false };
   config.mappings = { ...(own.mappings ?? {}), ...MAPPINGS };
+  // The same theme active as in development, so the gate asks the theme's own pages.
+  if (!hasOwnConfig(repo)) {
+    config.lifecycleScripts = { afterStart: activateTheme(repo, PRODUCTION_CONFIG) };
+  }
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 

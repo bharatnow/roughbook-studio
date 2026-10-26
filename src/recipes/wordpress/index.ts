@@ -17,11 +17,9 @@ import {
   ENTRY,
   FIXTURE,
   GUARD,
-  OVERRIDE,
   OVERRIDE_FILE,
   PLUGIN_FILE,
   PORT,
-  PREVIEW_PLUGIN,
   PREVIEW_WRAPPER,
   PRODUCTION_CONFIG,
   PRODUCTION_PORT,
@@ -30,12 +28,16 @@ import {
   isOurConfig,
   isOurDeny,
   isOurPlugin,
+  overrideFor,
   productionConfig,
   themeFolder,
   withRoughReleased
 } from './preview.js';
 import type { MapComponent } from '../../map/types.js';
 import { discoverWordpress } from './discover.js';
+import { hasMapFile } from '../../map/file.js';
+import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import { CONTEXT_BLOCK, CONTEXT_LIST, pluginFor, writeContextList } from './context.js';
 
 /** The wp-env release the scaffold pins; the conformance fixture pins the same. */
 const WP_ENV_VERSION = '11.17.0';
@@ -48,13 +50,13 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
     [
       {
         file: PLUGIN_FILE,
-        content: PREVIEW_PLUGIN,
+        content: pluginFor(repo),
         summary: 'Add the development-only preview plugin.',
         ours: isOurPlugin
       },
       {
         file: OVERRIDE_FILE,
-        content: OVERRIDE,
+        content: overrideFor(repo),
         summary: "Map the preview plugin into wp-env's WordPress, in the local environment.",
         ours: isOurConfig
       },
@@ -121,7 +123,12 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
     changes,
     manual,
     ignoredFromBuild: [],
-    gitWanted: [`/${OVERRIDE_FILE}`, `/${PRODUCTION_CONFIG}`, `/${PLUGIN_FILE}`]
+    gitWanted: [
+      `/${OVERRIDE_FILE}`,
+      `/${PRODUCTION_CONFIG}`,
+      `/${PLUGIN_FILE}`,
+      ...(hasMapFile(repo) ? [`/${CONTEXT_LIST}`] : [])
+    ]
   };
 }
 
@@ -347,7 +354,9 @@ export const wordpress: Recipe = {
   id: 'wordpress',
   name: 'WordPress themes',
   // 2: rough/ is inert on a live site (the guard, rough/.htaccess, .distignore).
-  version: 2,
+  // 3: the in-page view's switch in the preview plugin, for a mapped theme (brownfield B5b).
+  // Also 3: the theme mounted and active in wp-env when the repo has no .wp-env.json of its own.
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -406,7 +415,7 @@ export const wordpress: Recipe = {
   fromApp: themeFromApp,
   // The override file only when it is the recipe's own as written, never one of the designer's.
   setupFiles: repo => [
-    ...(read(repo, OVERRIDE_FILE)?.replace(/\r\n/g, '\n') === OVERRIDE ||
+    ...(read(repo, OVERRIDE_FILE)?.replace(/\r\n/g, '\n') === overrideFor(repo) ||
     read(repo, OVERRIDE_FILE) === null
       ? [OVERRIDE_FILE]
       : []),
@@ -427,9 +436,23 @@ export const wordpress: Recipe = {
 	<p>${PLACEHOLDER_LINE}</p>
 </div>
 `,
-  generatedFiles: [],
+  // The in-page view's switch is part of the preview plugin; what it lists is generated.
+  contextPreview: {
+    files: () => [],
+    edits: () => [],
+    generated: [CONTEXT_LIST],
+    missing: repo =>
+      hasMapFile(repo) && !(read(repo, PLUGIN_FILE)?.includes(CONTEXT_BLOCK) ?? false)
+        ? [PLUGIN_FILE]
+        : [],
+    address: (address, swap, options) => swapAddress(address, { swap, ...options }),
+    sentinel: CONTEXT_SENTINEL
+  },
+  generatedFiles: [CONTEXT_LIST],
   importAllowed: () => [],
-  syncPreview: () => {},
+  syncPreview: repo => {
+    if (hasMapFile(repo)) writeContextList(repo);
+  },
   pullTransform: (_file, text) => text,
   promoteDefault: (componentsDir, componentName) =>
     `${componentsDir}/${componentName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.php`,
