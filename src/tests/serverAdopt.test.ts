@@ -237,7 +237,8 @@ describe("the local server's adoption", () => {
       kind: 'section',
       alone: 'yes',
       why: null,
-      shots: ['desktop']
+      shots: ['desktop'],
+      gone: null
     });
     // When the picture was taken, so the card asks for it again after it is retaken.
     assert.ok(!Number.isNaN(Date.parse(shotsAt)));

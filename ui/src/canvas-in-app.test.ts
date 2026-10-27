@@ -323,3 +323,70 @@ describe('Compare with the app', () => {
     assert.equal(compareBaseline(['iteration-00', 'iteration-01'], before, here), null);
   });
 });
+
+describe('the "In the app" filter and the gone mark (B7)', () => {
+  const GONE = '2026-10-27';
+  // A gone component is on no page's list (B7): the map keeps it, marked with the day it went.
+  const withGone: MapView = {
+    ...MAP,
+    pages: MAP.pages.map(page => ({
+      ...page,
+      sections: page.sections.filter(slug => slug !== 'hero' && slug !== 'contact-form')
+    })),
+    components: MAP.components.map(item =>
+      item.slug === 'hero' || item.slug === 'contact-form' ? { ...item, gone: GONE } : item
+    )
+  };
+  const ids = (canvas: ReturnType<typeof studioCanvasInput>) =>
+    canvas.input.sections.map(section => [section.id, section.frames.map(frame => frame.id)]);
+
+  it('marks an adopted component gone from the app, and offers no gone one to adopt', () => {
+    const project = adoptedHero();
+    const canvas = studioCanvasInput(project.tree, RUNS, { ...project.local, map: withGone });
+    const page = canvas.input.sections.find(section => section.id === 'home')!;
+    assert.equal(page.frames.find(frame => frame.id === 'hero')!.gone, GONE);
+    // The contact form went before it was adopted: no card to adopt, and not counted.
+    assert.ok(!ids(canvas).some(([page]) => page === 'contact'));
+    assert.ok(!canvas.inApp!.pages.some(page => page.slug === 'contact'));
+    // The hero, adopted, is still listed on its page, marked gone.
+    const home = canvas.inApp!.pages.find(page => page.slug === 'home')!;
+    assert.deepEqual(
+      home.components.find(item => item.slug === 'hero'),
+      { slug: 'hero', name: 'Hero', kind: 'section', adopted: true, gone: GONE }
+    );
+    assert.equal(canvas.inApp!.toAdopt, 2);
+  });
+
+  it('narrows the canvas by page, kind, adoption, gone and name, and keeps all by default', () => {
+    const project = adoptedHero();
+    const local = { ...project.local, map: withGone };
+    const all = studioCanvasInput(project.tree, RUNS, local);
+    assert.deepEqual(
+      studioCanvasInput(project.tree, RUNS, local, {
+        filter: { page: null, kind: 'all', adopted: 'all', gone: 'all', search: '' }
+      }).input,
+      all.input
+    );
+    const filtered = (filter: Partial<import('@roughbook/ui/map-list').InAppFilter>) =>
+      ids(
+        studioCanvasInput(project.tree, RUNS, local, {
+          filter: { page: null, kind: 'all', adopted: 'all', gone: 'all', search: '', ...filter }
+        })
+      );
+    // A page: its frames alone, the studio's own (features, made on the web) among them.
+    assert.deepEqual(filtered({ page: 'home' }), [['home', ['hero', 'features', 'pricing']]]);
+    // By kind, adoption and gone: the app's frames that match, nothing of the studio's own.
+    assert.deepEqual(filtered({ kind: 'shared' }), [['shared', ['site-header']]]);
+    assert.deepEqual(filtered({ adopted: 'adopted' }), [['home', ['hero']]]);
+    assert.deepEqual(filtered({ gone: 'gone' }), [['home', ['hero']]]);
+    assert.deepEqual(filtered({ search: 'pric' }), [['home', ['pricing']]]);
+    // What it keeps of the list, for its count.
+    const shown = studioCanvasInput(project.tree, RUNS, local, {
+      filter: { page: null, kind: 'section', adopted: 'not-adopted', gone: 'all', search: '' }
+    }).shown!;
+    assert.deepEqual(
+      shown.flatMap(page => page.components.map(item => item.slug)),
+      ['pricing']
+    );
+  });
+});

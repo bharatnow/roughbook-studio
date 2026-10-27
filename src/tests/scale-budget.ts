@@ -96,7 +96,7 @@ try {
   fs.rmSync(path.join(repo, 'rough', 'map.md'), { force: true });
   fs.rmSync(path.join(repo, 'rough', '.roughbook', 'map.json'), { force: true });
   let started = performance.now();
-  const full = await mapRepo(repo, environment, LINK);
+  const full = await mapRepo(repo, environment, LINK, { full: true });
   const map = full!.map;
   measures.push({
     name: 'full map',
@@ -105,18 +105,22 @@ try {
     note: `${map.components.length} components, ${map.pages.length} pages (discoverers ${full!.ms} ms)`
   });
 
-  // 2. One changed file: the map refreshed. The sync session's incremental refresh runs inside
-  // mapRepo when it knows what changed; until then this measures the whole map again.
-  const section = map.components.find(item => item.kind === 'section')!;
-  const file = path.join(repo, ...section.files[0]!.split('/'));
-  fs.appendFileSync(file, '\n// changed for the budget\n');
-  started = performance.now();
-  await mapRepo(repo, environment, LINK);
+  // 2. One changed file, then another: the map refreshed as start's watcher does, from what
+  // changed (mapRepo with no options). The first in a process reads every module once, which start
+  // pays at launch with a refresh of its own; the second is the budget's.
+  const sections = map.components.filter(item => item.kind === 'section');
+  const refreshes: number[] = [];
+  for (const section of sections.slice(0, 2)) {
+    fs.appendFileSync(path.join(repo, ...section.files[0]!.split('/')), '\n// changed\n');
+    started = performance.now();
+    await mapRepo(repo, environment, LINK);
+    refreshes.push(ms(started));
+  }
   measures.push({
     name: 'one changed file',
-    ms: ms(started),
+    ms: refreshes[1]!,
     budget: BUDGETS.refresh,
-    note: section.files[0]!
+    note: `the first in this process ${refreshes[0]} ms`
   });
 
   // 3. The canvas: kept pictures for the first screen's cards, as an earlier session left them.

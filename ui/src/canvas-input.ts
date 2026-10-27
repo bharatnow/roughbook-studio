@@ -14,7 +14,13 @@ import {
   type CanvasInput
 } from '@roughbook/ui/canvas';
 import { decisionOf, isDecidedAgainst } from '@roughbook/ui/iteration-status';
-import { summarizeMap, type MapPage } from '@roughbook/ui/map-list';
+import {
+  filterInApp,
+  isDefaultInAppFilter,
+  summarizeMap,
+  type InAppFilter,
+  type MapPage
+} from '@roughbook/ui/map-list';
 import type { RatingSummary } from '@roughbook/ui';
 import { iterationPath } from './api.ts';
 import type { Iteration, MapView, ProjectView, RunView } from './types.ts';
@@ -55,6 +61,8 @@ export type StudioCanvas = {
   making: boolean;
   /** The app's map with what is adopted; null for a repo with no map. */
   inApp: InAppList | null;
+  /** What the "In the app" filter keeps of it (decision 66): the whole list when it keeps all. */
+  shown: MapPage[] | null;
 };
 
 /** An adopted component's baseline (decision 2 of the brownfield plan). */
@@ -109,7 +117,16 @@ export function studioCanvasInput(
   project: ProjectView['tree'],
   runs: RunView[],
   local: ProjectView['local'],
-  { shotKey, ratings = {} }: { shotKey?: string; ratings?: Record<string, RatingSummary> } = {}
+  {
+    shotKey,
+    ratings = {},
+    filter
+  }: {
+    shotKey?: string;
+    ratings?: Record<string, RatingSummary>;
+    /** The "In the app" filter (decision 66), the canvas's own: nothing of it is stored. */
+    filter?: InAppFilter;
+  } = {}
 ): StudioCanvas {
   const here = new Set(local.iterations);
   const cards: Record<string, StudioCardFacts> = {};
@@ -228,16 +245,23 @@ export function studioCanvasInput(
       });
     }
 
+    const gone = goneOf(component.slug) ?? component.gone ?? null;
     return {
       id: component.slug,
       name: component.name,
       href: `/${where}`,
       cards: out,
-      ...(component.inApp ? { inApp: true } : {})
+      ...(component.inApp ? { inApp: true } : {}),
+      ...(component.inApp && gone ? { gone } : {})
     };
   };
 
   const map = local.map ?? null;
+  const goneBySlug = new Map(
+    (map?.components ?? []).flatMap(item => (item.gone ? [[item.slug, item.gone] as const] : []))
+  );
+  /** When the map found a component gone from the app (B7), or null. */
+  const goneOf = (slug: string) => goneBySlug.get(slug) ?? null;
   /** One of the app's components not adopted yet: one card, as the app has it, to adopt. */
   const mapFrame = (page: string, component: MapComponentView): CanvasFrameInput => {
     const shot = component.shots[0];
@@ -319,13 +343,49 @@ export function studioCanvasInput(
     });
   }
 
+  const inApp = map ? inAppList(project, map) : null;
+  const filtering = inApp !== null && filter !== undefined && !isDefaultInAppFilter(filter);
+  const shown = inApp ? (filtering ? filterInApp(inApp.pages, filter) : inApp.pages) : null;
   return {
-    input: { designSystem: null, sections },
+    input: {
+      designSystem: null,
+      sections: filtering ? narrowed(sections, shown!, filter, map!) : sections
+    },
     cards,
     pulled,
     making,
-    inApp: map ? inAppList(project, map) : null
+    inApp,
+    shown
   };
+}
+
+/**
+ * The canvas as the "In the app" filter narrows it (decision 66): on each page, the app's frames it
+ * keeps; the studio's own (a new section) only while it narrows by page or name alone; another
+ * page's nothing when it names a page; a page left with nothing, gone.
+ */
+function narrowed<
+  S extends {
+    id: string;
+    frames: CanvasFrameInput[];
+    compositions: CanvasCompositionInput[];
+  }
+>(sections: S[], shown: MapPage[], filter: InAppFilter, map: MapView): S[] {
+  const kept = new Map(
+    shown.map(page => [page.slug, new Set(page.components.map(item => item.slug))])
+  );
+  const fromApp = new Set(map.components.map(item => item.slug));
+  const byComponent =
+    filter.kind !== 'all' || filter.adopted !== 'all' || filter.gone !== 'all' || !!filter.search;
+  return sections.flatMap(section => {
+    if (filter.page !== null && section.id !== filter.page) return [];
+    const keep = kept.get(section.id);
+    const frames = section.frames.filter(frame =>
+      fromApp.has(frame.id) ? !!keep?.has(frame.id) : !byComponent
+    );
+    if (!frames.length) return [];
+    return [{ ...section, frames, compositions: byComponent ? [] : section.compositions }];
+  });
 }
 
 type MapComponentView = MapView['components'][number];
@@ -337,7 +397,7 @@ function notAdopted(map: MapView, page: string, have: Set<string>): MapComponent
   return [...new Set(sections)]
     .filter(slug => !have.has(slug))
     .map(slug => bySlug.get(slug))
-    .filter((item): item is MapComponentView => !!item && item.kind !== 'atom');
+    .filter((item): item is MapComponentView => !!item && item.kind !== 'atom' && !item.gone);
 }
 
 /**
@@ -355,10 +415,23 @@ export function inAppList(project: ProjectView['tree'], map: MapView): InAppList
     const atoms = [...new Set([...(page.slug === SHARED ? allAtoms : []), ...adopted])].filter(
       slug => bySlug.get(slug)?.kind === 'atom'
     );
-    const components = [...sections, ...atoms].flatMap(slug => {
+    // Gone from the app (B7): on no page's list any more, but adopted here, so its work shows.
+    const gone = [...adopted].filter(
+      slug =>
+        !!bySlug.get(slug)?.gone && bySlug.get(slug)?.kind !== 'atom' && !sections.includes(slug)
+    );
+    const components = [...sections, ...atoms, ...gone].flatMap(slug => {
       const component = bySlug.get(slug);
       return component
-        ? [{ slug, name: component.name, kind: component.kind, adopted: adopted.has(slug) }]
+        ? [
+            {
+              slug,
+              name: component.name,
+              kind: component.kind,
+              adopted: adopted.has(slug),
+              ...(component.gone ? { gone: component.gone } : {})
+            }
+          ]
         : [];
     });
     if (!components.length) return [];

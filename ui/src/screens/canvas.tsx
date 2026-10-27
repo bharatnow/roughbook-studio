@@ -19,6 +19,12 @@ import {
   type CardView
 } from '@roughbook/ui/canvas';
 import {
+  DEFAULT_IN_APP_FILTER,
+  inAppShown,
+  isDefaultInAppFilter,
+  type InAppFilter
+} from '@roughbook/ui/map-list';
+import {
   Check,
   CloudDownload,
   Columns2,
@@ -28,13 +34,23 @@ import {
   GitFork,
   Layers,
   LayoutList,
+  ListFilter,
   PackageCheck,
   PackagePlus,
   Square,
   SquareTerminal,
-  Wand2
+  Wand2,
+  X
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode
+} from 'react';
 import { post } from '../api';
 import {
   MAX_COMPARE,
@@ -73,6 +89,8 @@ const kept: {
   list?: boolean;
   compare?: string[];
   cardView?: CardView;
+  /** The "In the app" filter (decision 66): kept while the studio is open, never stored. */
+  filter?: InAppFilter;
 } = {};
 
 const ICONS: Partial<Record<StudioActionId, typeof GitFork>> = {
@@ -190,11 +208,26 @@ function StudioCanvasView({
   const controls = useRef<CanvasControls | null>(null);
   const runOps = useRef<{ runId: string; ops: RunOps } | null>(null);
 
+  // The "In the app" filter narrows the canvas as it does the app's pages (decision 66); the
+  // canvas follows the field a moment later, so typing stays quick on a large app.
+  const [filter, setFilterState] = useState<InAppFilter>(
+    () => kept.filter ?? DEFAULT_IN_APP_FILTER
+  );
+  const setFilter = (next: InAppFilter) => {
+    setFilterState(next);
+    kept.filter = next;
+  };
+  const shownFilter = useDeferredValue(filter);
+
   // Read again every few seconds while a run is open; drawn again only when something changed.
-  const signature = JSON.stringify([project, runs, state.shotKey]);
+  const signature = JSON.stringify([project, runs, state.shotKey, shownFilter]);
   const canvas: StudioCanvas = useMemo(
-    () => studioCanvasInput(project.tree, runs, project.local, { shotKey: state.shotKey }),
-    // The signature stands for all three.
+    () =>
+      studioCanvasInput(project.tree, runs, project.local, {
+        shotKey: state.shotKey,
+        filter: shownFilter
+      }),
+    // The signature stands for all four.
     [signature]
   );
 
@@ -705,17 +738,41 @@ function StudioCanvasView({
         }}
         controlsRef={controls}
         controls={
-          terminals.length && !dock.open ? (
-            <button
-              type="button"
-              onClick={() => act('dock', null)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none hover:border-mist focus-visible:ring-2 focus-visible:ring-violet"
-            >
-              <SquareTerminal className="size-4" strokeWidth={1.5} />
-              Terminals
-              <span className="font-mono text-xs text-steel">{terminals.length}</span>
-            </button>
-          ) : null
+          <>
+            {canvas.inApp && !isDefaultInAppFilter(filter) ? (
+              <span className="inline-flex h-9 items-center gap-1 rounded-control border border-ash bg-canvas pr-1 pl-3 text-sm text-graphite">
+                <button
+                  type="button"
+                  onClick={() => setMapOpen(true)}
+                  className="inline-flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-violet"
+                >
+                  <ListFilter className="size-4" strokeWidth={1.5} />
+                  <span role="status" className="font-mono text-xs text-steel">
+                    {inAppShown(canvas.shown ?? [], canvas.inApp.pages)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Clear the filter"
+                  onClick={() => setFilter(DEFAULT_IN_APP_FILTER)}
+                  className="inline-flex size-7 items-center justify-center rounded-control text-slate outline-none hover:bg-frost focus-visible:ring-2 focus-visible:ring-violet"
+                >
+                  <X className="size-4" strokeWidth={1.5} />
+                </button>
+              </span>
+            ) : null}
+            {terminals.length && !dock.open ? (
+              <button
+                type="button"
+                onClick={() => act('dock', null)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none hover:border-mist focus-visible:ring-2 focus-visible:ring-violet"
+              >
+                <SquareTerminal className="size-4" strokeWidth={1.5} />
+                Terminals
+                <span className="font-mono text-xs text-steel">{terminals.length}</span>
+              </button>
+            ) : null}
+          </>
         }
       />
 
@@ -723,7 +780,12 @@ function StudioCanvasView({
         {canvas.inApp?.problem ? (
           <p className="text-sm text-graphite">{canvas.inApp.problem}</p>
         ) : null}
-        <MapList project={project.tree.slug} pages={canvas.inApp?.pages ?? []} />
+        <MapList
+          project={project.tree.slug}
+          pages={canvas.inApp?.pages ?? []}
+          filter={filter}
+          onFilterChange={setFilter}
+        />
       </Drawer>
       <BriefDrawer
         component={briefOf?.component ?? null}

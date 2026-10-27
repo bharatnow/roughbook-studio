@@ -132,6 +132,8 @@ export type Component = {
   promotions: { iteration: string; file?: string | null; at: string }[];
   /** Adopted from the app's own code (B2 of the brownfield plan). */
   inApp?: boolean;
+  /** When it went from the app (B7, decision 58), an ISO date; null or absent while it is there. */
+  gone?: string | null;
 };
 
 export type Page = { slug: string; name: string; components: Component[]; inApp?: boolean };
@@ -161,6 +163,8 @@ export type MapView = {
     shots: string[];
     /** When its pictures were last taken: a card asks for them again after. */
     shotsAt?: string | null;
+    /** When the map found it gone from the app (B7, decision 64), or null. */
+    gone?: string | null;
   }[];
   problem: string | null;
 };

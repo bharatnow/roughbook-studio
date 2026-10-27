@@ -82,7 +82,7 @@ import {
   publicDirFor,
   type PreparedPromotion
 } from '../runs/promote.js';
-import { headCommit, readBase } from '../runs/base.js';
+import { headCommit, inPlaceBase } from '../runs/base.js';
 import {
   commitPromotion,
   declinePromotionCommit,
@@ -240,6 +240,8 @@ export type MapView = {
     shots: string[];
     /** When its pictures were last taken, so a card asks for them again after. */
     shotsAt: string | null;
+    /** When the map found it gone from the app (B7, decision 64), or null. */
+    gone: string | null;
   }[];
   /** Why rough/map.md cannot be read, or null. */
   problem: string | null;
@@ -1060,7 +1062,8 @@ export class LocalStudio {
         alone: component.alone,
         why: component.why,
         shots: shots('component', component.slug),
-        shotsAt: shotsAt(component.slug)
+        shotsAt: shotsAt(component.slug),
+        gone: component.gone ?? null
       })),
       problem: null
     };
@@ -1110,7 +1113,7 @@ export class LocalStudio {
     const environment = this.environment;
     const outcome = await adoptHere(this.repoRoot, api, link, environment, map, adoption);
     this.projectChanged();
-    void this.pictureAdopted(
+    this.queueAdopted(
       outcome.baselines.written,
       outcome.adopted.pages.map(page => page.slug)
     );
@@ -1118,11 +1121,17 @@ export class LocalStudio {
   }
 
   /**
-   * After adoption: the new baselines' screenshots and pictures, in the picture queue behind the
-   * cards on screen (decision 65), and the adopted pages' pictures.
+   * After an adoption, here or by start's sync of the map (B7): the new baselines' screenshots and
+   * pictures, in the picture queue behind the cards on screen (decision 65), then the adopted
+   * pages' pictures. `baselines` are `<page>/<component>`, `pages` page slugs. Returns at once.
    */
-  private async pictureAdopted(baselines: string[], pages: string[]): Promise<void> {
+  queueAdopted(baselines: string[], pages: string[]): void {
     this.pictures.add(baselines.map(key => `iteration:${key}/${BASELINE}`));
+    void this.picturePages(pages);
+  }
+
+  /** The adopted pages' pictures, at their addresses on the app. */
+  private async picturePages(pages: string[]): Promise<void> {
     try {
       const shoot = pictureShot(this.context);
       const map = readMap(this.repoRoot)?.map;
@@ -1739,7 +1748,8 @@ export class LocalStudio {
     this.assertPromoteTarget(target);
     if (target.component === COMPOSITIONS_DIR) return this.pagePromotePlan(target);
     const relative = iterationDir(target.page, target.component, target.iteration);
-    const base = readBase(this.repoRoot, relative);
+    // A fork of a component gone from the app has no file to promote into: a new one (B7).
+    const base = inPlaceBase(this.repoRoot, relative);
     let drift: PromoteDriftView | null = null;
     let defaultFile: string | null = null;
     let problem: string | null = null;
