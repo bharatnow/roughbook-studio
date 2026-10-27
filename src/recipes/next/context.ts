@@ -377,11 +377,44 @@ export function nextConfigBehind(repo: string): string | null {
   const file = nextConfigFile(repo);
   const text = file ? read(repo, file) : null;
   if (!file || !text?.includes(BLOCK_START) || text.includes(CACHE_SETTING)) return null;
+  if (!hasDevCache(repo)) return null;
   return `${file}: the switch's block leaves Turbopack's development cache on (it has no ${CACHE_SETTING}), so \`next dev\` restarted onto that cache can answer "${LAZY_IMPORT_ERROR}" for a preview or a swap`;
 }
 
+/**
+ * Whether this app's Next.js has the development cache the block turns off (16.1 and later): the
+ * version installed, else the one package.json asks for. True when neither says, as a new app's is.
+ */
+export function hasDevCache(repo: string): boolean {
+  const version = (text: string | null, pick: (json: Record<string, unknown>) => unknown) => {
+    try {
+      const value = text === null ? null : pick(JSON.parse(text) as Record<string, unknown>);
+      return typeof value === 'string' ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const field = (name: string) => (json: Record<string, unknown>) =>
+    (json[name] as Record<string, unknown> | undefined)?.next;
+  const pkg = read(repo, 'package.json');
+  const found =
+    version(read(repo, 'node_modules/next/package.json'), json => json.version) ??
+    version(pkg, field('dependencies')) ??
+    version(pkg, field('devDependencies'));
+  const parts = /(\d+)\.(\d+)/.exec(found ?? '');
+  if (!parts) return true;
+  const [major, minor] = [Number(parts[1]), Number(parts[2])];
+  return major > 16 || (major === 16 && minor >= 1);
+}
+
 /** The rule's block, at the end of the config, for the config's variable `name`. */
-function configBlock(name: string, appDir: string, typed: boolean, eol: string): string {
+function configBlock(
+  name: string,
+  appDir: string,
+  typed: boolean,
+  eol: string,
+  cache: boolean
+): string {
   const dir = contextDir(appDir);
   const own = (text: string) => (typed ? `${text} as const` : text);
   return [
@@ -405,11 +438,16 @@ function configBlock(name: string, appDir: string, typed: boolean, eol: string):
     `    loaders: [{ loader: ${JSON.stringify(`./${dir}/loader.cjs`)}, options: { browser } }],`,
     `  });`,
     `  // An iteration is compiled only when a page asks to show it, so one that does not compile never breaks a page.`,
-    `  // Without the development cache: next dev restarted onto it after files changed can lose such an import`,
-    `  // ("Lazily compiled dynamic import ... was not activated"). next build keeps its own.`,
+    // Next.js before 16.1 has no development cache, nor the setting.
+    ...(cache
+      ? [
+          `  // Without the development cache: next dev restarted onto it after files changed can lose such an import`,
+          `  // ("Lazily compiled dynamic import ... was not activated"). next build keeps its own.`
+        ]
+      : []),
     `  roughbookConfig.experimental = {`,
     `    ...roughbookConfig.experimental,`,
-    `    ...{ turbopackLazyDynamicImportsSSR: true, ${CACHE_SETTING} },`,
+    `    ...{ turbopackLazyDynamicImportsSSR: true${cache ? `, ${CACHE_SETTING}` : ''} },`,
     `  };`,
     `  roughbookConfig.turbopack = {`,
     `    ...roughbookConfig.turbopack,`,
@@ -428,7 +466,12 @@ function exportOf(text: string): { name: string; esm: boolean } | null {
 }
 
 /** The config with the switch's rule; null when it does not export a variable this can extend. */
-export function editNextConfig(text: string, file: string, appDir: string): string | null {
+export function editNextConfig(
+  text: string,
+  file: string,
+  appDir: string,
+  options: { cache?: boolean } = {}
+): string | null {
   if (text.includes(BLOCK_START)) return null;
   const exported = exportOf(text);
   if (!exported) return null;
@@ -445,7 +488,7 @@ export function editNextConfig(text: string, file: string, appDir: string): stri
   });
   lines.splice(at, 0, first);
   const body = lines.join(eol).replace(/(?:\r?\n)*$/, '');
-  return `${body}${eol}${eol}${configBlock(exported.name, appDir, typed, eol)}${eol}`;
+  return `${body}${eol}${eol}${configBlock(exported.name, appDir, typed, eol, options.cache ?? true)}${eol}`;
 }
 
 /** The config as it was before the edit, or null when it does not have it. */
@@ -479,13 +522,14 @@ export function planNextConfig(
 ): PrepChange | { manual: string } | null {
   const file = nextConfigFile(repo);
   const text = file ? read(repo, file) : null;
+  const cache = hasDevCache(repo);
   if (file && text?.includes(BLOCK_START)) {
     const plain = undoNextConfig(text);
-    const now = plain === null ? null : editNextConfig(plain, file, appDir);
+    const now = plain === null ? null : editNextConfig(plain, file, appDir, { cache });
     if (now === null || sameCode(now, text)) return null;
     return { file, action: 'edit', summary: 'Update the in-page view’s rule.', after: now };
   }
-  const after = file && text !== null ? editNextConfig(text, file, appDir) : null;
+  const after = file && text !== null ? editNextConfig(text, file, appDir, { cache }) : null;
   if (!file || after === null) {
     return {
       manual: `${file ?? 'next.config.ts'}: the in-page view needs a development-only Turbopack rule, which roughbook init adds when the config exports a variable (export default nextConfig;). Add it by hand after rough/CONTRACT.md, or show iterations alone.`

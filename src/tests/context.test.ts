@@ -36,6 +36,7 @@ import {
   CONTEXT_REGISTRY,
   contextFiles,
   editNextConfig,
+  nextConfigBehind,
   planNextConfig,
   renderContext,
   undoNextConfig
@@ -642,6 +643,47 @@ if (roughbookExists("app/rough-preview/context/loader.cjs")) {
     assert.equal(planned.after, current);
     assert.equal(undoNextConfig(current), CONFIG);
     assert.equal(next.version, 8);
+  });
+
+  it('writes the cache setting for Next.js 16.1 and later alone, by the version the app has (review finding 14)', async () => {
+    const without = editNextConfig(CONFIG, 'next.config.ts', 'app', { cache: false })!;
+    assert.doesNotMatch(without, /turbopackFileSystemCacheForDev|Without the development cache/);
+    assert.match(without, /\.\.\.\{ turbopackLazyDynamicImportsSSR: true \},/);
+    assert.equal(undoNextConfig(without), CONFIG);
+    const planned = async (files: Record<string, string>) => {
+      const repo = await nextRepo();
+      for (const [file, text] of Object.entries(files)) write(repo, file, text);
+      const plan = planNextConfig(repo, 'app');
+      assert.ok(plan && 'after' in plan, JSON.stringify(plan));
+      return { repo, after: plan.after };
+    };
+    const installed = (version: string) => ({
+      'node_modules/next/package.json': JSON.stringify({ name: 'next', version })
+    });
+    const asked = (range: string) => ({
+      'package.json': JSON.stringify({ dependencies: { next: range } })
+    });
+    // The installed version first, then the one package.json asks for; neither known, it is written.
+    assert.match((await planned(installed('16.1.0'))).after, /turbopackFileSystemCacheForDev/);
+    assert.match(
+      (await planned(installed('17.0.0-canary.3'))).after,
+      /turbopackFileSystemCacheForDev/
+    );
+    assert.doesNotMatch(
+      (await planned(installed('16.0.10'))).after,
+      /turbopackFileSystemCacheForDev/
+    );
+    assert.doesNotMatch((await planned(asked('^15.5.4'))).after, /turbopackFileSystemCacheForDev/);
+    assert.doesNotMatch(
+      (await planned({ ...asked('^16.4.0'), ...installed('16.0.0') })).after,
+      /turbopackFileSystemCacheForDev/
+    );
+    assert.match((await planned(asked('latest'))).after, /turbopackFileSystemCacheForDev/);
+    // An app before 16.1 with the block as written for it is not behind, and is up to date.
+    const older = await planned(installed('16.0.10'));
+    write(older.repo, 'next.config.ts', older.after);
+    assert.equal(nextConfigBehind(older.repo), null);
+    assert.equal(planNextConfig(older.repo, 'app'), null);
   });
 
   it('keeps the file’s line endings, and writes CommonJS and plain JavaScript as such', () => {
