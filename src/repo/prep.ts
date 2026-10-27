@@ -112,6 +112,19 @@ for this repo (rough/CONTRACT.md says what each must do), and run roughbook doct
 `;
 }
 
+/**
+ * rough/environment.md with its header's recipeVersion raised to `recipe`'s, when the header names
+ * that recipe at an older version; null otherwise (a newer one, another recipe's, or none written).
+ */
+export function withRecipeVersion(text: string, recipe: Recipe): string | null {
+  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!header || !new RegExp(`^recipe:\\s*${recipe.id}\\s*$`, 'm').test(header[1]!)) return null;
+  const line = /^recipeVersion:\s*(\d+)\s*$/m.exec(header[1]!);
+  if (!line || Number(line[1]) >= recipe.version) return null;
+  const at = header.index + header[0].indexOf(line[0]);
+  return `${text.slice(0, at)}recipeVersion: ${recipe.version}${text.slice(at + line[0].length)}`;
+}
+
 /** Claude Code reads CLAUDE.md, so it points at the same rules. */
 export const ROUGH_CLAUDE = '@AGENTS.md\n';
 
@@ -411,6 +424,19 @@ export function planPrep(repo: string, options: PrepOptions): PrepPlan {
       summary: `Name the ${recipe.name} recipe as this repo's environment.`,
       after: recipeEnvironment(recipe)
     });
+  } else if (recipe) {
+    // The recipe's version the preview is set up at, which a start that outlived an upgrade reads.
+    const file = `${ROUGH_DIR}/${ENVIRONMENT_FILE}`;
+    const text = read(root, file);
+    const after = text === null ? null : withRecipeVersion(text, recipe);
+    if (after !== null) {
+      changes.push({
+        file,
+        action: 'edit',
+        summary: `Record that the preview is set up at the ${recipe.name} recipe's version ${recipe.version}.`,
+        after
+      });
+    }
   }
   const linkFile = `${ROUGH_DIR}/${LINK_FILE}`;
   const linkText = renderRepoLink(link);

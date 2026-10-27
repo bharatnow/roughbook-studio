@@ -18,6 +18,7 @@ import {
   planGitignore,
   planPrep,
   planTsconfig,
+  recipeEnvironment,
   stripJsonc
 } from '../repo/prep.js';
 import { appRoot } from '../repo/root.js';
@@ -319,6 +320,38 @@ describe('preparing a repo', () => {
     assert.equal(change?.action, 'edit');
     // Bumped since (B5), so setup --upgrade brings a repo up.
     assert.ok(next.version >= 3);
+  });
+
+  it('records the recipe’s version in rough/environment.md on an upgrade, never lowering it', async () => {
+    const files = {
+      'package.json': '{}',
+      'tsconfig.json': NEXT_TSCONFIG,
+      'src/app/layout.tsx': ''
+    };
+    const older = recipeEnvironment(next).replace(
+      `recipeVersion: ${next.version}`,
+      'recipeVersion: 2'
+    );
+    const repo = await tempRepo({ ...files, 'rough/environment.md': older });
+    const change = planPrep(repo, { link: LINK, recipe: next }).changes.find(
+      item => item.file === 'rough/environment.md'
+    );
+    assert.equal(change?.action, 'edit');
+    assert.equal(change.after, recipeEnvironment(next));
+    // Set up by a newer studio, by another recipe, or with no version written: left as it is.
+    for (const text of [
+      older.replace('recipeVersion: 2', `recipeVersion: ${next.version + 1}`),
+      older.replace('recipe: next', 'recipe: vite'),
+      older.replace('recipeVersion: 2\n', '')
+    ]) {
+      const other = await tempRepo({ ...files, 'rough/environment.md': text });
+      assert.ok(
+        !planPrep(other, { link: LINK, recipe: next }).changes.some(
+          item => item.file === 'rough/environment.md'
+        ),
+        text
+      );
+    }
   });
 });
 
