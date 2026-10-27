@@ -22,9 +22,11 @@ import {
 import { readJson } from '../fs/json.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
+import { changedLines } from '../repo/diff.js';
+import { read } from '../repo/plan.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
 import { ROUGH_DIR, statePath } from '../repo/root.js';
-import { applySetup, planSetup, type SetupStep } from '../repo/setup.js';
+import { applySetup, planSetup, withSnippet, type SetupStep } from '../repo/setup.js';
 import {
   fillSetupPrompt,
   fixSection,
@@ -47,9 +49,27 @@ export function doctorReportFile(repoRoot: string): string {
   return statePath(repoRoot, 'doctor-report.json');
 }
 
-/** The templates as they would be applied, one line each, for the designer to see first. */
-export function describeSetupSteps(steps: SetupStep[]): string[] {
-  return steps.map(step => {
+/** How many changed lines a file shows before the rest are counted, as `init` shows them. */
+const SHOWN_LINES = 12;
+
+/** The lines a change takes out of a file and puts in, indented under its line (rule 5). */
+function changeLines(before: string, after: string): string[] {
+  const { removed, added } = changedLines(before, after);
+  const lines = [
+    ...removed.map(line => `      - ${line}`),
+    ...added.map(line => `      + ${line}`)
+  ];
+  return lines.length > SHOWN_LINES
+    ? [...lines.slice(0, SHOWN_LINES), `      … ${lines.length - SHOWN_LINES} more lines`]
+    : lines;
+}
+
+/**
+ * The templates as they would be applied, one line each, for the designer to see first, with the
+ * lines a template changes in a file the repo already has.
+ */
+export function describeSetupSteps(repoRoot: string, steps: SetupStep[]): string[] {
+  return steps.flatMap(step => {
     const what =
       step.action === 'create'
         ? '+'
@@ -70,7 +90,15 @@ export function describeSetupSteps(steps: SetupStep[]): string[] {
             : step.action === 'unchanged'
               ? `${step.file.path} is already in place`
               : step.reason!;
-    return `  ${what} ${verb}`;
+    const current = read(repoRoot, step.file.path) ?? '';
+    const template = read(repoRoot, step.template) ?? '';
+    const lines =
+      step.action === 'replace'
+        ? changeLines(current, template)
+        : step.action === 'append'
+          ? changeLines(current, withSnippet(current, template))
+          : [];
+    return [`  ${what} ${verb}`, ...lines];
   });
 }
 
@@ -94,7 +122,7 @@ export async function applyTemplates(
   }
   const pending = steps.filter(step => step.action !== 'unchanged');
   io.out(`The preview setup from ${ROUGH_DIR}/${SETUP_DIR}/:`);
-  for (const line of describeSetupSteps(steps)) io.out(line);
+  for (const line of describeSetupSteps(repoRoot, steps)) io.out(line);
   if (!pending.some(step => step.action !== 'cannot')) {
     if (pending.length) io.err('Some templates cannot be applied; see above.');
     return !pending.length;
@@ -347,6 +375,9 @@ export const setup: Command = {
       io.out(`The ${recipe.name} recipe (version ${recipe.version}) would change:`);
       for (const change of plan.changes) {
         io.out(`  ${change.action === 'create' ? '+' : '~'} ${change.file}: ${change.summary}`);
+        // What it changes in a file the repo has, as init shows it (rule 5).
+        if (change.action !== 'edit') continue;
+        for (const line of changeLines(plan.before[change.file] ?? '', change.after)) io.out(line);
       }
       for (const step of plan.manual) io.out(`  ! By hand: ${step}`);
       if (!values.yes) {

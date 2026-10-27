@@ -9,6 +9,9 @@ import { saveCredentials } from '../config/credentials.js';
 import { SAMPLE_FIXTURE, SAMPLE_MARKER } from '../doctor/run.js';
 import type { DoctorReport, DoctorTools, Probe } from '../doctor/types.js';
 import { readEnvironmentSync } from '../environment/read.js';
+import { writeMap } from '../map/file.js';
+import { recipeFor } from '../recipes/index.js';
+import { applyPrep, planPrep } from '../repo/prep.js';
 import { programOf, resolveCommandLine, shellInvocation } from '../launch/processes.js';
 import type { TerminalPlan } from '../launch/terminal.js';
 import {
@@ -861,5 +864,100 @@ describe('roughbook doctor on an agent-built setup', () => {
       line,
       /rough\/setup\/sample\/good\/ and rough\/setup\/sample\/broken\/ are missing/
     );
+  });
+});
+
+describe('setup --upgrade and --apply show every change first', () => {
+  it('--upgrade shows the lines it takes out of a file and puts in, before asking (rule 5)', async () => {
+    const repo = path.join(await tempDir('roughbook-setup-'), 'app');
+    const link: RepoLink = { ...LINK, appDir: 'app', stack: ['next-16'], family: 'react-like' };
+    write(repo, 'package.json', JSON.stringify({ dependencies: { next: '16.4.2' } }));
+    write(repo, 'node_modules/next/package.json', JSON.stringify({ version: '16.4.2' }));
+    write(repo, 'app/layout.tsx', 'export default function Layout() { return null; }\n');
+    write(
+      repo,
+      'next.config.ts',
+      'import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {};\n\nexport default nextConfig;\n'
+    );
+    write(repo, 'rough/roughbook.json', JSON.stringify(link));
+    writeMap(repo, {
+      version: 1,
+      by: ['next'],
+      pages: [
+        {
+          slug: 'home',
+          name: 'Home',
+          address: '/',
+          example: null,
+          signIn: 'no',
+          files: [],
+          sections: ['hero'],
+          byAgent: false
+        }
+      ],
+      components: [
+        {
+          slug: 'hero',
+          name: 'Hero',
+          kind: 'section',
+          files: ['components/hero.tsx'],
+          export: 'Hero',
+          fixture: null,
+          alone: 'unknown',
+          why: null,
+          byAgent: false
+        }
+      ],
+      missed: [],
+      unplaced: []
+    });
+    applyPrep(planPrep(repo, { link, recipe: recipeFor('next')! }));
+    // The block as version 7 wrote it, before the cache setting.
+    const current = read(repo, 'next.config.ts');
+    const old = current.replace(', turbopackFileSystemCacheForDev: false', '');
+    assert.notEqual(old, current);
+    write(repo, 'next.config.ts', old);
+    const { io, run } = await studio(repo, {}, { answers: ['n'] });
+    assert.equal(await run(['setup', '--upgrade']), 0, io.errors.join('\n'));
+    const shown = io.lines.slice(io.lines.findIndex(line => /would change:/.test(line)));
+    assert.ok(
+      shown.some(line => /^ {2}~ next\.config\.ts: /.test(line)),
+      shown.join('\n')
+    );
+    assert.ok(
+      shown.some(line => /^ {6}- .*turbopackLazyDynamicImportsSSR: true \},$/.test(line)),
+      shown.join('\n')
+    );
+    assert.ok(
+      shown.some(line =>
+        /^ {6}\+ .*turbopackLazyDynamicImportsSSR: true, turbopackFileSystemCacheForDev: false \},$/.test(
+          line
+        )
+      ),
+      shown.join('\n')
+    );
+    assert.equal(read(repo, 'next.config.ts'), old);
+  });
+
+  it('--apply shows the lines a template changes in a file the repo has', async () => {
+    const repo = await setupRepo();
+    write(repo, 'routes/rough-preview.php', '<?php\n// an older route\n');
+    const { io, run } = await studio(repo, {}, { answers: ['n'] });
+    assert.equal(await run(['setup', '--apply']), 1, io.errors.join('\n'));
+    const at = (pattern: RegExp) => io.lines.findIndex(line => pattern.test(line));
+    const rewrite = at(/~ rewrite routes\/rough-preview\.php from /);
+    assert.ok(rewrite >= 0, io.lines.join('\n'));
+    assert.equal(io.lines[rewrite + 1], '      - // an older route');
+    assert.match(io.lines[rewrite + 2]!, /^ {6}\+ /);
+    const append = at(
+      /\+ add the lines of rough\/setup\/routes\/web\.php\.snippet to routes\/web\.php/
+    );
+    assert.ok(append >= 0, io.lines.join('\n'));
+    const added = SNIPPET.split('\n').find(line => line.trim())!;
+    assert.ok(
+      io.lines.slice(append + 1).some(line => line === `      + ${added}`),
+      io.lines.join('\n')
+    );
+    assert.equal(read(repo, 'routes/rough-preview.php'), '<?php\n// an older route\n');
   });
 });
