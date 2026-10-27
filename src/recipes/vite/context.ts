@@ -301,7 +301,18 @@ function configBlock(eol: string): string {
 /** The config with the switch's plugin; null when it has no `plugins: [` to put it in. */
 export function editViteConfig(text: string): string | null {
   if (text.includes(BLOCK_START)) return null;
-  const plugins = /\bplugins\s*:\s*\[/.exec(text);
+  // The config's own plugins: the shallowest list, never one nested in build.rollupOptions, which
+  // the production build runs too.
+  let plugins: RegExpExecArray | null = null;
+  let shallowest = Infinity;
+  for (const found of text.matchAll(/\bplugins\s*:\s*\[/g)) {
+    const before = text.slice(0, found.index);
+    const depth = (before.match(/\{/g)?.length ?? 0) - (before.match(/\}/g)?.length ?? 0);
+    if (depth < shallowest) {
+      shallowest = depth;
+      plugins = found as RegExpExecArray;
+    }
+  }
   if (!plugins) return null;
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const at = plugins.index + plugins[0].length;

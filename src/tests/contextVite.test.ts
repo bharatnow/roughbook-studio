@@ -173,6 +173,26 @@ describe('vite.config’s edit', () => {
     assert.equal(undoViteConfig(editedCrlf), crlf);
   });
 
+  it('puts the plugin in the config’s own plugins, never in a nested list the build runs', () => {
+    const nested = `import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
+import { visualizer } from 'rollup-plugin-visualizer'
+
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      plugins: [visualizer()],
+    },
+  },
+  plugins: [react()],
+})
+`;
+    const edited = editViteConfig(nested)!;
+    assert.match(edited, /\n {2}plugins: \[roughbookContext\(\), react\(\)\],/);
+    assert.match(edited, /plugins: \[visualizer\(\)\]/);
+    assert.equal(undoViteConfig(edited), nested);
+  });
+
   it('knows its edit after a formatter went over it, and takes it out whole', async () => {
     // As prettier with singleQuote and no semicolons writes it, the plugins one per line.
     const formatted = editViteConfig(CONFIG)!
