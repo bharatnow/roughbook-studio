@@ -12,8 +12,8 @@ import { LocalStudio } from '../server/studio.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
 import { devUrl } from './done.js';
 import { readEnvironment } from '../environment/read.js';
-import { MAP_FILE } from '../map/file.js';
-import { MapSync } from '../map/live.js';
+import { MAP_FILE, hasMapFile } from '../map/file.js';
+import { MapSync, syncAfterMap } from '../map/live.js';
 import { countMap, refreshMap } from '../map/run.js';
 import { recipeOf } from '../recipes/index.js';
 import { ROUGH_DIR } from '../repo/root.js';
@@ -152,6 +152,11 @@ export const start: Command = {
       const refreshed = await refreshMap(repoRoot, environment, link);
       if (refreshed?.changed)
         io.out(`${ROUGH_DIR}/${MAP_FILE} refreshed: ${countMap(refreshed.map)}.`);
+      // What changed while the studio was not running, and what a sync could not send then.
+      if (hasMapFile(repoRoot)) {
+        const { lines } = await syncAfterMap(repoRoot, environment, link, api, refreshed);
+        for (const line of lines) io.out(line);
+      }
     } catch (error) {
       io.err(
         `The map was not refreshed: ${error instanceof Error ? error.message : String(error)}`

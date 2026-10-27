@@ -10,7 +10,7 @@ import type { RepoLink } from '../repo/link.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { watchApp, type WatchFunction } from '../runs/watch.js';
 import type { StudioOs } from '../launch/platform.js';
-import { MAP_FILE, hasMapFile } from './file.js';
+import { MAP_FILE, hasMapFile, readMap } from './file.js';
 import { countMap, describeChanges, mapRepo, type MapResult } from './run.js';
 import { describeSync, syncAdoption, type SyncOutcome } from './sync.js';
 
@@ -36,6 +36,40 @@ export type MapSyncOptions = {
 };
 
 export type Refreshed = { result: MapResult; sync: SyncOutcome | null; ms: number };
+
+/**
+ * The adopted pages' changes sent after the map was written outside start's watch (`roughbook
+ * map`, start's first refresh, a composition's fresh map, a page promote's finish), or the ones a
+ * sync could not send yet: lines for the terminal, none when nothing was sent.
+ */
+export async function syncAfterMap(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  link: RepoLink,
+  api: StudioApi,
+  result: Pick<MapResult, 'previous' | 'map'> | null
+): Promise<{ lines: string[]; sync: SyncOutcome | null }> {
+  try {
+    const map = result?.map ?? readMap(repoRoot)?.map;
+    if (!map) return { lines: [], sync: null };
+    const sync = await syncAdoption(
+      repoRoot,
+      api,
+      link,
+      recipeOf(environment),
+      { previous: result?.previous ?? null, map },
+      environment.entry
+    );
+    return { lines: sync ? describeSync(sync, map) : [], sync };
+  } catch (error) {
+    return {
+      lines: [
+        `The adopted pages were not synced: ${error instanceof Error ? error.message : String(error)}`
+      ],
+      sync: null
+    };
+  }
+}
 
 export class MapSync {
   private timer: NodeJS.Timeout | null = null;

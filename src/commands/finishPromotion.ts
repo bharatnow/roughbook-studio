@@ -10,6 +10,7 @@ import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { BASELINE, chooseAdoption } from '../map/adopt.js';
 import { readMap, writeMap } from '../map/file.js';
+import { syncAfterMap } from '../map/live.js';
 import { mapRepo } from '../map/run.js';
 import type { RepoMap } from '../map/types.js';
 import {
@@ -215,6 +216,15 @@ export async function refreshAfterPagePromote(
     chooseAdoption(map, { page: page.slug })
   );
   lines.push(...describeAdoption(outcome));
+  // The other adopted pages' changes go too, as start's watch sends them.
+  lines.push(
+    ...(
+      await syncAfterMap(repoRoot, read, input.link, input.api, {
+        previous: mapped?.previous ?? null,
+        map
+      })
+    ).lines
+  );
 
   // Pictures need the app: the page at its address, and the new baselines' previews.
   if (read.mode !== 'live' || !input.api.signedIn) return lines;

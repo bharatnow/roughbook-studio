@@ -24,6 +24,7 @@ import {
   saveMapRun
 } from '../map/agent.js';
 import { MAP_FILE, MapFormatError, mapProblems, readMap } from '../map/file.js';
+import { syncAfterMap } from '../map/live.js';
 import { countMap, describeChanges, describeMap, mapRepo, type MapResult } from '../map/run.js';
 import { recipeOf } from '../recipes/index.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
@@ -32,7 +33,7 @@ import { ROUGH_DIR } from '../repo/root.js';
 import { handoffLine, writePrompt } from '../runs/slots.js';
 import { takeSnapshot } from '../runs/snapshot.js';
 import { recordEvent } from '../telemetry/events.js';
-import { requireApi, type Command, type CommandContext } from './context.js';
+import { openApi, requireApi, type Command, type CommandContext } from './context.js';
 import { doctorReportFile } from './setup.js';
 import { chooseAgent, openInEditor, sayEditorLaunch } from './shared.js';
 
@@ -242,12 +243,19 @@ export const map: Command = {
       );
     }
     if (result) await recordMapRan(context, result, open !== null);
+    // The adopted pages' changes go to the server, as start's watch sends them, when signed in.
+    const signedIn = result ? await openApi(context) : null;
+    const synced =
+      result && signedIn?.credentials
+        ? (await syncAfterMap(repoRoot, environment, link, signedIn.api, result)).lines
+        : [];
     if (values.json) {
       io.out(
         JSON.stringify(result ? { map: result.map, fixtures: result.fixtures } : null, null, 2)
       );
     } else if (result) {
       sayMap(context, result);
+      for (const line of synced) io.out(line);
     } else {
       const recipe = recipeOf(environment);
       io.out(

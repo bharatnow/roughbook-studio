@@ -272,7 +272,7 @@ export async function preparePagePromotion(
   const recipe = recipeOf(environment);
   const publicDir = publicDirFor(repoRoot, link, tree, options.publicDir, environment.assets.dir);
   // The app's own order, read fresh (decision 52).
-  const map = await freshMap(repoRoot, environment, link);
+  const map = await freshMap(repoRoot, environment, link, api);
   const { how, targets, plan, keepsApp, current } = planPagePromote(
     repoRoot,
     environment,

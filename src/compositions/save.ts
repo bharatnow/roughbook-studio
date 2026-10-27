@@ -12,7 +12,8 @@ import type { RepoEnvironment } from '../environment/types.js';
 import { BASELINE } from '../map/adopt.js';
 import { componentSlug } from '../map/build.js';
 import { readMap } from '../map/file.js';
-import { refreshMap } from '../map/run.js';
+import { syncAfterMap } from '../map/live.js';
+import { refreshMap, type MapResult } from '../map/run.js';
 import type { RepoMap } from '../map/types.js';
 import {
   shareCompositionPictures,
@@ -54,17 +55,23 @@ function toDisk(repoRoot: string, relative: string): string {
   return path.join(repoRoot, ...relative.split('/'));
 }
 
-/** The map, refreshed first when the app's sources changed since it was written (decision 52). */
+/**
+ * The map, refreshed first when the app's sources changed since it was written (decision 52), and
+ * with `api` the adopted pages' changes sent, as start's watch sends them.
+ */
 export async function freshMap(
   repoRoot: string,
   environment: RepoEnvironment,
-  link: RepoLink | null
+  link: RepoLink | null,
+  api?: StudioApi
 ): Promise<RepoMap> {
+  let refreshed: MapResult | null = null;
   try {
-    await refreshMap(repoRoot, environment, link);
+    refreshed = await refreshMap(repoRoot, environment, link);
   } catch {
     // The map as it is still says the page's order; doctor names what went wrong.
   }
+  if (api && link) await syncAfterMap(repoRoot, environment, link, api, refreshed);
   const map = readMap(repoRoot)?.map;
   if (!map) throw new Error(`There is no ${ROUGH_DIR}/map.md yet. Run roughbook map first.`);
   return map;
@@ -148,7 +155,7 @@ export async function saveComposition(
       );
     }
   }
-  const map = await freshMap(repoRoot, environment, link);
+  const map = await freshMap(repoRoot, environment, link, api);
   const current = appOrder(map, page);
   const problems = [
     ...compositionProblems(
@@ -212,7 +219,7 @@ export async function makeSection(
       `A section cannot be named ${name}: ${ROUGH_DIR}/${input.page}/${COMPOSITIONS_DIR}/ holds the page's compositions.`
     );
   }
-  const map = await freshMap(repoRoot, environment, link);
+  const map = await freshMap(repoRoot, environment, link, api);
   if (!map.pages.some(item => item.slug === input.page)) {
     throw new Error(
       `${ROUGH_DIR}/map.md has no page ${input.page}. A new section joins one of the app's pages; run roughbook map, then try again.`

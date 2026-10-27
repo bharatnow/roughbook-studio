@@ -504,6 +504,27 @@ describe('a whole map, adopt and upload run', () => {
     assert.equal(iterationPuts().length, first * 2);
   });
 
+  it('sends an adopted page’s new order when roughbook map finds it, as start’s watch does', async () => {
+    const repo = await linkedApp();
+    const { io, run, requests } = await studio(repo);
+    assert.equal(await run(['map']), 0, io.errors.join('\n'));
+    assert.equal(await run(['adopt', 'home']), 0, io.errors.join('\n'));
+    const adopts = () => requests.filter(request => request.url.endsWith('/adopt'));
+    const before = adopts().length;
+    write(
+      repo,
+      'app/page.tsx',
+      `import Hero from "@/components/hero";
+import { Pricing } from "@/components/pricing";
+export default function Home() { return <main><Pricing /><Hero /></main>; }
+`
+    );
+    assert.equal(await run(['map']), 0, io.errors.join('\n'));
+    assert.equal(adopts().length, before + 1, io.lines.join('\n'));
+    const body = adopts().at(-1)!.body as AdoptBody;
+    assert.deepEqual(body.pages[0]!.sections, ['pricing', 'hero']);
+  });
+
   it('uploads nothing while the project’s pictures are off, and takes none either', async () => {
     const repo = await linkedApp();
     const { io, run, requests, pictured } = await studio(repo, { pictures: () => false });

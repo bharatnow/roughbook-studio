@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { StudioApi } from '../api/client.js';
-import type { Adopted } from '../api/types.js';
+import type { AdoptBody, Adopted } from '../api/types.js';
 import { readEnvironment } from '../environment/read.js';
 import { BASELINE, writeBaselines } from '../map/adopt.js';
 import { parseMap, readMap, renderMap, renderMapHeader } from '../map/file.js';
@@ -496,6 +496,57 @@ describe('what the sync sends', () => {
         repo,
         api,
         { orgId: ORG, project: 'site' },
+        NEXT,
+        { previous: result.map, map: result.map },
+        'index.tsx'
+      ),
+      null
+    );
+  });
+
+  it('adopts a new section on the next sync when the one that found it failed', async () => {
+    const { repo, refresh } = await adoptedApp();
+    write(
+      repo,
+      'components/s0/logo-wall.tsx',
+      'export function LogoWall() {\n  return <ul className="logos">Logos we earned</ul>;\n}\n'
+    );
+    write(
+      repo,
+      'app/page.tsx',
+      pageSource([0, 1, 2])
+        .replace('import', 'import { LogoWall } from "@/components/s0/logo-wall";\nimport')
+        .replace('    </main>', '      <LogoWall />\n    </main>')
+    );
+    const result = (await refresh())!;
+    const offline = new StudioApi({
+      server: 'http://localhost:4000',
+      token: 't',
+      userAgent: 'test',
+      fetch: fakeFetch(() => 'offline').fetch
+    });
+    const link = { orgId: ORG, project: 'site' };
+    assert.ok((await syncAdoption(repo, offline, link, NEXT, result, 'index.tsx'))!.failed);
+    // The next sync, with nothing changed since the map's last write.
+    const { api, requests } = routes(repo);
+    const again = (await syncAdoption(
+      repo,
+      api,
+      link,
+      NEXT,
+      { previous: result.map, map: result.map },
+      'index.tsx'
+    ))!;
+    assert.deepEqual((requests[0]!.body as AdoptBody).pages[0]!.components, [
+      { slug: 'logo-wall', name: 'Logo wall', kind: 'section' }
+    ]);
+    assert.deepEqual(again.baselines.written, ['home/logo-wall']);
+    // Sent: nothing again.
+    assert.equal(
+      await syncAdoption(
+        repo,
+        api,
+        link,
         NEXT,
         { previous: result.map, map: result.map },
         'index.tsx'

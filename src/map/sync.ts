@@ -119,7 +119,12 @@ export function syncBodies(entries: SyncPage[], max = ADOPT_BATCH): AdoptBody[] 
   return bodies;
 }
 
-type SyncState = { pending: string[] };
+/**
+ * `pending`: pages a sync could not send. `synced`: the map as the server last heard it, which
+ * the next sync compares with, so a failed one is sent whole later (its new sections too) and a
+ * map written with nothing sent (`roughbook map` offline) is caught up.
+ */
+type SyncState = { pending: string[]; synced?: RepoMap };
 
 function syncFile(repoRoot: string): string {
   return statePath(repoRoot, 'map-sync.json');
@@ -148,11 +153,28 @@ export async function syncAdoption(
   change: { previous: RepoMap | null; map: RepoMap },
   entryFile: string
 ): Promise<SyncOutcome | null> {
-  if (!change.previous) return null;
   const kept = await readJson<SyncState>(syncFile(repoRoot)).catch(() => null);
+  const before = kept?.synced ?? change.previous;
+  const synced = async () => {
+    if (JSON.stringify(kept?.synced) === JSON.stringify(change.map) && !kept?.pending.length) {
+      return;
+    }
+    await writeJsonAtomic(syncFile(repoRoot), {
+      pending: [],
+      synced: change.map
+    } satisfies SyncState);
+  };
+  // The first map: nothing was adopted from it yet, and what is, adoption sends itself.
+  if (!before) {
+    await synced();
+    return null;
+  }
   const pending = new Set(kept?.pending ?? []);
-  const entries = syncEntries(change.previous, change.map, baselineKeys(repoRoot), pending);
-  if (!entries.length) return null;
+  const entries = syncEntries(before, change.map, baselineKeys(repoRoot), pending);
+  if (!entries.length) {
+    await synced();
+    return null;
+  }
   const none: Baselines = { written: [], present: [], unpointed: [] };
   const adopted: Adopted = { pages: [] };
   try {
@@ -165,8 +187,10 @@ export async function syncAdoption(
       }
     }
   } catch (error) {
+    // The map the server last heard stays the one to compare with.
     await writeJsonAtomic(syncFile(repoRoot), {
-      pending: [...new Set([...pending, ...entries.map(entry => entry.slug)])]
+      pending: [...new Set([...pending, ...entries.map(entry => entry.slug)])],
+      synced: before
     } satisfies SyncState);
     return {
       entries,
@@ -175,7 +199,7 @@ export async function syncAdoption(
       failed: error instanceof Error ? error.message : String(error)
     };
   }
-  if (pending.size) await writeJsonAtomic(syncFile(repoRoot), { pending: [] } satisfies SyncState);
+  await synced();
   const baselines = writeBaselines(repoRoot, change.map, recipe, adopted);
   if (baselines.written.length) {
     await recordOwnWritesForOpenRuns(
