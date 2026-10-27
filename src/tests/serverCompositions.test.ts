@@ -171,6 +171,16 @@ describe("the local server's compositions", () => {
     });
     assert.equal(refusedSave.status, 400);
     assert.match(refusedSave.json.message, /hero is in it twice/);
+    // What no slug or iteration can be is refused before the backend is asked, as the CLI does.
+    for (const odd of [
+      { component: 'Hero', iteration: 'iteration-00' },
+      { component: 'hero', iteration: '../../features/iteration-00' }
+    ]) {
+      const refused = await call('POST', '/api/compositions', { page: 'home', sections: [odd] });
+      assert.equal(refused.status, 400);
+      assert.match(refused.json.message, /is not a section and its iteration/);
+    }
+    assert.ok(!backend.requests.some(request => request.url.endsWith('/compositions')));
 
     const sections = [
       { component: 'customer-logos', iteration: 'iteration-01' },

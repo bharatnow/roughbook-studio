@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import type { PictureShot } from '../pictures/share.js';
+import { readMap, writeMap } from '../map/file.js';
 import { assertCarriesNoRepoContent, ok } from './helpers.js';
 import { HOME_SOURCE, ORG, PAGE, TREE, homeApp, read, studio } from './homeApp.js';
 
@@ -167,5 +168,21 @@ describe('saving a composition', () => {
     assert.equal(await run(['compose', 'home']), 1);
     assert.match(io.errors.at(-1)!, /Name the sections in order/);
     assert.equal(requests.length, 0);
+  });
+
+  it('refuses a page whose file is gone before asking for a number, leaving nothing numbered', async () => {
+    const repo = await homeApp();
+    // The map still lists a file of the page that is no longer there.
+    const map = readMap(repo)!.map;
+    writeMap(repo, {
+      ...map,
+      pages: map.pages.map(page =>
+        page.slug === 'home' ? { ...page, files: [...page.files, 'app/home-extra.tsx'] } : page
+      )
+    });
+    const { io, requests, run } = await studio(repo, {});
+    assert.equal(await run(['compose', 'home', '--sections', 'hero,features,testimonials']), 1);
+    assert.match(io.errors.at(-1)!, /app\/home-extra\.tsx is not in the repo/);
+    assert.ok(!requests.some(request => request.url.endsWith('/compositions')));
   });
 });

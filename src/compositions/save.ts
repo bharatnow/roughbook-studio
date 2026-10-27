@@ -22,7 +22,7 @@ import {
 } from '../pictures/share.js';
 import { COMPOSE_PARAM } from '../recipes/context.js';
 import { recipeFor } from '../recipes/index.js';
-import { SLUG, iterationDir } from '../repo/iterations.js';
+import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { headCommit } from '../runs/base.js';
@@ -44,6 +44,7 @@ import {
   COMPOSITION_FILE,
   compositionDir,
   missingSections,
+  pageFilesProblem,
   readComposition,
   writeComposition
 } from './store.js';
@@ -144,6 +145,14 @@ export async function saveComposition(
 ): Promise<SavedComposition> {
   const { page, sections } = input;
   if (!SLUG.test(page)) throw new Error(`${page} is not a page's slug.`);
+  // As parseSections reads them from the CLI; the local UI's are checked here the same.
+  for (const item of sections) {
+    if (!SLUG.test(item.component) || !ITERATION.test(item.iteration)) {
+      throw new Error(
+        `${item.component}:${item.iteration} is not a section and its iteration: a component's slug and iteration-NN.`
+      );
+    }
+  }
   const name = input.name?.trim() ?? '';
   if (name.length > MAX_NAME) {
     throw new Error(`A composition's name holds at most ${MAX_NAME} characters.`);
@@ -168,6 +177,9 @@ export async function saveComposition(
   ];
   if (problems.length) throw new Error(problems.join('\n'));
   const pageRecord = map.pages.find(item => item.slug === page)!;
+  // Before the backend numbers it: a page that cannot be kept would leave a number with no folder.
+  const unkept = pageFilesProblem(repoRoot, pageRecord);
+  if (unkept) throw new Error(unkept);
 
   const created = await api.createComposition(link.orgId, link.project, page, {
     sections,

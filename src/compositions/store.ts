@@ -7,7 +7,7 @@
 // iteration's (`isBasePath`), and nothing of it reaches the server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatJson, writeJsonAtomic } from '../fs/json.js';
+import { writeJsonAtomic } from '../fs/json.js';
 import { BASELINE } from '../map/adopt.js';
 import type { MapPage } from '../map/types.js';
 import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
@@ -170,6 +170,14 @@ export function missingSections(
  * byte for byte, and `.base/base.json`. Refuses a folder already there, since a composition never
  * changes once saved, and a page file that is gone.
  */
+/** Why the page's files cannot be kept with a composition (one is gone), or null. */
+export function pageFilesProblem(repoRoot: string, page: MapPage): string | null {
+  const gone = page.files.find(file => !readBytes(repoRoot, file));
+  return gone
+    ? `${gone} is not in the repo, so the ${page.name} page cannot be kept with its composition. Run roughbook map, then try again.`
+    : null;
+}
+
 export async function writeComposition(
   repoRoot: string,
   page: MapPage,
@@ -184,19 +192,12 @@ export async function writeComposition(
       `${relative} is already in this repo, and a composition never changes once saved.`
     );
   }
+  const problem = pageFilesProblem(repoRoot, page);
+  if (problem) throw new Error(problem);
   const originals = new Map<string, Buffer>();
-  for (const file of page.files) {
-    const bytes = readBytes(repoRoot, file);
-    if (!bytes) {
-      throw new Error(
-        `${file} is not in the repo, so the ${page.name} page cannot be kept with its composition. Run roughbook map, then try again.`
-      );
-    }
-    originals.set(file, bytes);
-  }
+  for (const file of page.files) originals.set(file, readBytes(repoRoot, file)!);
   const dir = toDisk(repoRoot, relative);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, COMPOSITION_FILE), formatJson(composition));
   const files: BaseFile[] = [];
   for (const [file, bytes] of originals) {
     const target = path.join(dir, BASE_DIR, ...file.split('/'));
@@ -206,5 +207,7 @@ export async function writeComposition(
   }
   const record: PageBaseRecord = { version: 1, page: page.slug, commit, files };
   await writeJsonAtomic(toDisk(repoRoot, `${relative}/${BASE_FILE}`), record);
+  // Last and whole: a folder lists as a composition once its composition.json is there.
+  await writeJsonAtomic(path.join(dir, COMPOSITION_FILE), composition);
   return record;
 }
