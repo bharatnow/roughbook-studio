@@ -26,7 +26,7 @@ import { recipeFor } from '../recipes/index.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { findBrowser, takePicture, type ScreenshotSize } from '../screenshot/browser.js';
 import { iterationHash, screenshotIteration, type Shots } from '../screenshot/iteration.js';
-import { pictureRefusal } from './allowed.js';
+import { pictureRefusal, type PictureRefusal } from './allowed.js';
 
 /** Takes one picture; null when the page could not be photographed. Replaced in tests. */
 export type PictureShot = (input: {
@@ -123,6 +123,14 @@ export type ShareInput = {
 
 function empty(skipped: string | null = null, warning: string | null = null): PictureReport {
   return { sent: [], queued: [], unchanged: [], skipped, warning };
+}
+
+/** None sent, for `refusal`; with pictures off the outbox forgets what it sent, which is deleted. */
+async function refused(input: ShareInput, refusal: PictureRefusal): Promise<PictureReport> {
+  if (refusal === 'PICTURES_OFF') {
+    await input.outbox.forgetPictures(input.link.orgId, input.link.project);
+  }
+  return empty(refusal);
 }
 
 /** The project; null offline, when the pictures are taken and queued, and the outbox checks it before sending. */
@@ -229,7 +237,7 @@ export async function shareIterationPictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return empty(refusal);
+  if (refusal) return refused(input, refusal);
   return share(input, target, url, hash);
 }
 
@@ -283,7 +291,7 @@ export async function shareInPagePictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return empty(refusal);
+  if (refusal) return refused(input, refusal);
   return share({ ...input, tree }, target, url, hash, PAGE_WAIT_MS, true);
 }
 
@@ -301,7 +309,7 @@ export async function shareCompositionPictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return empty(refusal);
+  if (refusal) return refused(input, refusal);
   return share({ ...input, tree }, target, url, hash);
 }
 
@@ -340,7 +348,7 @@ export async function sharePagePictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, { page: page.slug }) : null;
-  if (refusal) return empty(refusal);
+  if (refusal) return refused(input, refusal);
   const where = pageAddress(page);
   if ('why' in where) return empty(`not pictured: ${where.why}`);
   const url = new URL(where.address, base.endsWith('/') ? base : `${base}/`).toString();

@@ -477,6 +477,33 @@ describe('a whole map, adopt and upload run', () => {
     );
   });
 
+  it('sends the pictures again once the project’s pictures are on again, since they were deleted', async () => {
+    const repo = await linkedApp();
+    let on = true;
+    const { io, run, requests } = await studio(repo, { pictures: () => on });
+    assert.equal(await run(['map']), 0, io.errors.join('\n'));
+    assert.equal(await run(['adopt', 'home']), 0, io.errors.join('\n'));
+    write(
+      repo,
+      'rough/home/hero/iteration-01/index.tsx',
+      'export default function Hero() { return <h1>Bold</h1>; }\n'
+    );
+    const shots = () => run(['screenshot', 'home/hero/iteration-01']);
+    const iterationPuts = () =>
+      puts(requests).filter(put => put.includes('/iterations/iteration-01/'));
+    assert.equal(await shots(), 0, io.errors.join('\n'));
+    const first = iterationPuts().length;
+    assert.ok(first > 0);
+    // Turned off: the backend deletes them, and nothing goes up.
+    on = false;
+    assert.equal(await shots(), 0, io.errors.join('\n'));
+    assert.equal(iterationPuts().length, first);
+    // On again, nothing changed here: they go up again all the same.
+    on = true;
+    assert.equal(await shots(), 0, io.errors.join('\n'));
+    assert.equal(iterationPuts().length, first * 2);
+  });
+
   it('uploads nothing while the project’s pictures are off, and takes none either', async () => {
     const repo = await linkedApp();
     const { io, run, requests, pictured } = await studio(repo, { pictures: () => false });

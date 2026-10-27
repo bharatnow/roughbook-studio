@@ -153,6 +153,19 @@ export class Outbox {
     return { status: 'queued' };
   }
 
+  /**
+   * The project's pictures are off, so the backend deleted them: each is sent again once they are
+   * on, even unchanged.
+   */
+  async forgetPictures(orgId: string, project: string): Promise<void> {
+    await withLock(this.file, async () => {
+      const state = await this.read();
+      const before = Object.keys(state.uploaded).length;
+      forgetUploads(state, orgId, project);
+      if (Object.keys(state.uploaded).length !== before) await writeJsonAtomic(this.file, state);
+    });
+  }
+
   /** Sends what is waiting, oldest first, and stops at the first one that cannot go yet. */
   async flush(api: StudioApi): Promise<FlushResult> {
     return withLock(this.file, async () => {
