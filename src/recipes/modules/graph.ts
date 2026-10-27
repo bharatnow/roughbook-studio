@@ -6,20 +6,30 @@
 // is made of is then read through esbuild's JSX transform, where every element is a call to one
 // function in source order: `<Hero title="x" />` becomes `__rb(Hero, { title: "x" })`, and nesting
 // is in the parentheses. Reading only: nothing is written, and none of the app's code runs.
-import { build, transformSync, type Loader, type Plugin } from 'esbuild';
+import {
+  build,
+  transform,
+  transformSync,
+  type Loader,
+  type Plugin,
+  type TransformOptions
+} from 'esbuild';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { DiscoverMemo, MemoImport } from '../../map/types.js';
 import { readText } from '../../map/walk.js';
 
 /** One import of a file, as the metafile has it: a repo file, or something outside it. */
-export type GraphImport = { path: string; original: string | null; external: boolean };
+export type GraphImport = MemoImport;
 
 export type ModuleGraph = {
   /** Every repo file the entries reach, with its imports. */
   inputs: Map<string, GraphImport[]>;
   /** Entries esbuild could not read, with its first message. */
   failed: Map<string, string>;
+  /** With a memo: the files whose stamp changed since it was kept, read again; null for all. */
+  changed?: Set<string> | null;
 };
 
 export const CODE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs', '.mts', '.cts'];
@@ -101,11 +111,30 @@ const decorated: Plugin = {
   }
 };
 
+/**
+ * Leaves outside every import of a file not being read again, so a refresh resolves only the
+ * changed files' imports (B7): the files they import are loaded, never followed.
+ */
+function onlyFrom(repo: string, files: string[]): Plugin {
+  const reading = new Set(files.map(file => path.join(repo, ...file.split('/'))));
+  return {
+    name: 'roughbook-only-from',
+    setup(builder) {
+      builder.onResolve({ filter: /.*/ }, args => {
+        if (args.pluginData?.roughbookInner || args.kind === 'entry-point') return undefined;
+        return reading.has(args.importer) ? undefined : { path: args.path, external: true };
+      });
+    }
+  };
+}
+
 async function graphOf(
   repo: string,
   entries: string[],
-  options: { decorators?: boolean } = {}
+  options: { decorators?: boolean; only?: boolean } = {}
 ): Promise<{ inputs: Map<string, GraphImport[]> } | { error: string }> {
+  const plugins = [repoOnly(repo), ...(options.decorators ? [decorated] : [])];
+  if (options.only) plugins.unshift(onlyFrom(repo, entries));
   try {
     const result = await build({
       absWorkingDir: repo,
@@ -120,7 +149,7 @@ async function graphOf(
       logLevel: 'silent',
       jsx: 'preserve',
       loader: { '.js': 'jsx', '.mjs': 'jsx', '.cjs': 'jsx' },
-      plugins: options.decorators ? [repoOnly(repo), decorated] : [repoOnly(repo)]
+      plugins
     });
     const inputs = new Map<string, GraphImport[]>();
     for (const [file, input] of Object.entries(result.metafile.inputs)) {
@@ -149,23 +178,177 @@ async function graphOf(
 
 /**
  * The graph from every entry at once; when one of them does not read, each alone, so one broken
- * file leaves the rest of the map standing and is named with esbuild's reason.
+ * file leaves the rest of the map standing and is named with esbuild's reason. With a memo of the
+ * last reading and the files' stamps now, only what changed is read again (B7), and the memo is
+ * brought up to date.
  */
-export async function buildGraph(repo: string, entries: string[]): Promise<ModuleGraph> {
+export async function buildGraph(
+  repo: string,
+  entries: string[],
+  kept?: { memo: DiscoverMemo; stamps: Map<string, string> }
+): Promise<ModuleGraph> {
+  if (kept && kept.memo.imports.size && !settingsChanged(kept.memo.stamps, kept.stamps)) {
+    return graphAgain(repo, entries, kept.memo, kept.stamps);
+  }
   const inputs = new Map<string, GraphImport[]>();
   const failed = new Map<string, string>();
-  if (!entries.length) return { inputs, failed };
+  const remember = (decorators: boolean) => {
+    if (!kept) return;
+    kept.memo.imports = new Map(inputs);
+    kept.memo.stamps = new Map(kept.stamps);
+    kept.memo.decorators = decorators;
+  };
+  if (!entries.length) {
+    remember(false);
+    return { inputs, failed, changed: null };
+  }
   let all = await graphOf(repo, entries);
   // Decorators esbuild refused: read again with them allowed, which is slower, so only then.
   const decorators = 'error' in all && /decorators/i.test(all.error);
   if (decorators) all = await graphOf(repo, entries, { decorators });
-  if ('inputs' in all) return { inputs: all.inputs, failed };
+  if ('inputs' in all) {
+    for (const [file, imports] of all.inputs) inputs.set(file, imports);
+    remember(decorators);
+    return { inputs, failed, changed: null };
+  }
   for (const entry of entries) {
     const one = await graphOf(repo, [entry], { decorators });
     if ('error' in one) failed.set(entry, one.error);
     else for (const [file, imports] of one.inputs) inputs.set(file, imports);
   }
-  return { inputs, failed };
+  remember(decorators);
+  return { inputs, failed, changed: null };
+}
+
+/** The files that change how every import resolves: everything is read again when one does. */
+const SETTINGS = /(^|\/)(tsconfig[^/]*|jsconfig[^/]*|package)\.json$/;
+
+function settingsChanged(before: Map<string, string>, now: Map<string, string>): boolean {
+  for (const [file, stamp] of now) {
+    if (SETTINGS.test(file) && before.get(file) !== stamp) return true;
+  }
+  for (const file of before.keys()) if (SETTINGS.test(file) && !now.has(file)) return true;
+  return false;
+}
+
+/** An import that resolved to nothing of the repo's and names no package: a file that may appear. */
+function unresolvedLocal(item: GraphImport): boolean {
+  return item.external && !ASSET.test(item.path) && packageName(item.path) === null;
+}
+
+/** What a file's code imports, as written: its imports, its exports from, `import()` and `require`. */
+const SPECIFIERS = [
+  /\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?['"]([^'"\n]+)['"]/g,
+  /\bexport\s*[\w$*{}\s,]+?\s*from\s*['"]([^'"\n]+)['"]/g,
+  /\b(?:import|require)\(\s*['"]([^'"\n]+)['"]\s*\)/g
+];
+
+/**
+ * A changed file's imports when it still imports what it did, by the specifiers its text names
+ * against those the graph resolved for it: then they resolve as they did, and esbuild, whose
+ * resolving takes milliseconds an import, need not read it again. Null when the text says what
+ * the graph has not (a type-only import esbuild drops), or the other way round: it is read again.
+ */
+function sameSpecifiers(repo: string, file: string, imports: GraphImport[]): GraphImport[] | null {
+  const text = readText(repo, file);
+  if (text === null) return null;
+  const named = new Map<string, number>();
+  for (const pattern of SPECIFIERS) {
+    for (const match of text.matchAll(pattern)) {
+      if (!named.has(match[1]!)) named.set(match[1]!, match.index);
+    }
+  }
+  const spec = (item: GraphImport) => item.original ?? item.path;
+  const resolved = new Set(imports.map(spec));
+  if (named.size !== resolved.size || ![...named.keys()].every(item => resolved.has(item))) {
+    return null;
+  }
+  // In the order the text has them now, as esbuild would list them.
+  return [...imports].sort((a, b) => named.get(spec(a))! - named.get(spec(b))!);
+}
+
+/**
+ * The graph again from the last one: the files whose stamp changed, the entries it never read,
+ * and the files they newly reach are read, each with its own imports resolved and nothing
+ * followed; everything else is the memo's. When files came or went, the files whose imports did
+ * not resolve, or named one that went, are read again too, since theirs may resolve differently.
+ */
+async function graphAgain(
+  repo: string,
+  entries: string[],
+  memo: DiscoverMemo,
+  stamps: Map<string, string>
+): Promise<ModuleGraph> {
+  const changed = new Set<string>();
+  for (const [file, stamp] of stamps) if (memo.stamps.get(file) !== stamp) changed.add(file);
+  const removed = [...memo.stamps.keys()].filter(file => !stamps.has(file));
+  for (const file of removed) {
+    changed.add(file);
+    memo.imports.delete(file);
+  }
+  const cameOrWent = removed.length > 0 || [...changed].some(file => !memo.stamps.has(file));
+  const gone = new Set(removed);
+  let reading = new Set<string>(entries.filter(entry => !memo.imports.has(entry)));
+  for (const file of changed) {
+    if (!memo.imports.has(file)) continue;
+    const same = sameSpecifiers(repo, file, memo.imports.get(file)!);
+    if (same) memo.imports.set(file, same);
+    else reading.add(file);
+  }
+  if (cameOrWent) {
+    for (const [file, imports] of memo.imports) {
+      if (imports.some(item => unresolvedLocal(item) || (!item.external && gone.has(item.path)))) {
+        reading.add(file);
+      }
+    }
+  }
+  const broken = new Map<string, string>();
+  const decorators = memo.decorators ?? false;
+  while (reading.size) {
+    const files = [...reading].filter(file => stamps.has(file));
+    reading = new Set();
+    if (!files.length) break;
+    const read = await graphOf(repo, files, { decorators, only: true });
+    const results: [string, Map<string, GraphImport[]> | string][] = [];
+    if ('inputs' in read) for (const file of files) results.push([file, read.inputs]);
+    else {
+      for (const file of files) {
+        const one = await graphOf(repo, [file], { decorators, only: true });
+        results.push([file, 'inputs' in one ? one.inputs : one.error]);
+      }
+    }
+    for (const [file, result] of results) {
+      if (typeof result === 'string') {
+        broken.set(file, result);
+        memo.imports.delete(file);
+        continue;
+      }
+      const imports = result.get(file) ?? [];
+      memo.imports.set(file, imports);
+      for (const item of imports) {
+        if (!item.external && !memo.imports.has(item.path) && !broken.has(item.path)) {
+          reading.add(item.path);
+        }
+      }
+    }
+  }
+  memo.stamps = new Map(stamps);
+  // An entry that reaches a file that does not read fails whole, as it does when all are read.
+  const failed = new Map<string, string>();
+  const fine: string[] = [];
+  const graph = { inputs: memo.imports, failed };
+  for (const entry of entries) {
+    const reason =
+      broken.get(entry) ??
+      [...reachable(graph, [entry])]
+        .flatMap(file => memo.imports.get(file)!.map(item => broken.get(item.path)))
+        .find(Boolean);
+    if (reason) failed.set(entry, reason);
+    else if (memo.imports.has(entry)) fine.push(entry);
+  }
+  const inputs = new Map<string, GraphImport[]>();
+  for (const file of reachable(graph, fine)) inputs.set(file, memo.imports.get(file)!);
+  return { inputs, failed, changed };
 }
 
 /** Every repo file the entries reach through their imports. */
@@ -387,11 +570,30 @@ function namesIn(list: string): { local: string; imported: string }[] {
 
 const modules = new Map<string, ModuleInfo | null>();
 
-/** Forgets what was read, for a map run after the files changed. */
-export function forgetModules(): void {
-  modules.clear();
+/**
+ * Forgets what was read, for a map run after the files changed: every file, or only those named
+ * (a refresh, B7), with what was worked out from them.
+ */
+export function forgetModules(repo?: string, files?: Iterable<string>): void {
   seenVisible.clear();
   seenSlots.clear();
+  if (!repo || !files) {
+    modules.clear();
+    return;
+  }
+  for (const file of files) modules.delete(`${repo}\u0000${file}`);
+}
+
+function transformOptions(file: string): TransformOptions {
+  return {
+    loader: loaderFor(file),
+    jsx: 'transform',
+    jsxFactory: JSX,
+    jsxFragment: `${JSX}Fragment`,
+    // Legacy decorators read as such: what they decorate is not what the map reads.
+    tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
+    logLevel: 'silent'
+  };
 }
 
 /** What a repo file holds, read once per map; null when it does not read. */
@@ -402,22 +604,41 @@ export function readModule(repo: string, file: string): ModuleInfo | null {
   let info: ModuleInfo | null = null;
   if (source !== null) {
     try {
-      const { code } = transformSync(source, {
-        loader: loaderFor(file),
-        jsx: 'transform',
-        jsxFactory: JSX,
-        jsxFragment: `${JSX}Fragment`,
-        // Legacy decorators read as such: what they decorate is not what the map reads.
-        tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
-        logLevel: 'silent'
-      });
-      info = moduleInfo(code);
+      info = moduleInfo(transformSync(source, transformOptions(file)).code);
     } catch {
       info = null;
     }
   }
   modules.set(cacheKey, info);
   return info;
+}
+
+/** How many files esbuild transforms at once while the modules are read ahead. */
+const AHEAD = 16;
+
+/**
+ * Reads ahead the files not read yet, several at once and without holding the event loop, so the
+ * analysis that follows finds them read: one at a time, a large app's thousand files took
+ * seconds (B7), while `roughbook start` serves the canvas.
+ */
+export async function readModulesAhead(repo: string, files: Iterable<string>): Promise<void> {
+  const queue = [...files].filter(
+    file => CODE_EXTENSIONS.includes(path.extname(file)) && !modules.has(`${repo}\u0000${file}`)
+  );
+  const next = async (): Promise<void> => {
+    for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+      const cacheKey = `${repo}\u0000${file}`;
+      let info: ModuleInfo | null = null;
+      try {
+        const source = await readFile(path.join(repo, ...file.split('/')), 'utf8');
+        info = moduleInfo((await transform(source, transformOptions(file))).code);
+      } catch {
+        info = null;
+      }
+      if (!modules.has(cacheKey)) modules.set(cacheKey, info);
+    }
+  };
+  await Promise.all(Array.from({ length: AHEAD }, next));
 }
 
 /** A module's imports, exports and statements, from its transformed code. */

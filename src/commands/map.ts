@@ -24,7 +24,7 @@ import {
   saveMapRun
 } from '../map/agent.js';
 import { MAP_FILE, MapFormatError, mapProblems, readMap } from '../map/file.js';
-import { countMap, describeMap, mapRepo, type MapResult } from '../map/run.js';
+import { countMap, describeChanges, describeMap, mapRepo, type MapResult } from '../map/run.js';
 import { recipeOf } from '../recipes/index.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
@@ -56,6 +56,7 @@ export function sayMap(
     }.`
   );
   for (const line of describeMap(map, { pages: options.brief ? 8 : 25 })) io.out(line);
+  for (const line of describeChanges(result)) io.out(line);
   if (map.missed.length) {
     io.out(`Not placed (${map.missed.length}), each with the reason in ${ROUGH_DIR}/${MAP_FILE}:`);
     if (!options.brief) {
@@ -233,7 +234,7 @@ export const map: Command = {
 
     let result: MapResult | null;
     try {
-      result = await mapRepo(repoRoot, environment, link);
+      result = await mapRepo(repoRoot, environment, link, { full: true });
     } catch (error) {
       if (!(error instanceof MapFormatError)) throw error;
       throw new Error(
@@ -291,7 +292,19 @@ function fallback(repoRoot: string): MapResult | null {
   try {
     const read = readMap(repoRoot);
     return read
-      ? { map: read.map, by: [], changed: false, written: true, fixtures: [], ms: 0 }
+      ? {
+          map: read.map,
+          previous: read.map,
+          by: [],
+          changed: false,
+          written: true,
+          fixtures: [],
+          ms: 0,
+          renamed: [],
+          went: [],
+          returned: [],
+          left: []
+        }
       : null;
   } catch {
     return null;

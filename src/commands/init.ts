@@ -346,7 +346,7 @@ export const init: Command = {
       // What the app already has (B1 of the brownfield plan), when it has any UI: read from its
       // files, written in rough/, nothing sent anywhere.
       try {
-        const mapped = await mapRepo(repo, environment, link, { whenFound: true });
+        const mapped = await mapRepo(repo, environment, link, { whenFound: true, full: true });
         if (mapped?.written) sayMap(repoContext, mapped, { brief: true });
       } catch (error) {
         io.err(

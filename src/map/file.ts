@@ -28,6 +28,9 @@ export const MAP_FIXTURES = 'map/fixtures';
 
 const NONE = 'none';
 
+/** A gone component's mark: the day it went from the app (B7, decision 64). */
+const GONE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** The prose a new map starts with, for the map run's agent and the designer to add to. */
 export const DEFAULT_PROSE = `# The map of this app
 
@@ -184,6 +187,10 @@ function readComponent({ line, fields }: RawRecord): MapComponent {
   // A fixture is the repo's path; one written from rough/ (map/fixtures/…), as an agent may, is
   // read as the repo's.
   const fixture = scalar(fields.fixture ?? '');
+  const gone = scalar(fields.gone ?? '');
+  if (gone !== null && !GONE_DAY.test(gone)) {
+    refuse(line, `gone is the day it went from the app, as 2026-10-27; not "${gone}".`);
+  }
   return {
     slug,
     name: scalar(fields.name ?? '') ?? slug,
@@ -193,7 +200,8 @@ function readComponent({ line, fields }: RawRecord): MapComponent {
     fixture: fixture?.startsWith(`${MAP_FIXTURES}/`) ? `${ROUGH_DIR}/${fixture}` : fixture,
     alone: known(fields.alone, 'alone', line),
     why: scalar(fields.why ?? ''),
-    byAgent: scalar(fields.found ?? '') === 'agent'
+    byAgent: scalar(fields.found ?? '') === 'agent',
+    ...(gone ? { gone } : {})
   };
 }
 
@@ -235,6 +243,7 @@ export function renderMapHeader(map: RepoMap): string {
     );
     if (component.why) lines.push(`    why: ${flat(component.why)}`);
     if (component.byAgent) lines.push('    found: agent');
+    if (component.gone) lines.push(`    gone: ${flat(component.gone)}`);
   }
   if (map.missed.length) {
     lines.push('missed:');

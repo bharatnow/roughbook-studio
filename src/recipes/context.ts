@@ -90,7 +90,7 @@ function copyOf(repo: string, folder: string, source: string | undefined): strin
 /**
  * The adopted sections and shared parts in this repo, with their iterations: each component on a
  * page of the map that has its baseline in rough/<page>/<component>/iteration-00/, in the map's
- * order. Atoms adopted by hand count too: they are adopted onto a page.
+ * order, but none gone from the app. Atoms adopted by hand count too: they are adopted onto a page.
  */
 export function contextSections(repo: string, entry: string, known?: RepoMap): ContextSection[] {
   let map = known;
@@ -116,7 +116,8 @@ export function contextSections(repo: string, entry: string, known?: RepoMap): C
       .sort((a, b) => order(a) - order(b));
     for (const component of adopted) {
       const source = bySlug.get(component);
-      if (!source) continue;
+      // Gone from the app (B7, decision 64): nothing of it to wrap, and its baseline says so.
+      if (!source || source.gone) continue;
       const dir = path.join(pageDir, component);
       const iterations = folders(dir).filter(name => ITERATION.test(name));
       if (!iterations.includes(BASELINE)) continue;

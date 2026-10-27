@@ -13,8 +13,11 @@ import { requireApi, type Command, type CommandContext } from './context.js';
 import { devUrl } from './done.js';
 import { readEnvironment } from '../environment/read.js';
 import { MAP_FILE } from '../map/file.js';
+import { MapSync } from '../map/live.js';
 import { countMap, refreshMap } from '../map/run.js';
+import { recipeOf } from '../recipes/index.js';
 import { ROUGH_DIR } from '../repo/root.js';
+import { staleReason, staleWords, studioBuild, type StartedAs } from '../repo/stale.js';
 import { approveEnvironment } from './setup.js';
 
 const REGISTRY_EVERY_MS = 1500;
@@ -140,6 +143,10 @@ export const start: Command = {
     const link = await requireRepoLink(repoRoot);
     const environment = await readEnvironment(repoRoot, link);
     const api = await requireApi(context);
+    const startedAs: StartedAs = {
+      build: studioBuild(),
+      recipeVersion: environment.recipeVersion
+    };
     // The map again, when the app's sources changed since it was written (B1 of the brownfield plan).
     try {
       const refreshed = await refreshMap(repoRoot, environment, link);
@@ -191,7 +198,37 @@ export const start: Command = {
       io.out('Open the address above in a browser.');
     }
 
-    studio.keepRegistry();
+    // A start that outlived an upgrade stops writing generated files, and says so once (decision 61).
+    let stale: string | null = null;
+    const keepRegistry = async () => {
+      if (!stale) {
+        const now = await readEnvironment(repoRoot, link).catch(() => null);
+        stale = staleReason(
+          startedAs,
+          { build: studioBuild(), recipeVersion: now?.recipeVersion ?? environment.recipeVersion },
+          recipeOf(environment)?.version ?? null
+        );
+        if (stale) io.out(staleWords(stale));
+      }
+      if (!stale) studio.keepRegistry();
+    };
+    await keepRegistry();
+    // The map follows the app while the UI is open (B7): the app's files are watched, and a change
+    // refreshes what it touches and syncs the adopted pages. A first refresh reads the app ahead,
+    // in the background, so the next is quick.
+    const sync = new MapSync({
+      repoRoot,
+      environment,
+      link,
+      api,
+      out: line => io.out(line),
+      err: line => io.err(line),
+      stale: () => stale,
+      onMapChanged: () => studio.projectChanged(),
+      onAdopted: () => studio.projectChanged()
+    });
+    const stopSync = sync.watch();
+    void sync.refresh();
     // Started now and awaited at the end, so nothing writes to the state folder after Stopped.
     const started = Promise.allSettled([
       studio.flushOutbox(),
@@ -215,7 +252,7 @@ export const start: Command = {
     };
     keepApp();
     const timers = [
-      setInterval(() => studio.keepRegistry(), REGISTRY_EVERY_MS),
+      setInterval(() => void keepRegistry(), REGISTRY_EVERY_MS),
       setInterval(() => void studio.flushOutbox(), OUTBOX_EVERY_MS),
       setInterval(() => void studio.flushEvents(), OUTBOX_EVERY_MS)
     ];
@@ -225,7 +262,8 @@ export const start: Command = {
     for (const timer of timers) clearInterval(timer);
     if (appTimer) clearTimeout(appTimer);
     stopWatching();
-    await Promise.allSettled([started, appCheck]);
+    stopSync();
+    await Promise.allSettled([started, appCheck, sync.settled()]);
     studio.close();
     await closeKeptBrowsers();
     server.closeAllConnections();

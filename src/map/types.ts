@@ -56,6 +56,11 @@ export type MapComponent = {
   /** Why it does not render alone, when that is known. */
   why: string | null;
   byAgent: boolean;
+  /**
+   * The day it went from the app (`2026-10-27`), when its file or export is no longer found and
+   * something in rough/ hangs on it (B7, decision 64); absent while the app has it.
+   */
+  gone?: string;
 };
 
 /** Something a discoverer saw and could not place, with the reason (decision 3: never silence). */
@@ -109,10 +114,29 @@ export type Discovered = {
   unplaced: string[];
 };
 
+/** One import of a file as resolved: a repo file, or something outside it. */
+export type MemoImport = { path: string; original: string | null; external: boolean };
+
+/**
+ * What a discoverer read last time, kept in the studio's state between map runs (B7, decision
+ * 62): each file's size and time, and each file's imports as resolved. A refresh reads again only
+ * the files whose stamp changed, and updates it in place.
+ */
+export type DiscoverMemo = {
+  /** Every file the discoverer listed, by repo path: `<size>:<mtime>`. */
+  stamps: Map<string, string>;
+  /** The import graph's files, with their imports. */
+  imports: Map<string, MemoImport[]>;
+  /** Whether the app needed its legacy decorators allowed to be read. */
+  decorators?: boolean;
+};
+
 /** A discoverer's inputs: the repo, and the folders the environment says no repo commits. */
 export type DiscoverInput = {
   repo: string;
   ignore: string[];
   /** The preview setup's own folders and files, which are never the app's pages. */
   own: string[];
+  /** The last run's reading, for a discoverer that can read only what changed; updated in place. */
+  memo?: DiscoverMemo;
 };

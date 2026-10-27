@@ -1,12 +1,14 @@
 // The map built from what the discoverers found (B1 of the brownfield plan): their results merged,
 // pages by address and components by file and export; the studio's slugs, which stay put when a
-// file moves (B7 builds renames on them); and what the map run or the designer wrote in the map
-// before (names, kinds, fixtures, examples, sign-ins, what renders alone, a page's sections while
-// its code reads the same, and the pages and components it added), kept over what the
+// file moves or a component is renamed (B7, decision 63), and stay on a component gone from the
+// app while rough/ has work on it (decision 64); and what the map run or the designer wrote in the
+// map before (names, kinds, fixtures, examples, sign-ins, what renders alone, a page's sections
+// while its code reads the same, and the pages and components it added), kept over what the
 // discoverers can know.
 import { formatJson } from '../fs/json.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { MAP_FIXTURES } from './file.js';
+import { matchRenames, type Shaped } from './rename.js';
 import {
   SHARED_PAGE,
   type ComponentKind,
@@ -151,7 +153,18 @@ export type BuildOptions = {
    * keeps them while the discoverers read its code the same.
    */
   lastFound?: Record<string, string[]>;
+  /** Each component's code shape when the map was last written, by slug (src/map/rename.ts). */
+  shapes?: Record<string, string[]>;
+  /** A found component's code shape now; null when it cannot be read. None are, if not given. */
+  shapeOf?: (component: FoundComponent) => string[] | null;
+  /** Whether rough/ has work on a component, by slug: it stays in the map, gone, when it goes. */
+  hasWork?: (slug: string) => boolean;
+  /** Today, `2026-10-27`, for a component that goes now. */
+  today?: string;
 };
+
+/** A component found again at a new file or export: the same slug, before and now. */
+export type Renamed = { before: MapComponent; now: MapComponent };
 
 export type BuiltMap = {
   map: RepoMap;
@@ -159,6 +172,12 @@ export type BuiltMap = {
   fixtures: { file: string; content: string }[];
   /** The sections the discoverers found for each page, by slug: the next build's `lastFound`. */
   found: Record<string, string[]>;
+  /** Renames: found at a new file or under a new export, the slug kept (decision 63). */
+  renamed: Renamed[];
+  /** Components gone from the app now, kept in the map with the day (decision 64). */
+  went: MapComponent[];
+  /** Components gone before that the app has again, with no mark. */
+  returned: MapComponent[];
 };
 
 export function buildMap(
@@ -196,6 +215,52 @@ export function buildMap(
       taken.add(earlier.slug);
     }
   }
+
+  // Renames: what the map had and no longer finds, matched to what is found new by its code.
+  const lost = before.components.filter(
+    item => !item.byAgent && !taken.has(item.slug) && !foundKeys.has(keyOf(item))
+  );
+  const unmatched = merged.components.filter(item => !slugs.has(item.key));
+  const freshShapes: Shaped[] = [];
+  for (const component of unmatched) {
+    const shape = lost.length ? options.shapeOf?.(component) : null;
+    if (!shape) continue;
+    freshShapes.push({
+      id: component.key,
+      file: component.files[0] ?? '',
+      export: component.export,
+      shape
+    });
+  }
+  const lostShapes: Shaped[] = lost.flatMap(item => {
+    const shape = options.shapes?.[item.slug];
+    return shape ? [{ id: item.slug, file: item.files[0] ?? '', export: item.export, shape }] : [];
+  });
+  const renames = matchRenames(lostShapes, freshShapes);
+  // Without a shape, as before B7: the same export under the name the slug was made from.
+  for (const item of lost) {
+    if (renames.has(item.slug)) continue;
+    const same = unmatched.find(
+      component =>
+        component.export === item.export &&
+        componentSlug(component.name) === item.slug &&
+        ![...renames.values()].includes(component.key)
+    );
+    if (same) renames.set(item.slug, same.key);
+  }
+  const renamedFrom = new Map<string, MapComponent>();
+  for (const [slug, key] of renames) {
+    const earlier = lost.find(item => item.slug === slug)!;
+    slugs.set(key, slug);
+    taken.add(slug);
+    renamedFrom.set(key, earlier);
+  }
+  // Gone: what was lost and not found again, kept while rough/ has work on it.
+  const today = options.today ?? new Date().toISOString().slice(0, 10);
+  const keptGone = lost
+    .filter(item => !renames.has(item.slug) && options.hasWork?.(item.slug))
+    .map(item => ({ ...item, gone: item.gone ?? today }));
+  for (const item of keptGone) taken.add(item.slug);
   const fresh = merged.components.filter(item => !slugs.has(item.key));
   const byBase = new Map<string, FoundComponent[]>();
   for (const component of fresh) {
@@ -213,22 +278,21 @@ export function buildMap(
     }
   }
 
-  const previousBySlug = new Map(before.components.map(item => [item.slug, item]));
   const fixtures: BuiltMap['fixtures'] = [];
   const components = new Map<string, MapComponent>();
+  const renamed: Renamed[] = [];
+  const returned: MapComponent[] = [];
   for (const component of merged.components) {
     const slug = slugs.get(component.key)!;
-    // The same component, or the one that moved: a slug the map had for a file no longer found.
-    const bySlug = previousBySlug.get(slug);
-    const earlier =
-      previousByKey.get(component.key) ??
-      (bySlug && !foundKeys.has(keyOf(bySlug)) ? bySlug : undefined);
+    // The same component, or the one that moved or was renamed.
+    const moved = renamedFrom.get(component.key);
+    const earlier = moved ?? previousByKey.get(component.key);
     let fixture = earlier?.fixture ?? null;
     if (!fixture && component.fixture && options.fixture) {
       fixture = `${ROUGH_DIR}/${MAP_FIXTURES}/${slug}/${options.fixture}`;
       fixtures.push({ file: fixture, content: formatJson(component.fixture) });
     }
-    components.set(slug, {
+    const now: MapComponent = {
       slug,
       name: earlier?.name ?? humanName(component.name),
       kind: earlier?.kind ?? placed.get(component.key) ?? component.kind,
@@ -238,9 +302,14 @@ export function buildMap(
       alone: earlier?.alone ?? 'unknown',
       why: earlier?.why ?? null,
       byAgent: false
-    });
+    };
+    components.set(slug, now);
+    if (moved) renamed.push({ before: moved, now });
+    if (earlier?.gone) returned.push(now);
   }
   for (const item of keptAgent) components.set(item.slug, item);
+  for (const item of keptGone) components.set(item.slug, item);
+  const isGone = (slug: string) => Boolean(components.get(slug)?.gone);
 
   // Pages: the slug the map had for the address, the discoverer's name, or the address's.
   const previousPages = new Map(
@@ -252,6 +321,8 @@ export function buildMap(
   const foundSections: Record<string, string[]> = {};
   const toSlugs = (keys: string[]) =>
     keys.map(key => slugs.get(key)).filter((slug): slug is string => Boolean(slug));
+  // A page's sections are the app's: a component gone from the app is on none.
+  const inApp = (sections: string[]) => sections.filter(slug => !isGone(slug));
   for (const page of merged.pages) {
     const earlier = page.address === null ? sharedBefore : previousPages.get(page.address);
     let slug: string;
@@ -275,11 +346,13 @@ export function buildMap(
       example: earlier?.example ?? page.example,
       signIn: earlier && earlier.signIn !== 'unknown' ? earlier.signIn : page.signIn,
       files: page.files,
-      sections: keptSections(
-        discovered,
-        earlier?.sections ?? [],
-        earlier ? options.lastFound?.[earlier.slug] : undefined,
-        components
+      sections: inApp(
+        keptSections(
+          discovered,
+          earlier?.sections ?? [],
+          earlier ? options.lastFound?.[earlier.slug] : undefined,
+          components
+        )
       ),
       byAgent: false
     });
@@ -288,7 +361,10 @@ export function buildMap(
     if (!page.byAgent || pageSlugs.has(page.slug)) continue;
     if (page.files.length && !page.files.some(exists)) continue;
     pageSlugs.add(page.slug);
-    pages.push({ ...page, sections: page.sections.filter(slug => components.has(slug)) });
+    pages.push({
+      ...page,
+      sections: inApp(page.sections.filter(slug => components.has(slug)))
+    });
   }
   pages.sort((a, b) => {
     if (a.slug === SHARED_PAGE || b.slug === SHARED_PAGE) return a.slug === SHARED_PAGE ? -1 : 1;
@@ -328,7 +404,10 @@ export function buildMap(
   return {
     map: { version: 1, by, pages, components: ordered, missed, unplaced },
     fixtures,
-    found: foundSections
+    found: foundSections,
+    renamed,
+    went: keptGone.filter(item => !before.components.find(other => other.slug === item.slug)?.gone),
+    returned
   };
 }
 

@@ -1,12 +1,14 @@
 // What the module stacks share once their routes are known (Next.js, Expo, Vite with React): the
 // graph from every route and layout, each page's sections in order, Shared from the layouts, the
 // atoms the routes reach, fixtures from the stories, and the component files nothing renders.
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   buildGraph,
   componentName,
   forgetModules,
   readModule,
+  readModulesAhead,
   reachable,
   refKey,
   rendered,
@@ -74,6 +76,20 @@ function mainExport(repo: string, file: string): { export: string; name: string 
   return named ? { export: named, name: named } : null;
 }
 
+/** Each file's size and time, the memo's stamp: a refresh reads again what differs (B7). */
+export function stampFiles(repo: string, files: string[]): Map<string, string> {
+  const stamps = new Map<string, string>();
+  for (const file of files) {
+    try {
+      const stat = fs.statSync(path.join(repo, ...file.split('/')));
+      stamps.set(file, `${stat.size}:${stat.mtimeMs}`);
+    } catch {
+      // Gone while it was listed: it is not there.
+    }
+  }
+  return stamps;
+}
+
 function plural(names: string[], one: string, many: string): string {
   return names.length === 1 ? one : many;
 }
@@ -82,10 +98,9 @@ export async function discoverModules(
   input: DiscoverInput,
   routes: ModuleRoutes
 ): Promise<Discovered> {
-  const { repo } = input;
-  // Read afresh each time: `roughbook start` maps again after the files changed.
-  forgetModules();
+  const { repo, memo } = input;
   const files = listFiles(input);
+  const stamps = memo ? stampFiles(repo, files) : null;
   const stories = files.filter(file => STORY.test(file));
   const layoutRefs = routes.layouts.map(layout =>
     typeof layout === 'string' ? { file: layout, export: 'default' } : layout
@@ -97,7 +112,15 @@ export async function discoverModules(
       ...routes.others
     ])
   ];
-  const graph = await buildGraph(repo, [...new Set([...entries, ...stories])]);
+  const graph = await buildGraph(
+    repo,
+    [...new Set([...entries, ...stories])],
+    memo && stamps ? { memo, stamps } : undefined
+  );
+  // Read afresh: all of it, or with a memo only the files that changed since (B7).
+  if (graph.changed) forgetModules(repo, graph.changed);
+  else forgetModules();
+  await readModulesAhead(repo, graph.inputs.keys());
   const analysis: Analysis = { repo, graph, isAtom: (ref, name) => isAtom(ref.file, name) };
   const missed: Missed[] = [...routes.missed];
   const components = new Map<string, FoundComponent>();

@@ -243,6 +243,23 @@ export function readBase(repoRoot: string, relative: string): BaseRecord | null 
 }
 
 /**
+ * The kept base a promote writes back through, or null when it writes a new file: the iteration
+ * has none, or its component is gone from the app (B7, decision 64), so its in-place target is.
+ */
+export function inPlaceBase(repoRoot: string, relative: string): BaseRecord | null {
+  const record = readBase(repoRoot, relative);
+  if (!record) return null;
+  try {
+    const component = readMap(repoRoot)?.map.components.find(
+      item => item.slug === record.component
+    );
+    return component?.gone ? null : record;
+  } catch {
+    return record;
+  }
+}
+
+/**
  * A prompt with the paths the server never sees where the backend left its stand-ins: the
  * component's files by repository path, one per line, and the iteration's `.base/` folder.
  */

@@ -142,6 +142,11 @@ export type AdoptBody = {
     components: { slug: string; name: string; kind: 'section' | 'shared' | 'atom' }[];
     /** The page's own section slugs in the app's order, at most 500, which the web follows. */
     sections: string[];
+    /**
+     * The slugs of its adopted components no longer in the app, at most 500, which the web marks
+     * gone (B7, decision 58); sent by the map's sync, and only when there are some.
+     */
+    gone?: string[];
   }[];
 };
 
