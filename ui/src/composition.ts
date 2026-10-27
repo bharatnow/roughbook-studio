@@ -12,6 +12,8 @@ export type ComposerComponent = {
   name: string;
   iterations: { id: string; name: string; status?: string }[];
   selected?: string | null;
+  /** When the map found it gone from the app (B7): its baseline reads Gone from the app. */
+  gone?: string | null;
 };
 
 /** A section while it is composed; a new section has no iteration until its first run. */
@@ -25,11 +27,22 @@ export type SectionItem = {
   iterationName?: string;
   /** Whether its component is the app's own; false marks it New. */
   inApp?: boolean;
+  /** When the map found its component gone from the app (B7): its baseline is marked gone. */
+  gone?: string | null;
   href?: string;
 };
 
 /** The parameter the composed preview reads: `roughbook-compose=<component>:<iteration>,…`. */
 export const COMPOSE_PARAM = 'roughbook-compose';
+
+/** The map's components gone from the app (B7), with the day each went. */
+function goneOf(project: ProjectView): Map<string, string> {
+  return new Map(
+    (project.local.map?.components ?? []).flatMap(item =>
+      item.gone ? [[item.slug, item.gone] as const] : []
+    )
+  );
+}
 
 /** An adopted page of the map, the only kind a composition is made of (B6's contract). */
 export function canCompose(project: ProjectView, page: string): boolean {
@@ -47,6 +60,7 @@ export function compositionComponents(project: ProjectView, page: string): Compo
   const map = project.local.map;
   const own = map?.pages.find(item => item.slug === page)?.sections ?? [];
   const here = new Set(project.local.iterations);
+  const gone = goneOf(project);
   const slugs = [
     ...new Set([...own, ...(record?.components.map(component => component.slug) ?? [])])
   ];
@@ -64,7 +78,8 @@ export function compositionComponents(project: ProjectView, page: string): Compo
         slug,
         name: component.name,
         iterations,
-        ...(selected ? { selected } : {})
+        ...(selected ? { selected } : {}),
+        ...(gone.has(slug) ? { gone: gone.get(slug)! } : {})
       }
     ];
   });
@@ -127,6 +142,7 @@ export function sectionItems(project: ProjectView, view: CompositionView): Secti
   const record = project.tree.pages.find(item => item.slug === view.page);
   const inApp = new Set(project.local.map?.components.map(item => item.slug) ?? []);
   const here = new Set(project.local.iterations);
+  const gone = goneOf(project);
   return view.sections.map(section => {
     const component = record?.components.find(item => item.slug === section.component);
     const iteration = component?.iterations.find(item => item.id === section.iteration);
@@ -136,6 +152,7 @@ export function sectionItems(project: ProjectView, view: CompositionView): Secti
       name: component?.name ?? section.component,
       ...(iteration && section.iteration !== BASELINE ? { iterationName: iteration.name } : {}),
       inApp: inApp.has(section.component),
+      ...(gone.has(section.component) ? { gone: gone.get(section.component)! } : {}),
       ...(here.has(key) ? { href: `/${key}` } : {})
     };
   });

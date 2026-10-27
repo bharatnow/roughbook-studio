@@ -202,6 +202,28 @@ describe("a page's compositions in the local UI", () => {
     assert.equal(composedKey('home'), 'home/composition');
   });
 
+  it('says which of the page’s components the app no longer has, for their baselines’ mark (B7)', () => {
+    const map = PROJECT.local.map!;
+    const project: ProjectView = {
+      ...PROJECT,
+      local: {
+        ...PROJECT.local,
+        map: {
+          ...map,
+          components: map.components.map(item =>
+            item.slug === 'features' ? { ...item, gone: '2026-10-27' } : item
+          )
+        }
+      }
+    };
+    const editor = compositionComponents(project, 'home');
+    assert.equal(editor.find(item => item.slug === 'features')!.gone, '2026-10-27');
+    assert.ok(!('gone' in editor.find(item => item.slug === 'hero')!));
+    const listed = sectionItems(project, COMPOSITION);
+    assert.equal(listed.find(item => item.component === 'features')!.gone, '2026-10-27');
+    assert.ok(!('gone' in listed.find(item => item.component === 'hero')!));
+  });
+
   it('lists a saved composition’s sections, named and marked', () => {
     assert.equal(compositionName(COMPOSITION), 'Composition 2');
     assert.deepEqual(sectionItems(PROJECT, COMPOSITION), [
