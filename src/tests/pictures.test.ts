@@ -131,7 +131,9 @@ describe('which pictures the project takes', () => {
 
 describe('uploading a picture through the outbox', () => {
   const setup = async (
-    respond: (request: RecordedRequest) => ReturnType<typeof ok> | 'offline'
+    respond: (
+      request: RecordedRequest
+    ) => ReturnType<typeof ok> | 'offline' | Promise<ReturnType<typeof ok> | 'offline'>
   ) => {
     const repo = await tempDir();
     const fake = fakeFetch(respond);
@@ -212,6 +214,56 @@ describe('uploading a picture through the outbox', () => {
     assert.deepEqual(await outbox.dropped(), []);
     tree = adoptedTree(true);
     assert.equal((await outbox.upload(api, route, upload(third))).status, 'sent');
+  });
+
+  it('queues a review at once while a long upload is under way, and sends both', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => (release = resolve));
+    const { repo, api, outbox, requests } = await setup(async request => {
+      if (request.method === 'GET') return ok(adoptedTree(true));
+      if (request.method === 'PUT') await held;
+      return ok({ saved: true });
+    });
+    const bytes = webp('slow');
+    write(repo, file, bytes);
+    const uploading = outbox.upload(api, route, upload(bytes));
+    while (!requests.some(request => request.method === 'PUT')) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    const sending = outbox.send(api, '/reviews', { rating: 4 });
+    // Written to the outbox while the picture is still going up.
+    let waited = 0;
+    while (!(await outbox.pending()).some(entry => entry.path === '/reviews') && waited < 2000) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      waited += 10;
+    }
+    assert.ok(waited < 2000, 'the review waited for the upload to be written');
+    release();
+    assert.equal((await uploading).status, 'sent');
+    assert.equal((await sending).status, 'sent');
+    assert.deepEqual(await outbox.pending(), []);
+  });
+
+  it('lets one picture the server keeps failing wait alone, and lists it as lost in the end', async () => {
+    const { repo, api, outbox, requests } = await setup(request =>
+      request.method === 'GET'
+        ? ok(adoptedTree(true))
+        : request.method === 'PUT'
+          ? refused('INTERNAL', 500)
+          : ok({ saved: true })
+    );
+    const bytes = webp('failing');
+    write(repo, file, bytes);
+    assert.equal((await outbox.upload(api, route, upload(bytes))).status, 'queued');
+    // A review behind it goes all the same.
+    assert.equal((await outbox.send(api, '/reviews', { rating: 4 })).status, 'sent');
+    for (let i = 0; i < 20 && (await outbox.pending()).length; i++) await outbox.flush(api);
+    assert.deepEqual(await outbox.pending(), []);
+    assert.deepEqual(
+      (await outbox.dropped()).map(entry => [entry.path, entry.code]),
+      [[route, 'INTERNAL']]
+    );
+    assert.ok(requests.filter(request => request.method === 'PUT').length <= 10);
   });
 
   it('lets a review behind a waiting picture wait too, in order', async () => {

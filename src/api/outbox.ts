@@ -70,6 +70,15 @@ export type UploadResult =
 
 const KEEP_DROPPED = 50;
 
+/** How many times a picture the server fails (a 5xx, a 429) is tried before it is let go as lost. */
+export const MAX_ATTEMPTS = 10;
+
+/**
+ * What a flush learned of the backend's pictures, written back in order: a picture it took (its
+ * hash), or a project whose pictures it deleted (`hash` null), since pictures were turned off.
+ */
+type UploadMark = { path: string; hash: string | null; orgId: string; project: string };
+
 /** Pictures the project does not take, or whose file is gone, are let go quietly: nothing was lost. */
 const NOT_TAKEN = new Set([
   'PICTURES_OFF',
@@ -166,24 +175,29 @@ export class Outbox {
     });
   }
 
-  /** Sends what is waiting, oldest first, and stops at the first one that cannot go yet. */
+  /**
+   * Sends what is waiting, oldest first. Offline, everything waits; a review or a result the server
+   * failed holds back those after it, which go in order; a picture it failed waits alone, and is
+   * let go as lost after MAX_ATTEMPTS. One flush runs at a time, but the outbox itself is locked
+   * only to read it and to write back what went, so a review is queued at once, however long a
+   * backlog of pictures takes to go up.
+   */
   async flush(api: StudioApi): Promise<FlushResult> {
-    return withLock(this.file, async () => {
-      const state = await this.read();
+    return withLock(`${this.file}.flush`, async () => {
+      const waiting = await withLock(this.file, async () => (await this.read()).entries);
       const sent = new Map<string, unknown>();
       const dropped: DroppedEntry[] = [];
-      const left: OutboxEntry[] = [];
+      const failed = new Map<string, OutboxEntry>();
+      const marks: UploadMark[] = [];
       // Each project is read once per flush, when a picture is waiting for it.
       const trees = new Map<string, Promise<ProjectTree>>();
-      let blocked = false;
-      for (const entry of state.entries) {
-        if (blocked) {
-          left.push(entry);
-          continue;
-        }
+      let offline = false;
+      let postsHeld = false;
+      for (const entry of waiting) {
+        if (offline || (postsHeld && !entry.upload)) continue;
         try {
           if (entry.upload) {
-            const outcome = await this.sendUpload(api, entry, entry.upload, state, trees);
+            const outcome = await this.sendUpload(api, entry, entry.upload, marks, trees);
             if (outcome.code) {
               dropped.push(this.droppedEntry(entry, outcome.code, 409));
               continue;
@@ -201,22 +215,37 @@ export class Outbox {
             continue;
           }
           if (!(error instanceof ApiError) && !(error instanceof OfflineError)) throw error;
-          blocked = true;
-          left.push({
+          const again = {
             ...entry,
             attempts: entry.attempts + 1,
             lastError: error instanceof ApiError ? error.code : 'OFFLINE'
-          });
+          };
+          if (error instanceof OfflineError) offline = true;
+          else if (entry.upload && again.attempts >= MAX_ATTEMPTS) {
+            dropped.push(this.droppedEntry(entry, error.code, error.status));
+            continue;
+          } else if (!entry.upload) postsHeld = true;
+          failed.set(entry.id, again);
         }
       }
-      // A picture the project does not take is not a loss the local UI lists.
-      const lost = dropped.filter(entry => !NOT_TAKEN.has(entry.code));
-      await writeJsonAtomic(this.file, {
-        entries: left,
-        dropped: [...state.dropped, ...lost].slice(-KEEP_DROPPED),
-        uploaded: state.uploaded
-      } satisfies OutboxFile);
-      return { sent, dropped, left: left.length };
+      // What went, written back over the outbox as it is now: entries queued meanwhile stay.
+      const left = await withLock(this.file, async () => {
+        const state = await this.read();
+        const done = new Set([...sent.keys(), ...dropped.map(entry => entry.id)]);
+        state.entries = state.entries
+          .filter(entry => !done.has(entry.id))
+          .map(entry => failed.get(entry.id) ?? entry);
+        for (const mark of marks) {
+          if (mark.hash !== null) state.uploaded[mark.path] = mark.hash;
+          else forgetUploads(state, mark.orgId, mark.project);
+        }
+        // A picture the project does not take is not a loss the local UI lists.
+        const lost = dropped.filter(entry => !NOT_TAKEN.has(entry.code));
+        state.dropped = [...state.dropped, ...lost].slice(-KEEP_DROPPED);
+        await writeJsonAtomic(this.file, state);
+        return state.entries.length;
+      });
+      return { sent, dropped, left };
     });
   }
 
@@ -228,14 +257,14 @@ export class Outbox {
     api: StudioApi,
     entry: OutboxEntry,
     upload: Upload,
-    state: OutboxFile,
+    marks: UploadMark[],
     trees: Map<string, Promise<ProjectTree>>
   ): Promise<{ code: string | null; data?: unknown }> {
     const { orgId, project } = upload.picture;
     const key = `${orgId}/${project}`;
     if (!trees.has(key)) trees.set(key, api.project(orgId, project));
     const refusal = pictureRefusal(await trees.get(key)!, upload.picture);
-    if (refusal === 'PICTURES_OFF') forgetUploads(state, orgId, project);
+    if (refusal === 'PICTURES_OFF') marks.push({ path: entry.path, hash: null, orgId, project });
     if (refusal) return { code: refusal };
     let bytes: Buffer;
     try {
@@ -249,12 +278,12 @@ export class Outbox {
         { bytes, type: upload.type },
         { idempotencyKey: entry.id }
       );
-      state.uploaded[entry.path] = sha256(bytes);
+      marks.push({ path: entry.path, hash: sha256(bytes), orgId, project });
       return { code: null, data };
     } catch (error) {
       // Turned off between the read and the upload: the backend deleted what it had.
       if (error instanceof ApiError && error.code === 'PICTURES_OFF') {
-        forgetUploads(state, orgId, project);
+        marks.push({ path: entry.path, hash: null, orgId, project });
         return { code: error.code };
       }
       throw error;
