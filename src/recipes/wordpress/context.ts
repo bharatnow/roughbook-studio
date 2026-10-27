@@ -1,6 +1,6 @@
 // The in-page view's switch for WordPress block themes (B5b of ROUGHBOOK-BROWNFIELD-PLAN.md,
-// decisions 41 and 42), part of the preview plugin for a mapped theme: in the local or development
-// environment only, and for requests to this machine. WordPress renders the page as it always does;
+// decisions 41 and 42), part of the preview plugin for a mapped theme: in the local environment
+// only, as the preview route, and for requests to this machine. WordPress renders the page as it always does;
 // each adopted template part and pattern comes out inside its marker (`render_block`), and for
 // `?roughbook-swap=<page>/<component>/<iteration>` the iteration's copy is rendered in its place by
 // WordPress's own rendering: a pattern's copy through do_blocks as the pattern block does, a part's
