@@ -182,11 +182,36 @@ describe('the Expo switch’s generated wrappers', () => {
     );
     assert.doesNotMatch(icon, /export const AnimatedIcon/);
     assert.doesNotMatch(read(repo, `${CONTEXT_DIR}/src__components__web-badge.tsx`), /default/);
-    // Unchanged, it writes nothing; a component no longer adopted loses its wrapper.
+    // Unchanged, it writes nothing.
     assert.equal(writeContext(repo), false);
+    // A section no longer adopted keeps its wrapper, passing its file through, and the list stays
+    // as it was: Metro, which keeps its resolutions while it runs, sees only the wrapper change.
+    const list = read(repo, CONTEXT_MODULES);
     fs.rmSync(path.join(repo, 'rough/home/web-badge'), { recursive: true });
     assert.equal(writeContext(repo), true);
+    assert.equal(read(repo, CONTEXT_MODULES), list);
+    assert.equal(
+      read(repo, `${CONTEXT_DIR}/src__components__web-badge.tsx`).split('\n').slice(2).join('\n'),
+      'export * from "../../src/components/web-badge";\n'
+    );
+    // Adopted again while Metro runs: the same list, the wrapper marks it again.
+    write(
+      repo,
+      'rough/home/web-badge/iteration-00/index.tsx',
+      'export default function Iteration() {\n  return null;\n}\n'
+    );
+    assert.equal(writeContext(repo), true);
+    assert.equal(read(repo, CONTEXT_MODULES), list);
+    assert.match(
+      read(repo, `${CONTEXT_DIR}/src__components__web-badge.tsx`),
+      /roughbookWrap\(RoughbookOriginal\.WebBadge/
+    );
+    // A section whose file is gone from the app has no wrapper, which would import nothing.
+    fs.rmSync(path.join(repo, 'rough/home/web-badge'), { recursive: true });
+    fs.rmSync(path.join(repo, 'src/components/web-badge.tsx'));
+    assert.equal(writeContext(repo), true);
     assert.ok(!fs.existsSync(path.join(repo, CONTEXT_DIR, 'src__components__web-badge.tsx')));
+    assert.ok(!read(repo, CONTEXT_MODULES).includes('web-badge'));
     assert.ok(expo.setupFiles(repo, LINK).includes(`${CONTEXT_DIR}/src__components__hint-row.tsx`));
   });
 });
@@ -519,7 +544,7 @@ describe('metro.config’s edit', () => {
 
 describe('the Expo switch in the setup', () => {
   it('is planned for a mapped repo only, behind a new version, with its files listed for doctor and uninstall', async () => {
-    assert.equal(expo.version, 4);
+    assert.equal(expo.version, 5);
     const repo = await expoRepo();
     const link = expo.contextPreview!;
     assert.deepEqual(

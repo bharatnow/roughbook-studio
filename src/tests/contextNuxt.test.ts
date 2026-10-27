@@ -20,6 +20,7 @@ import {
   contextFiles
 } from '../recipes/nuxt/context.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
+import { fakeServer, type FakeServer } from './devServer.js';
 import { tempDir } from './helpers.js';
 
 const nuxt = recipeFor('nuxt')!;
@@ -177,6 +178,7 @@ type VitePlugin = {
     options?: object
   ): Promise<string | null>;
   load(id: string): string | null;
+  configureServer(server: FakeServer): void;
 };
 
 describe('the module', () => {
@@ -262,6 +264,43 @@ export function addVitePlugin(plugin) { (globalThis.roughbookPlugins ??= []).pus
       null
     );
     assert.equal(found.load(real('app/pages/pricing.vue')), null);
+  });
+
+  it('transforms the importers again when a component is adopted while nuxt dev runs (decision 61)', async () => {
+    const repo = await nuxtRepo();
+    const found = (await plugin(repo))!;
+    const real = (file: string) =>
+      path
+        .join(repo, ...file.split('/'))
+        .split(path.sep)
+        .join('/');
+    const page = real('app/pages/pricing.vue');
+    const faq = real('app/components/pricing/Faq.vue');
+    const plans = '\0roughbook-section:app/components/pricing/Plans.vue.js';
+    const server = fakeServer({ [faq]: { importers: [page] }, [plans]: { importers: [page] } });
+    found.configureServer(server);
+    // Faq adopted, and Plans no longer.
+    const list = path.join(repo, ...CONTEXT_MODULES.split('/'));
+    write(
+      repo,
+      CONTEXT_MODULES,
+      JSON.stringify({
+        'app/components/pricing/Faq.vue': {
+          export: 'default',
+          sections: [{ key: 'pricing/faq', address: '/pricing' }]
+        }
+      })
+    );
+    // A later time than the list the module read first.
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(list, later, later);
+    // The watcher names the file as the OS does: backslashes on Windows.
+    server.change(list);
+    assert.deepEqual(server.invalidated.sort(), [faq, page, page, plans].sort());
+    assert.deepEqual(server.sent, [{ type: 'full-reload' }]);
+    // Nothing changed since: nothing is invalidated again.
+    server.change(list);
+    assert.equal(server.sent.length, 1);
   });
 });
 

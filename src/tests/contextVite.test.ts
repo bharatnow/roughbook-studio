@@ -25,6 +25,7 @@ import {
 import { applyPrep, planPrep } from '../repo/prep.js';
 import { contextCheck } from '../doctor/context.js';
 import type { DoctorTools } from '../doctor/types.js';
+import { fakeServer, type FakeServer } from './devServer.js';
 import { tempDir } from './helpers.js';
 
 const vite = recipeFor('vite')!;
@@ -185,6 +186,7 @@ type Plugin = {
   apply: string;
   enforce: string;
   transform(code: string, id: string): { code: string } | null;
+  configureServer(server: FakeServer): void;
 };
 
 describe('the plugin', () => {
@@ -237,6 +239,35 @@ describe('the plugin', () => {
       null
     );
     assert.equal(plugin.transform('export const A = 1;', id('src/components/Other.tsx')), null);
+  });
+
+  it('wraps a component adopted while the dev server runs, with no restart (decision 61)', async () => {
+    const repo = await viteRepo();
+    for (const item of contextFiles()) write(repo, item.file, item.content);
+    write(repo, CONTEXT_MODULES, '{}\n');
+    const made = (await import(pathToFileURL(path.join(repo, CONTEXT_PLUGIN)).href)) as {
+      default: () => Plugin;
+    };
+    const plugin = made.default();
+    const faq = path.join(repo, 'src/components/Faq.tsx').split(path.sep).join('/');
+    const server = fakeServer({ [faq]: {} });
+    plugin.configureServer(server);
+    assert.equal(plugin.transform('export function Faq() {}', faq), null);
+    write(
+      repo,
+      CONTEXT_MODULES,
+      JSON.stringify({
+        'src/components/Faq.tsx': { export: 'Faq', sections: [{ key: 'home/faq', address: '/' }] }
+      })
+    );
+    // The watcher names the file as the OS does: backslashes on Windows.
+    server.change(path.join(repo, ...CONTEXT_MODULES.split('/')));
+    assert.deepEqual(server.invalidated, [faq]);
+    assert.deepEqual(server.sent, [{ type: 'full-reload' }]);
+    assert.match(
+      plugin.transform('export function Faq() {}', faq)!.code,
+      /RoughbookOriginal\["Faq"\]/
+    );
   });
 });
 

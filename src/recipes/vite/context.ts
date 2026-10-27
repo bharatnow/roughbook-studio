@@ -67,6 +67,11 @@ function relative(file) {
   return path.relative(ROOT, file).split(path.sep).join("/");
 }
 
+/** A file as Vite's module graph keys it: with forward slashes on every OS. */
+function slashed(file) {
+  return file.split(path.sep).join("/");
+}
+
 export default function roughbookContext() {
   let known = adopted();
   return {
@@ -81,7 +86,7 @@ export default function roughbookContext() {
         const before = Object.keys(known);
         known = adopted();
         for (const name of new Set([...before, ...Object.keys(known)])) {
-          for (const mod of server.moduleGraph.getModulesByFile(path.join(ROOT, name)) ?? []) {
+          for (const mod of server.moduleGraph.getModulesByFile(slashed(path.join(ROOT, name))) ?? []) {
             server.moduleGraph.invalidateModule(mod);
           }
         }

@@ -76,6 +76,37 @@ export default defineNuxtModule({
     addVitePlugin({
       name: "roughbook-context",
       enforce: "pre",
+      // A component adopted, or no longer, while nuxt dev runs: Vite keeps each importer's
+      // resolutions, so the importers of the files that changed are transformed again, and the
+      // wrapper loaded again, with no restart.
+      configureServer(server) {
+        // What this server last acted on: a request may have read the new list first.
+        let seen = { ...adopted() };
+        server.watcher.add(list);
+        server.watcher.on("all", (_event: string, file: string) => {
+          if (resolve(file) !== list) return;
+          const before = seen;
+          const after = { ...adopted() };
+          seen = after;
+          const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+            (name) => JSON.stringify(before[name]) !== JSON.stringify(after[name]),
+          );
+          if (!changed.length) return;
+          const graph = server.moduleGraph;
+          for (const name of changed) {
+            const mods = [
+              ...(graph.getModulesByFile(slashes(resolve(root, name))) ?? []),
+              graph.getModuleById(\`\${PREFIX}\${name}.js\`),
+            ];
+            for (const mod of mods) {
+              if (!mod) continue;
+              graph.invalidateModule(mod);
+              for (const importer of mod.importers) graph.invalidateModule(importer);
+            }
+          }
+          server.ws.send({ type: "full-reload" });
+        });
+      },
       async resolveId(source, importer, options) {
         // The wrapper's own import of the component is the component itself.
         if (!importer || importer.startsWith(PREFIX) || source.startsWith("\\0") || source.includes("?")) return null;

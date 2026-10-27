@@ -210,7 +210,7 @@ export const nuxt: Recipe = {
   id: 'nuxt',
   name: 'Vue with Nuxt',
   // 2: the in-page view's module and wrapper (brownfield B5b).
-  version: 2,
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {

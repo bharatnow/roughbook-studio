@@ -345,7 +345,7 @@ export const expo: Recipe = {
   // 2: the root layout's edit keeps every hook on every render, and uninstall reverses it.
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 4: the in-page view's switch on the web target, and metro.config's block (brownfield B5b).
-  version: 4,
+  version: 5,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {
