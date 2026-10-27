@@ -14,6 +14,7 @@ import type { PreviewPlan, Recipe } from '../types.js';
 import { moduleFromApp, modulePointer } from '../modules/pointer.js';
 import { swapAddress, CONTEXT_SENTINEL } from '../context.js';
 import {
+  CONTEXT_KEYS,
   CONTEXT_MODULES,
   CONTEXT_REGISTRY,
   contextFiles,
@@ -122,7 +123,7 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const gitWanted: string[] = [];
   if (link.roughCommitted) gitWanted.push(`/${ROUGH_DIR}/${REGISTRY_FILE}`);
   if (link.roughCommitted && hasMapFile(repo)) {
-    gitWanted.push(`/${CONTEXT_REGISTRY}`, `/${CONTEXT_MODULES}`);
+    gitWanted.push(`/${CONTEXT_REGISTRY}`, `/${CONTEXT_KEYS}`, `/${CONTEXT_MODULES}`);
   }
   const appDir = link.appDir;
   if (!appDir) {
@@ -193,7 +194,8 @@ export const next: Recipe = {
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 4: the in-page view's switch, its files beside the route and its rule in next.config (B5).
   // 5: the route renders a mapped page's composition, with Pick (B6).
-  version: 5,
+  // 6: the browser's in-page wrapper reads rough/context-keys.ts, no iteration in its graph (B6).
+  version: 6,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
@@ -270,7 +272,7 @@ export const next: Recipe = {
       const file = nextConfigFile(repo);
       return file ? [{ file, undo: undoNextConfig }] : [];
     },
-    generated: [CONTEXT_REGISTRY, CONTEXT_MODULES],
+    generated: [CONTEXT_REGISTRY, CONTEXT_KEYS, CONTEXT_MODULES],
     missing: (repo, link) => {
       const absent = link.appDir
         ? contextFiles(link.appDir)
@@ -302,7 +304,12 @@ export const next: Recipe = {
 `,
   roughTsconfig: repo => (read(repo, 'tsconfig.json') === null ? null : ROUGH_TSCONFIG),
   placeholder: () => PLACEHOLDER_INDEX,
-  generatedFiles: [`${ROUGH_DIR}/${REGISTRY_FILE}`, CONTEXT_REGISTRY, CONTEXT_MODULES],
+  generatedFiles: [
+    `${ROUGH_DIR}/${REGISTRY_FILE}`,
+    CONTEXT_REGISTRY,
+    CONTEXT_KEYS,
+    CONTEXT_MODULES
+  ],
   importAllowed: link => (link.appDir ? [previewRouteDir(link.appDir)] : []),
   syncPreview: repo => {
     writePreviewRegistry(repo);

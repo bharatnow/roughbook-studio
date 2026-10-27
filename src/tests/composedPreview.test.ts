@@ -50,7 +50,7 @@ describe('the composed preview on Next.js', () => {
   it('is in a mapped repo’s route: sections in order, in markers, with Pick and one ready', async () => {
     const next = recipeFor('next')!;
     assert.equal(next.composes, true);
-    assert.equal(next.version, 5);
+    assert.equal(next.version, 6);
     const repo = await nextApp(true);
     const routes = next.planPreview(repo, LINK).changes.map(change => change.file);
     assert.ok(routes.includes('app/rough-preview/[...slug]/pick.tsx'), routes.join(', '));

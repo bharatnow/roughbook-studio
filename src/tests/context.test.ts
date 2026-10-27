@@ -32,6 +32,7 @@ import {
 import { PREVIEW_ROUTE, ROUTE_FILE } from '../recipes/laravel/preview.js';
 import {
   CONTEXT_MODULES,
+  CONTEXT_KEYS,
   CONTEXT_REGISTRY,
   contextFiles,
   editNextConfig,
@@ -292,6 +293,12 @@ async function inEnv<T>(value: string, body: () => Promise<T> | T): Promise<T> {
   }
 }
 
+/** The keys alone, as the browser wrapper reads them: no iteration is reachable from here. */
+const KEYS = `export const modules = {
+  "components/pricing/pricing-section.tsx#PricingSection": [{ key: "home/pricing-section", address: "/" }, { key: "pricing/pricing-section", address: "/pricing" }],
+};
+`;
+
 const REGISTRY = `export const modules = {
   "components/pricing/pricing-section.tsx#PricingSection": [{ key: "home/pricing-section", address: "/" }, { key: "pricing/pricing-section", address: "/pricing" }],
 };
@@ -303,6 +310,7 @@ describe('the Next.js switch', () => {
     const repo = await tempDir('roughbook-context-');
     for (const item of contextFiles('app')) write(repo, item.file, item.content);
     write(repo, 'rough/context-registry.ts', REGISTRY);
+    write(repo, 'rough/context-keys.ts', KEYS);
     return repo;
   }
   const Original = (props: Record<string, unknown>) => `plans for ${String(props.plan)}`;
@@ -408,6 +416,45 @@ describe('the Next.js switch', () => {
     });
   });
 
+  it('keeps every iteration out of the browser wrapper’s graph, so a server-only one never compiles there', async () => {
+    const repo = await switchRepo();
+    // A server-only iteration, as B6's integration had one: an async server component whose data
+    // has an inline "use cache", which Turbopack refuses in a client component's graph.
+    write(
+      repo,
+      'rough/context-registry.ts',
+      `${KEYS}export const loaders = { "pricing/pricing-section/iteration-03": () => import("./pricing/pricing-section/iteration-03/index") };\n`
+    );
+    write(
+      repo,
+      'rough/pricing/pricing-section/iteration-03/index.tsx',
+      'async function plans() { "use cache"; return []; }\nexport default async function Fork() { return (await plans()).length; }\n'
+    );
+    write(repo, 'stand-ins/react.js', FAKE_REACT);
+    const result = buildSync({
+      entryPoints: [path.join(repo, 'app/rough-preview/context/section-browser.tsx')],
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      write: false,
+      metafile: true,
+      logLevel: 'silent',
+      alias: { react: path.join(repo, 'stand-ins/react.js') }
+    });
+    const inputs = Object.keys(result.metafile.inputs);
+    assert.ok(
+      inputs.some(file => file.endsWith('rough/context-keys.ts')),
+      inputs.join(', ')
+    );
+    assert.ok(!inputs.some(file => /context-registry|iteration-\d+/.test(file)), inputs.join(', '));
+    // The server's wrapper keeps the registry, with its loaders.
+    const server = contextFiles('app').find(item => item.file.endsWith('/section.tsx'))!.content;
+    assert.match(
+      server,
+      /import \{ loaders, modules \} from "\.\.\/\.\.\/\.\.\/rough\/context-registry";/
+    );
+  });
+
   it('Pick posts the section a click fell in, instead of following the page', async () => {
     const pick = contextFiles('app').find(item => item.file.endsWith('pick.tsx'))!.content;
     assert.match(pick, /^"use client";/);
@@ -478,7 +525,13 @@ describe('the Next.js switch', () => {
 
   it('generates the registry of adopted modules and their iterations, and the loader’s list', async () => {
     const repo = await nextRepo();
-    const { registry, modules } = renderContext(contextSections(repo, 'index.tsx'));
+    const { registry, modules, keys } = renderContext(contextSections(repo, 'index.tsx'));
+    // The browser's keys: the same modules, and nothing that loads an iteration.
+    assert.match(
+      keys,
+      /"components\/pricing\/pricing-section\.tsx#PricingSection": \[\{"key":"pricing\/pricing-section", "address":"\/pricing"\}\],/
+    );
+    assert.doesNotMatch(keys, /import\(|loaders|iteration-/);
     assert.match(
       registry,
       /"components\/pricing\/pricing-section\.tsx#PricingSection": \[\{"key":"pricing\/pricing-section", "address":"\/pricing"\}\],/
@@ -501,6 +554,7 @@ describe('the Next.js switch', () => {
     next.syncPreview(repo);
     assert.equal(read(repo, CONTEXT_REGISTRY), registry);
     assert.equal(read(repo, CONTEXT_MODULES), modules);
+    assert.equal(read(repo, CONTEXT_KEYS), keys);
   });
 });
 
@@ -567,6 +621,8 @@ describe('next.config’s edit', () => {
     );
     assert.ok(next.generatedFiles.includes(CONTEXT_REGISTRY));
     assert.ok(next.generatedFiles.includes(CONTEXT_MODULES));
+    assert.ok(next.generatedFiles.includes(CONTEXT_KEYS));
+    assert.ok(next.contextPreview!.generated.includes(CONTEXT_KEYS));
 
     const plain = await tempDir('roughbook-context-');
     write(plain, 'app/layout.tsx', 'x');
