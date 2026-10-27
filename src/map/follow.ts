@@ -83,8 +83,13 @@ export function followBaselines(
   const result: Followed = { written: [], left: [] };
   if (!recipe?.pointer) return result;
   const pages = workOn(repoRoot);
+  // With the folder's own fixture, as the baseline was written: a pointer can take its keys.
+  const fixture = recipe.environment(null).fixture;
   const pointerOf = (component: MapComponent, folder: string) =>
-    recipe.pointer!(component, { iterationDir: folder, fixture: null })?.[entry] ?? null;
+    recipe.pointer!(component, {
+      iterationDir: folder,
+      fixture: fixture ? readFile(repoRoot, `${folder}/${fixture}`) : null
+    })?.[entry] ?? null;
   const rewrite = (component: MapComponent, before: MapComponent | null, gone: boolean) => {
     for (const page of pages.get(component.slug) ?? []) {
       const folder = `${ROUGH_DIR}/${page}/${component.slug}/${BASELINE}`;
