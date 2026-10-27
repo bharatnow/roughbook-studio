@@ -25,6 +25,7 @@ import {
   writeContext
 } from './context.js';
 import { discoverNext } from './discover.js';
+import { LAZY_IMPORT_FAULT } from './fault.js';
 import { PLACEHOLDER_INDEX } from './placeholder.js';
 import {
   PREVIEW_ROUTE,
@@ -299,6 +300,7 @@ export const next: Recipe = {
       return text !== null && undoNextConfig(text) === null ? [...pending, config!] : pending;
     },
     behind: nextConfigBehind,
+    fault: LAZY_IMPORT_FAULT,
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL
   },

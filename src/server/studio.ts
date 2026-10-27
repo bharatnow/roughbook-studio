@@ -43,7 +43,6 @@ import {
 import { readMap } from '../map/file.js';
 import { contextAddress, contextSections } from '../recipes/context.js';
 import { recipeFor } from '../recipes/index.js';
-import { LAZY_IMPORT_NOTICE, isLazyImportFault } from '../recipes/next/fault.js';
 import type { ComponentKind, Known, RepoMap } from '../map/types.js';
 import {
   pictureShot,
@@ -217,8 +216,8 @@ export type AppView = {
   /** The last line the app printed while starting, for the frame's progress. */
   lastLine: string | null;
   /**
-   * What the app's session printed that a restart mends, in the frame's notice: Turbopack's lost
-   * lazy import (B7b, decision 68). Null otherwise, or when the studio did not start the app.
+   * What the app's session printed that a restart mends, in the frame's notice, in the words of
+   * the recipe's switch (B7b, decision 68). Null otherwise, or when the studio did not start the app.
    */
   fault: string | null;
 };
@@ -698,11 +697,16 @@ export class LocalStudio {
         this.app.terminal && terminal?.status === 'running'
           ? (this.terminals?.lastLine(this.app.terminal) ?? null)
           : null,
-      fault:
-        this.app.terminal && this.terminals?.printed(this.app.terminal, isLazyImportFault)
-          ? LAZY_IMPORT_NOTICE
-          : null
+      fault: this.appFault()
     };
+  }
+
+  /** The error the app's session printed that a restart mends, as the recipe words it; null otherwise. */
+  private appFault(): string | null {
+    const fault = recipeFor(this.environment.recipe)?.contextPreview?.fault;
+    return fault && this.app.terminal && this.terminals?.printed(this.app.terminal, fault.test)
+      ? `${fault.what} ${fault.fix}`
+      : null;
   }
 
   /** Asks the app once whether it answers at its address, and keeps the answer for the page. */

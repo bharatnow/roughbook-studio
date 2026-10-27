@@ -1,7 +1,7 @@
 // Whether an iteration compiles, for a switch whose bundler keeps a module that once failed in the
-// graph of every page that can import it (B5b of ROUGHBOOK-BROWNFIELD-PLAN.md, decision 45): Next.js's
-// dev server, once a swap has asked Turbopack for an iteration that does not compile, fails the plain
-// page too. The studio checks each iteration with esbuild before the switch's registry may import it:
+// graph of every page that can import it (B5b of ROUGHBOOK-BROWNFIELD-PLAN.md, decision 45): such a
+// dev server, once a swap has asked it for an iteration that does not compile, fails the plain page
+// too. The studio checks each iteration with esbuild before the switch's registry may import it:
 // its files parse, and every import it makes resolves. One that does not is left out of the graph,
 // and only a swap that asks for it fails. The answer is kept until a file in the folder changes, so
 // the registry can be rewritten every few seconds (roughbook start) without checking again.

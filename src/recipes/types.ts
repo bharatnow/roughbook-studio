@@ -35,7 +35,7 @@ export type ScaffoldStep = ScaffoldCommand | ScaffoldFiles;
  * stack's own scaffold where it has one, before `init` links and prepares it.
  */
 export type Scaffold = {
-  /** The scaffold as people know it: create-vite, composer create-project, flutter create. */
+  /** The scaffold as people know it: the command its documentation gives. */
   tool: string;
   /** The programs the steps run, which must be on the PATH before the first one starts. */
   needs: string[];
@@ -64,6 +64,17 @@ export type RecipeEdit = {
  * apart. Its files and edits are also among the recipe's `setupFiles`, `edits` and
  * `generatedFiles`, so doctor and uninstall treat them as the rest of the preview setup.
  */
+export type ContextFault = {
+  /** Whether a page's answer, or the app's log, holds it. */
+  test(text: string): boolean;
+  /** Its name, for a line that says what a page answered. */
+  error: string;
+  /** What it is, in a sentence. */
+  what: string;
+  /** What to do, in a sentence or two. */
+  fix: string;
+};
+
 export type ContextPreview = {
   /** The development-only files the switch writes outside rough/, repo-relative. */
   files(repo: string, link: RepoLink): string[];
@@ -83,6 +94,11 @@ export type ContextPreview = {
    */
   behind?(repo: string): string | null;
   /**
+   * An error the stack's dev server can answer for a preview or a swap that a restart of it mends
+   * (B7b, decision 68): the frame's notice and doctor's detail name it in these words.
+   */
+  fault?: ContextFault;
+  /**
    * A page's address with an iteration swapped in, or none, as the frame asks for it: Pick on, or
    * the markers off (doctor's comparison of the pictures).
    */
@@ -94,13 +110,13 @@ export type ContextPreview = {
   /** The text every file of the switch holds, which no production build may: the gate's sentinel. */
   sentinel: string;
   /**
-   * The page is drawn in the browser (a single-page app, as Vite's): the HTML the server sends
+   * The page is drawn in the browser (a single-page app): the HTML the server sends
    * holds none of the markers, so doctor reads them from the page the browser shows.
    */
   browser?: boolean;
   /**
-   * What the in-page view covers on this stack, when it is not every screen (decision 44: Expo's
-   * native screens show components alone), in a sentence: doctor's map-context ends its detail
+   * What the in-page view covers on this stack, when it is not every screen (decision 44: a
+   * native target's screens show components alone), in a sentence: doctor's map-context ends its detail
    * with it, and the local UI shows it beside In its page.
    */
   note?: string;

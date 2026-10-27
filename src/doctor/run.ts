@@ -40,7 +40,6 @@ import { buildGate } from './gate.js';
 import { mapChecks, place, SIGN_IN } from './map.js';
 import type { ContextGate } from './context.js';
 import { contextAddress, contextSections, contextSwitch } from '../recipes/context.js';
-import { LAZY_IMPORT_ERROR, LAZY_IMPORT_FAULT, isLazyImportFault } from '../recipes/next/fault.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -186,6 +185,8 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
     return report(defaultEnvironment());
   }
   const recipe: Recipe | null = recipeOf(environment);
+  // An error a restart of the dev server mends, as the recipe's switch words it (B7b).
+  const fault = recipe?.contextPreview?.fault ?? null;
   const setupName = recipe ? recipe.name : 'Your agent\u2019s setup (no recipe)';
 
   // 0. The prerequisites: every program the commands name, on the PATH the declared shell sees.
@@ -484,14 +485,14 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           sentFix
         )
       );
-    } else if (!rendered && good && isLazyImportFault(good.text)) {
-      // Turbopack lost the sample's lazy import (B7b, decision 68): a restart mends it.
+    } else if (!rendered && good && fault?.test(good.text)) {
+      // An error a restart of the dev server mends, in the recipe's words (B7b, decision 68).
       checks.push(
         result(
           'renders',
           'fail',
-          `${url(GOOD)} answered HTTP ${good.status}: ${LAZY_IMPORT_ERROR}. ${LAZY_IMPORT_FAULT.what}`,
-          LAZY_IMPORT_FAULT.fix
+          `${url(GOOD)} answered HTTP ${good.status}: ${fault.error}. ${fault.what}`,
+          fault.fix
         )
       );
     } else if (!rendered) {

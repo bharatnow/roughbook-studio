@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { RECIPES } from '../recipes/index.js';
 
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const allowFile = path.join(src, 'recipes', 'guard-allow.json');
@@ -21,6 +22,7 @@ const STACK_RULES: Rule[] = [
   { name: 'the App Router', pattern: /\bApp Router\b/ },
   { name: 'create-next-app', pattern: /\bcreate-next-app\b/ },
   { name: 'cacheComponents', pattern: /\bcacheComponents\b/ },
+  { name: 'Turbopack by name', pattern: /\bturbopack\b/i },
   { name: 'the "use client" directive', pattern: /use client/ },
   {
     name: 'another stack by name',
@@ -69,6 +71,26 @@ describe('the guard', () => {
       }
     }
     assert.deepEqual(findings, [], `The core names a stack:\n${findings.join('\n')}`);
+  });
+
+  it('lets the core import no recipe’s own folder: what it needs of one comes through the Recipe', () => {
+    const own = new RegExp(
+      `(?:from\\s+|import\\(\\s*)['"](?:\\.\\.?/)+recipes/(?:${RECIPES.map(recipe => recipe.id).join('|')})/`
+    );
+    const findings: string[] = [];
+    for (const file of files) {
+      const relative = path.relative(path.dirname(src), file).split(path.sep).join('/');
+      fs.readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, index) => {
+          if (own.test(line)) findings.push(`${relative}:${index + 1}: ${line.trim()}`);
+        });
+    }
+    assert.deepEqual(
+      findings,
+      [],
+      `The core imports a recipe's own folder:\n${findings.join('\n')}`
+    );
   });
 
   it('keeps every exception explained, and only for a file that exists', () => {

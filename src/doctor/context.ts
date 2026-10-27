@@ -16,7 +16,6 @@ import {
   contextSwitch,
   type ContextSection
 } from '../recipes/context.js';
-import { LAZY_IMPORT_ERROR, LAZY_IMPORT_FAULT, isLazyImportFault } from '../recipes/next/fault.js';
 import type { Recipe } from '../recipes/types.js';
 import type { RepoLink } from '../repo/link.js';
 import { pictureDifference } from '../snapshot/png.js';
@@ -194,14 +193,16 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
   const behind = hook.behind?.(repoRoot) ?? null;
   if (behind) failures.push(behind);
   const named: string[] = [];
-  /** Whether a page answered Turbopack's lost lazy import (decision 68). */
+  /** The error a restart of the dev server mends, in the recipe's words (B7b, decision 68). */
+  const fault = hook.fault ?? null;
+  /** Whether a page answered it. */
   let lost = false;
-  /** What a page answered, naming Turbopack's lost lazy import where it is that. */
+  /** What a page answered, naming that error where it is that. */
   const answered = (status: number | null, html: string, body: boolean) => {
     if (status === null) return 'answered nothing';
-    if (isLazyImportFault(html)) {
+    if (fault?.test(html)) {
       lost = true;
-      return `answered HTTP ${status}: ${LAZY_IMPORT_ERROR}`;
+      return `answered HTTP ${status}: ${fault.error}`;
     }
     return body ? `answered HTTP ${status}: ${firstLine(html)}` : `answered HTTP ${status}`;
   };
@@ -209,9 +210,9 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
   const because = (found: { shown: boolean; why?: string }) => {
     const why = found.why;
     if (!why) return '';
-    if (!isLazyImportFault(why)) return ` (${why})`;
+    if (!fault?.test(why)) return ` (${why})`;
     lost = true;
-    return ` (${LAZY_IMPORT_ERROR})`;
+    return ` (${fault.error})`;
   };
   let swaps = 0;
   /** The pages checked, each once, for the pictures. */
@@ -334,7 +335,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
   // What the in-page view covers on this stack, when the recipe says (a native target that has none).
   const note = hook.note ? ` ${hook.note}` : '';
   const fix = [
-    lost ? LAZY_IMPORT_FAULT.fix : '',
+    lost && fault ? fault.fix : '',
     behind ? 'Run roughbook setup --upgrade, which rewrites the block.' : '',
     "Open the page with the swap in a browser to see why, or run roughbook setup --upgrade if the switch is behind. Markers that change a page's picture meet a selector of the app's that counts children (main > *, :first-child): show that section alone until the selector allows for them."
   ]
@@ -344,7 +345,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
     ? result(
         'map-context',
         'fail',
-        `${listed(failures)}. ${detail}.${lost ? ` ${LAZY_IMPORT_FAULT.what}` : ''}${note}`,
+        `${listed(failures)}. ${detail}.${lost && fault ? ` ${fault.what}` : ''}${note}`,
         fix
       )
     : result('map-context', 'pass', `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.${note}`);

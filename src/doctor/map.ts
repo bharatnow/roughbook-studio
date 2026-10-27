@@ -10,7 +10,6 @@ import { previewUrl } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { isDynamic, mapProblems, readMap } from '../map/file.js';
 import type { MapComponent, RepoMap } from '../map/types.js';
-import { LAZY_IMPORT_ERROR, LAZY_IMPORT_NOTICE, isLazyImportFault } from '../recipes/next/fault.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import { recordMapPictures } from '../pictures/mapPictures.js';
@@ -270,7 +269,9 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
   const rendered: { slug: string; url: string; probe?: Probe }[] = [];
   const componentFailures: string[] = [];
   const componentNamed: string[] = [];
-  let lostImport = false;
+  /** The error a restart of the dev server mends, in the recipe's words (B7b), and whether it came. */
+  const fault = input.recipe?.contextPreview?.fault ?? null;
+  let lost = false;
   /** Previews the app sent to a sign-in page, by where: a guard in a layout every route shares. */
   const guarded = new Map<string, string[]>();
   const tried: { component: MapComponent; url: string }[] = [];
@@ -362,10 +363,10 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
         sentTo(guarded, outcome.signIn, component.slug);
       } else {
         let why = outcome?.error ?? `it did not render within ${environment.timeouts.preview} s`;
-        // Turbopack's lost lazy import (B7b, decision 68): named, and said once what it is.
-        if (isLazyImportFault(why)) {
-          lostImport = true;
-          why = LAZY_IMPORT_ERROR;
+        // That error (decision 68): named, and said once what it is and what to do.
+        if (fault?.test(why)) {
+          lost = true;
+          why = fault.error;
         }
         if (component.alone === 'yes') {
           componentFailures.push(
@@ -383,7 +384,7 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
     }
     const componentsDetail = `${rendered.length} of ${cards.length} sections and shared parts rendered alone with their fixtures${tools.browser ? ' and said they were ready' : ''}${
       componentNamed.length ? `; named: ${listed(componentNamed)}` : ''
-    }${atomsLine}.${lostImport ? ` ${LAZY_IMPORT_NOTICE}` : ''}`;
+    }${atomsLine}.${lost && fault ? ` ${fault.what} ${fault.fix}` : ''}`;
     checks.push(
       componentFailures.length
         ? result(
