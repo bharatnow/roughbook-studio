@@ -487,6 +487,31 @@ describe('a promote on a branch', () => {
     assert.equal(read(repo, SECTION), SECTION_SOURCE);
   });
 
+  it('stays on the branch it started from when the start fails after the request', async () => {
+    const { repo, api } = await forked();
+    // The backend answers the promote, then its asset cannot be fetched.
+    const failing = Object.assign(Object.create(api) as StudioApi, {
+      promote: async () => ({
+        ...promotion('in-place'),
+        assets: [{ scope: 'project', file: 'hero.png' }]
+      }),
+      file: async () => {
+        throw new Error('Could not reach the server.');
+      }
+    });
+    await assert.rejects(
+      preparePromotion(repo, failing, LINK, TREE, {
+        page: 'pricing',
+        component: 'pricing-section',
+        iteration: 'iteration-01',
+        branch: true
+      }),
+      /Could not reach the server/
+    );
+    assert.equal(git(repo, 'symbolic-ref', '--short', 'HEAD'), 'main');
+    assert.equal(git(repo, 'branch', '--list', BRANCH), '');
+  });
+
   it('leaves the change uncommitted on a no', async () => {
     const { repo, api, outbox, promote } = await forked();
     const start = git(repo, 'rev-parse', 'HEAD');

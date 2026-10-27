@@ -321,7 +321,6 @@ export async function preparePagePromotion(
     environment.ignore,
     targets.map(target => target.path)
   );
-  if (plannedBranch) await createBranch(repoRoot, plannedBranch.name, plannedBranch.commit);
 
   const copied: string[] = [];
   const missing: AssetName[] = [...promotion.missingAssets];
@@ -361,6 +360,8 @@ export async function preparePagePromotion(
     `${prompt.trimEnd()}\n\n${promoteFinishingSection(promotion.promotionId, how)}`
   );
   await recordOwnWritesForOpenRuns(repoRoot, [...copied, ...copies, promptFile]);
+  // Last, so a start that fails before here leaves the designer on the branch they were on.
+  if (plannedBranch) await createBranch(repoRoot, plannedBranch.name, plannedBranch.commit);
   const branch = plannedBranch
     ? { name: plannedBranch.name, from: plannedBranch.from, commit: plannedBranch.commit }
     : null;
