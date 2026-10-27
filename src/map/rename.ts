@@ -1,8 +1,8 @@
 // Renames (B7 of ROUGHBOOK-BROWNFIELD-PLAN.md, decision 63): a component no longer found at its
 // file and export is the same one as a component found new when its code is mostly the same.
-// Its code's shape is the set of its lines that say something, with its imports left out (a move
-// rewrites them) and its own name set aside (a rename in place changes only that), each line
-// hashed short so the studio's state keeps a component's shape, never its code.
+// Its code's shape is the set of its own statement's lines that say something, with its imports
+// left out (a move rewrites them) and its own name set aside (a rename in place changes only
+// that), each line hashed short so the studio's state keeps a component's shape, never its code.
 import { createHash } from 'node:crypto';
 
 /**
@@ -25,13 +25,37 @@ function escaped(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A line that starts a statement of the file's own, at its left edge. */
+const TOP_LEVEL =
+  /^(?:export\b|function\b|const\b|let\b|var\b|class\b|async\b|type\b|interface\b|enum\b|\/\*\*|\/\/|[A-Za-z_$][\w$]*\s*\.)/;
+
 /**
- * A file's shape for one of its components: each line, trimmed and with runs of space made one,
- * the component's name as `$`, imports and lines of punctuation alone left out, hashed.
+ * The statement that declares `name` in `code`, up to the next statement at the file's left edge:
+ * one component of a file of several (shadcn's card.tsx), so another's change is not its own.
+ * The whole code when nothing declares it by that name (a template, an anonymous default).
+ */
+function ownStatement(code: string, name: string): string {
+  if (!name) return code;
+  const declares = new RegExp(
+    `^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\*?\\s+|(?:const|let|var|class)\\s+)${escaped(name)}\\b`
+  );
+  const lines = code.split('\n');
+  const start = lines.findIndex(line => declares.test(line));
+  if (start === -1) return code;
+  let end = start + 1;
+  while (end < lines.length && !TOP_LEVEL.test(lines[end]!)) end += 1;
+  return lines.slice(start, end).join('\n');
+}
+
+/**
+ * A component's shape: each line of the statement that declares it (the file, when none does),
+ * trimmed and with runs of space made one, the component's name as `$`, imports and lines of
+ * punctuation alone left out, hashed.
  */
 export function codeShape(text: string, name: string): string[] {
   let code = text.replace(/\r\n/g, '\n');
   for (const pattern of IMPORTS) code = code.replace(pattern, '');
+  code = ownStatement(code, name);
   const own = name ? new RegExp(`\\b${escaped(name)}\\b`, 'g') : null;
   const shape: string[] = [];
   for (const raw of code.split('\n')) {

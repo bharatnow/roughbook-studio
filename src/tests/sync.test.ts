@@ -106,6 +106,64 @@ describe('the rename measure', () => {
     assert.deepEqual([...matchRenames(lost, [both, moved])], [['faq', moved.id]]);
   });
 
+  it('measures a component of a file of several by its own statement, never by the file', () => {
+    const card = (last: string) => `import * as React from "react";
+import { cn } from "@/lib/utils";
+
+function Card({ className, ...props }: React.ComponentProps<"div">) {
+  return <div data-slot="card" className={cn("rounded-xl border bg-card py-6", className)} {...props} />;
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return <div data-slot="card-header" className={cn("grid gap-1.5 px-6", className)} {...props} />;
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return <div data-slot="card-content" className={cn("px-6", className)} {...props} />;
+}
+
+${last}
+
+export { Card, CardHeader, CardContent };
+`;
+    const footer = `function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return <div data-slot="card-footer" className={cn("flex items-center px-6 [.border-t]:pt-6", className)} {...props} />;
+}`;
+    const action = `function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div data-slot="card-action" className={cn("col-start-2 row-span-2 self-start justify-self-end", className)} {...props} />
+  );
+}`;
+    const file = 'components/ui/card.tsx';
+    const lost = [
+      {
+        id: 'card-footer',
+        file,
+        export: 'CardFooter',
+        shape: codeShape(card(footer), 'CardFooter')
+      }
+    ];
+    const fresh = [
+      {
+        id: `${file}#CardAction`,
+        file,
+        export: 'CardAction',
+        shape: codeShape(card(action), 'CardAction')
+      }
+    ];
+    assert.deepEqual([...matchRenames(lost, fresh)], []);
+    // Renamed in place, the same statement still is the same component.
+    const renamed = [
+      {
+        id: `${file}#CardBottom`,
+        file,
+        export: 'CardBottom',
+        shape: codeShape(card(footer.replace('CardFooter', 'CardBottom')), 'CardBottom')
+      }
+    ];
+    assert.deepEqual([...matchRenames(lost, renamed)], [['card-footer', renamed[0]!.id]]);
+  });
+
   it('moves a component file by its place in the list', () => {
     assert.deepEqual(
       [...movedFiles(['a/faq.tsx', 'a/faq.css.ts'], ['b/faq.tsx', 'b/faq.css.ts'])],
