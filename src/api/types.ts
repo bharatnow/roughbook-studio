@@ -140,6 +140,8 @@ export type AdoptBody = {
     slug: string;
     name: string;
     components: { slug: string; name: string; kind: 'section' | 'shared' | 'atom' }[];
+    /** The page's own section slugs in the app's order, at most 500, which the web follows. */
+    sections: string[];
   }[];
 };
 

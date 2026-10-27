@@ -383,10 +383,14 @@ sections by slug, and its pictures; never the page's code. On Next.js the previe
 composed, each section with its fixture inside the app's layout and in its marker, so Pick works;
 on other stacks each section shows in its own frame. `roughbook promote <page> --composition
 composition-NN` has your agent change only the page's own files and write each new section's file
-where a new component goes; a section on an iteration that is not in the app keeps the app's
-version, shipped by its own promote. The finish is a component's: the diff, any other file named
-for revert, the build and the checks, and on a branch the commit on your yes. Once done, the map is
-refreshed and the new sections are adopted with their baselines.
+beside the page's own sections, in the folder most of them are in and named in their style
+(`components/home/logo-wall.tsx` beside `components/home/hero.tsx`); a section on an iteration that
+is not in the app keeps the app's version, shipped by its own promote. A new component promoted
+onto a page the map has goes there too, unless `--to` names its file. The finish is a component's:
+the diff, any other file named for revert, the build and the checks, and on a branch the commit on
+your yes. Once done, the map is refreshed and the whole page is adopted again, so the web shows the
+app's new order and the new sections gain their baselines. Every adoption sends the page's order,
+as section slugs.
 
 ## The preview contract
 

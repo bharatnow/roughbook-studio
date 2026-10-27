@@ -138,7 +138,8 @@ describe('choosing what to adopt', () => {
           {
             slug: 'shared',
             name: 'Shared',
-            components: [{ slug: 'site-header', name: 'Site Header', kind: 'shared' }]
+            components: [{ slug: 'site-header', name: 'Site Header', kind: 'shared' }],
+            sections: ['site-header']
           },
           {
             slug: 'home',
@@ -146,12 +147,14 @@ describe('choosing what to adopt', () => {
             components: [
               { slug: 'hero', name: 'Hero', kind: 'section' },
               { slug: 'pricing', name: 'Pricing', kind: 'section' }
-            ]
+            ],
+            sections: ['hero', 'pricing']
           },
           {
             slug: 'blog-slug',
             name: 'Blog-slug',
-            components: [{ slug: 'post', name: 'Post', kind: 'section' }]
+            components: [{ slug: 'post', name: 'Post', kind: 'section' }],
+            sections: ['post']
           }
         ]
       }
@@ -184,6 +187,30 @@ describe('choosing what to adopt', () => {
       [['about', 200]]
     ]);
     assert.ok(bodies.every(body => countIn(body) <= ADOPT_BATCH));
+    // Each part of a split page carries the page's order, at most 500 of it (decision 55).
+    const order = bodies.flatMap(body => body.pages.map(item => item.sections));
+    assert.deepEqual(
+      order.map(item => [item.length, item[0]]),
+      [
+        [500, 'part-0'],
+        [500, 'part-0'],
+        [500, 'part-700'],
+        [500, 'part-700']
+      ]
+    );
+  });
+
+  it('sends the page’s order with one component, and alone with none (decision 55)', () => {
+    // The order is the page's own sections, once each, with no atom, whatever is adopted.
+    const atom = chooseAdoption(MAP, { page: 'home', component: 'button' });
+    assert.deepEqual(adoptBodies(atom)[0]!.pages[0]!.sections, ['hero', 'pricing']);
+    const hero = chooseAdoption(MAP, { page: 'home', component: 'hero' });
+    assert.deepEqual(adoptBodies(hero)[0]!.pages[0]!.sections, ['hero', 'pricing']);
+    // A page whose order alone changed: no components, only its order.
+    const home = chooseAdoption(MAP, { page: 'home' })[0]!;
+    assert.deepEqual(adoptBodies([{ ...home, components: [] }]), [
+      { pages: [{ slug: 'home', name: 'Home', components: [], sections: ['hero', 'pricing'] }] }
+    ]);
   });
 });
 
@@ -400,7 +427,8 @@ describe('roughbook adopt', () => {
           components: [
             { slug: 'hero', name: 'Hero', kind: 'section' },
             { slug: 'pricing', name: 'Pricing', kind: 'section' }
-          ]
+          ],
+          sections: ['hero', 'pricing']
         }
       ]
     });

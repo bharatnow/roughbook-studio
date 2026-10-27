@@ -10,6 +10,9 @@ import type { StudioApi } from '../api/client.js';
 import type { AssetScope, ComponentRecord, Promotion, ProjectTree } from '../api/types.js';
 import { ENVIRONMENT_LINE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
+import { readMap } from '../map/file.js';
+import { newSectionFile } from '../map/place.js';
+import type { RepoMap } from '../map/types.js';
 import { fallbackRecipe, recipeOf } from '../recipes/index.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
@@ -312,6 +315,44 @@ export function publicDirFor(
   return repoFolder(tree.delivery.publicDir) ?? 'public';
 }
 
+/** The map, or null when there is none or it cannot be read. */
+export function mapHere(repoRoot: string): RepoMap | null {
+  try {
+    return readMap(repoRoot)?.map ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a new component of a page is written when the designer names no file: beside the page's
+ * own sections and named like them, when the map has the page and its sections have files
+ * (decision 56); otherwise where the environment's promote field puts a new component (decision
+ * 31), the project's delivery being the default, through the recipe for a recipe repo.
+ */
+export function newComponentFile(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  tree: Pick<ProjectTree, 'delivery'>,
+  map: RepoMap | null,
+  target: { page: string; component: string; name: string }
+): string {
+  const placed = map && newSectionFile(map, target.page, target.component);
+  if (placed) return placed;
+  const recipe = recipeOf(environment);
+  const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
+  return (
+    recipe
+      ? recipe.promoteDefault(
+          componentsDir,
+          target.name,
+          folder =>
+            fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ?? false
+        )
+      : `${componentsDir}/${pascalCase(target.name)}${environment.promote.extensions[0] ?? ''}`
+  ).replace(/\\/g, '/');
+}
+
 export async function preparePromotion(
   repoRoot: string,
   api: StudioApi,
@@ -351,21 +392,14 @@ export async function preparePromotion(
     ({ how, targets } = planTargets(repoRoot, relative, base, environment));
     targetFile = targets[0]!.path;
   } else {
-    // Where components go and what they are named: the environment's promote field decides
-    // (decision 31); the project's delivery is the default, through the recipe for a recipe repo.
     const extensions = environment.promote.extensions;
-    const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
     targetFile = (
       options.targetFile ??
-      (recipe
-        ? recipe.promoteDefault(
-            componentsDir,
-            record.name,
-            folder =>
-              fs.statSync(toDisk(repoRoot, folder), { throwIfNoEntry: false })?.isDirectory() ??
-              false
-          )
-        : `${componentsDir}/${pascalCase(record.name)}${extensions[0] ?? ''}`)
+      newComponentFile(repoRoot, environment, tree, mapHere(repoRoot), {
+        page,
+        component,
+        name: record.name
+      })
     ).replace(/\\/g, '/');
     const problem = checkTargetFile(targetFile, publicDir, extensions, environment.ignore);
     if (problem) throw new Error(problem);

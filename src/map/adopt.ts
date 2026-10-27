@@ -23,11 +23,17 @@ export const ASK_PAST = 50;
 /** The most components one adoption request takes (the contract). */
 export const ADOPT_BATCH = 500;
 
+/** The most section slugs a page's order carries on adoption (the contract, decision 55). */
+export const ORDER_MAX = 500;
+
 /** What the designer adopts: a page with its sections, one of its components, or everything. */
 export type AdoptChoice = { all: true } | { page: string; component?: string };
 
-/** A page and the components adopted with it, as the map has them. */
-export type Adoption = { page: MapPage; components: MapComponent[] };
+/**
+ * A page and the components adopted with it, as the map has them, and the page's own sections in
+ * the app's order, which the web's order of the page follows (decision 55).
+ */
+export type Adoption = { page: MapPage; components: MapComponent[]; sections: string[] };
 
 /** Reads `<page>[/<component>]`, or null for anything else. */
 export function parseChoice(text: string): AdoptChoice | null {
@@ -47,9 +53,13 @@ export function chooseAdoption(map: RepoMap, choice: AdoptChoice): Adoption[] {
     [...new Set(page.sections)]
       .map(slug => bySlug.get(slug))
       .filter((component): component is MapComponent => !!component && component.kind !== 'atom');
+  const orderOf = (page: MapPage) =>
+    sectionsOf(page)
+      .map(component => component.slug)
+      .slice(0, ORDER_MAX);
   if ('all' in choice) {
     return map.pages
-      .map(page => ({ page, components: sectionsOf(page) }))
+      .map(page => ({ page, components: sectionsOf(page), sections: orderOf(page) }))
       .filter(item => item.components.length);
   }
   const page = map.pages.find(item => item.slug === choice.page);
@@ -58,7 +68,7 @@ export function chooseAdoption(map: RepoMap, choice: AdoptChoice): Adoption[] {
       `${ROUGH_DIR}/map.md has no page ${choice.page}. The pages are: ${map.pages.map(item => item.slug).join(', ') || 'none'}.`
     );
   }
-  if (!choice.component) return [{ page, components: sectionsOf(page) }];
+  if (!choice.component) return [{ page, components: sectionsOf(page), sections: orderOf(page) }];
   const component = bySlug.get(choice.component);
   if (!component) {
     throw new Error(`${ROUGH_DIR}/map.md has no component ${choice.component}.`);
@@ -70,7 +80,7 @@ export function chooseAdoption(map: RepoMap, choice: AdoptChoice): Adoption[] {
       `${component.slug} is not on ${page.slug}${on.length ? `; it is on ${on.map(item => item.slug).join(', ')}` : ''}.`
     );
   }
-  return [{ page, components: [component] }];
+  return [{ page, components: [component], sections: orderOf(page) }];
 }
 
 /** How many components an adoption brings. */
@@ -79,8 +89,10 @@ export function countAdoption(adoption: Adoption[]): number {
 }
 
 /**
- * The requests an adoption is sent in: names, slugs and kinds, nothing else from the map, at most
- * `ADOPT_BATCH` components each. A page larger than that is split across requests.
+ * The requests an adoption is sent in: names, slugs and kinds, and each page's order as slugs,
+ * nothing else from the map, at most `ADOPT_BATCH` components each. A page larger than that is
+ * split across requests, each part with the page's order. A page may go with no components, to
+ * set its order alone.
  */
 export function adoptBodies(adoption: Adoption[], max = ADOPT_BATCH): AdoptBody[] {
   const bodies: AdoptBody[] = [];
@@ -91,7 +103,7 @@ export function adoptBodies(adoption: Adoption[], max = ADOPT_BATCH): AdoptBody[
     current = { pages: [] };
     count = 0;
   };
-  for (const { page, components } of adoption) {
+  for (const { page, components, sections } of adoption) {
     let rest = components;
     do {
       if (count >= max) flush();
@@ -103,7 +115,8 @@ export function adoptBodies(adoption: Adoption[], max = ADOPT_BATCH): AdoptBody[
           slug: component.slug,
           name: component.name,
           kind: component.kind
-        }))
+        })),
+        sections
       });
       count += room.length;
       rest = rest.slice(room.length);

@@ -4,7 +4,10 @@ import { get, promotePath } from '../api';
 
 /** What the promote panel knows before the promote (B4): `GET /api/promote/:page/:component/:iteration`. */
 export type PromotePlan = {
-  /** The component's own file for a fork from the app, written in place; null for a new file. */
+  /**
+   * The component's own file for a fork from the app, written in place; for a new file, where it
+   * goes (beside its page's own sections when the map has the page); null when the studio cannot say.
+   */
   defaultFile: string | null;
   drift: PromoteDrift | null;
   /** Why the iteration cannot be written back as it is, in words, or null. */

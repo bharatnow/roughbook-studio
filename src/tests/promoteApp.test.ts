@@ -142,6 +142,13 @@ const TREE: ProjectTree = {
               origin: 'app'
             }
           ]
+        },
+        {
+          slug: 'logo-wall',
+          name: 'Logo wall',
+          inApp: false,
+          selectedIteration: 1,
+          iterations: []
         }
       ]
     }
@@ -269,7 +276,9 @@ async function forked(options: { git?: boolean } = {}) {
     userAgent: 'roughbook-studio/test',
     fetch: fake.fetch
   });
-  const promote = (extra: { branch?: string | true; targetFile?: string } = {}) =>
+  const promote = (
+    extra: { branch?: string | true; targetFile?: string; component?: string } = {}
+  ) =>
     preparePromotion(repo, api, LINK, TREE, {
       page: 'pricing',
       component: 'pricing-section',
@@ -378,6 +387,38 @@ describe('the start of a promote from the app', () => {
     // The plan card is found again first, then missed.
     await assert.rejects(promote(), /plan-card\.tsx is no longer in the app/);
     assert.ok(!requests.some(request => request.url.endsWith('/promotions')));
+  });
+});
+
+describe('a new component of a page the map has', () => {
+  it('goes beside the page’s own sections, named like them, unless --to names a file', async () => {
+    const NEW = 'rough/pricing/logo-wall/iteration-01/index.tsx';
+    const STUB = 'export default () => null;\n';
+    const { repo, requests, promote } = await forked();
+    write(repo, NEW, STUB);
+    const prepared = await promote({ component: 'logo-wall' });
+    assert.equal(prepared.how, 'new');
+    // Decision 56: the pricing section's folder and kebab-case, not the components folder.
+    assert.equal(prepared.targetFile, 'components/pricing/logo-wall.tsx');
+    assert.equal(
+      (requests.find(request => request.url.endsWith('/promotions'))!.body as { how: string }).how,
+      'new'
+    );
+
+    const named = await forked();
+    write(named.repo, NEW, STUB);
+    const elsewhere = await named.promote({ component: 'logo-wall', targetFile: 'ui/Logos.tsx' });
+    assert.equal(elsewhere.targetFile, 'ui/Logos.tsx');
+
+    // A file already there stops the start, naming it, before anything is asked.
+    const taken = await forked();
+    write(taken.repo, NEW, STUB);
+    write(taken.repo, 'components/pricing/logo-wall.tsx', STUB);
+    await assert.rejects(
+      taken.promote({ component: 'logo-wall' }),
+      /^Error: components\/pricing\/logo-wall\.tsx already exists\. Choose another file with --to;/
+    );
+    assert.equal(taken.requests.length, 0);
   });
 });
 
@@ -775,6 +816,9 @@ describe("the local UI's promote panel", () => {
       const at = '/api/promote/pricing/pricing-section/iteration-01';
       const plan = (await call('GET', at)).json.data;
       assert.equal(plan.defaultFile, SECTION);
+      // A new section of the page: its file beside the page's own sections (decision 56).
+      const fresh = (await call('GET', '/api/promote/pricing/logo-wall/iteration-01')).json.data;
+      assert.equal(fresh.defaultFile, 'components/pricing/logo-wall.tsx');
       assert.deepEqual(plan.drift, { state: 'in-place' });
       assert.deepEqual(plan.branchChoice, { defaultName: BRANCH, unavailable: null });
       assert.equal(plan.finish, null);

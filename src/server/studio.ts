@@ -68,6 +68,8 @@ import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
 import {
   findComponent,
+  mapHere,
+  newComponentFile,
   preparePromotion,
   publicDirFor,
   type PreparedPromotion
@@ -1702,6 +1704,22 @@ export class LocalStudio {
         defaultFile = planned.targets[0]!.path;
       } catch (error) {
         problem = describeError(error);
+      }
+    } else {
+      // A new file: beside its page's own sections when the map has the page (decision 56).
+      try {
+        const { api, link } = this.options;
+        const tree = await this.cache.project(() => api.project(link.orgId, link.project));
+        const record = findComponent(tree, target.page, target.component);
+        defaultFile = newComponentFile(
+          this.repoRoot,
+          this.previewEnvironment(),
+          tree,
+          mapHere(this.repoRoot),
+          { page: target.page, component: target.component, name: record.name }
+        );
+      } catch {
+        // The panel's own default stands: the promote says what is wrong when it starts.
       }
     }
     const latest = await this.latestPromotion(target);

@@ -1,10 +1,10 @@
 // A page's composition promoted into the app (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 12, 50,
-// 51 and 53): the page's own files arranged in the composition's order, and each new section
-// written as a new component file where `promoteDefault` puts it, by the designer's agent. The
+// 51, 53 and 56): the page's own files arranged in the composition's order, and each new section
+// written as a new component file beside the page's own sections, by the designer's agent. The
 // start refreshes the map, finds drift against the composition's `.base/` (in place, or a merge),
 // snapshots the page's files and the new sections' files, puts the change on a branch when asked,
 // sends slugs alone (`current`, the app's own order) and fills in the paths the server never sees.
-// The finish is B4's (src/runs/promotion.ts); after a done one, the new sections are adopted.
+// The finish is B4's (src/runs/promotion.ts); after a done one, the whole page is adopted again.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
@@ -16,13 +16,13 @@ import type { RepoMap } from '../map/types.js';
 import { recipeOf } from '../recipes/index.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
-import { pascalCase } from '../repo/names.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { BASE_DIR, sameText } from '../runs/base.js';
 import { hasExtension } from '../runs/checks.js';
 import {
   checkTargetFile,
   fillInPrompt,
+  newComponentFile,
   promoteWords,
   publicDirFor,
   referencedAssets,
@@ -150,7 +150,7 @@ export type PagePromotePlan = {
 /**
  * Where a page composition's promote writes and whether the page moved since it was saved (B6):
  * the page's files, each against its copy in the composition's `.base/`, and a new file for each
- * new section where the recipe puts a new component. Throws in words when the composition or its
+ * new section beside the page's own sections. Throws in words when the composition or its
  * base is not here, a page file is gone, a new section's iteration is missing, or its file would
  * overwrite one.
  */
@@ -174,7 +174,6 @@ export function planPagePromote(
       `${folder}/${BASE_DIR}/ is missing, so the studio cannot tell whether the page changed since the composition was saved. Save a new composition of the page as it is now.`
     );
   }
-  const recipe = recipeOf(environment);
   const current = appOrder(map, page);
   const mapPage = map.pages.find(item => item.slug === page)!;
   const inApp = new Set(map.components.map(item => item.slug));
@@ -208,7 +207,7 @@ export function planPagePromote(
     });
   }
 
-  // Each new section, not in the app, gets a new file where the recipe puts a new component.
+  // Each new section, not in the app, gets a new file.
   const names = new Map(
     (tree.pages.find(item => item.slug === page)?.components ?? []).map(item => [
       item.slug,
@@ -216,9 +215,6 @@ export function planPagePromote(
     ])
   );
   const extensions = environment.promote.extensions;
-  const componentsDir = environment.promote.dir ?? tree.delivery.componentsDir;
-  const isFolder = (relative: string) =>
-    fs.statSync(toDisk(repoRoot, relative), { throwIfNoEntry: false })?.isDirectory() ?? false;
   for (const section of plan.sections.filter(item => !inApp.has(item.component))) {
     const relative = iterationDir(page, section.component, section.iteration);
     if (!fs.existsSync(path.join(toDisk(repoRoot, relative), environment.entry))) {
@@ -227,11 +223,12 @@ export function planPagePromote(
       );
     }
     const name = names.get(section.component) ?? section.component;
-    const file = (
-      recipe
-        ? recipe.promoteDefault(componentsDir, name, isFolder)
-        : `${componentsDir}/${pascalCase(name)}${extensions[0] ?? ''}`
-    ).replace(/\\/g, '/');
+    // Beside the page's own sections, named like them (decision 56).
+    const file = newComponentFile(repoRoot, environment, tree, map, {
+      page,
+      component: section.component,
+      name
+    });
     const problem = checkTargetFile(file, publicDir, extensions, environment.ignore);
     if (problem) throw new Error(`${name}: ${problem}`);
     if (fs.existsSync(toDisk(repoRoot, file)) || targets.some(target => target.path === file)) {

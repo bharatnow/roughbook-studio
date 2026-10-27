@@ -264,7 +264,9 @@ describe("the local server's adoption", () => {
         {
           slug: 'home',
           name: 'Home',
-          components: [{ slug: 'hero', name: 'hero', kind: 'section' }]
+          components: [{ slug: 'hero', name: 'hero', kind: 'section' }],
+          // The page's whole order goes with one of its components (decision 55).
+          sections: ['hero', ...PARTS.slice(0, 20).map(item => item.slug)]
         }
       ]
     });

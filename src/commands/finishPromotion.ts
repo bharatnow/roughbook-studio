@@ -8,7 +8,7 @@ import type { StudioApi } from '../api/client.js';
 import type { Outbox } from '../api/outbox.js';
 import { previewUrl, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { BASELINE, type Adoption } from '../map/adopt.js';
+import { BASELINE, chooseAdoption } from '../map/adopt.js';
 import { readMap, writeMap } from '../map/file.js';
 import { mapRepo } from '../map/run.js';
 import type { RepoMap } from '../map/types.js';
@@ -175,9 +175,10 @@ export function placeNewSections(
 }
 
 /**
- * After a page composition's promote that is done (decision 53): the app mapped again, its new
- * sections adopted with their baselines, and the page pictured again, with the baselines' own
- * screenshots and pictures where the app is running. A line for each, as the terminal says it.
+ * After a page composition's promote that is done (decisions 53 and 55): the app mapped again, the
+ * whole page adopted again in its new order, which gives its new sections their baselines, and the
+ * page pictured again, with the new baselines' own screenshots and pictures where the app is
+ * running. A line for each, as the terminal says it.
  */
 export async function refreshAfterPagePromote(
   context: CommandContext,
@@ -204,18 +205,16 @@ export async function refreshAfterPagePromote(
   }
   const page = map.pages.find(item => item.slug === record.page);
   if (!page) return [...lines, `rough/map.md no longer has the ${record.page} page.`];
-  const adoption: Adoption[] = placed.found.length
-    ? [
-        {
-          page,
-          components: map.components.filter(item => placed.found.includes(item.slug))
-        }
-      ]
-    : [];
-  const outcome = adoption.length
-    ? await adoptHere(repoRoot, input.api, input.link, read, map, adoption)
-    : null;
-  if (outcome) lines.push(...describeAdoption(outcome));
+  // The whole page again, new sections or not, so the web's order follows the app's (decision 55).
+  const outcome = await adoptHere(
+    repoRoot,
+    input.api,
+    input.link,
+    read,
+    map,
+    chooseAdoption(map, { page: page.slug })
+  );
+  lines.push(...describeAdoption(outcome));
 
   // Pictures need the app: the page at its address, and the new baselines' previews.
   if (read.mode !== 'live' || !input.api.signedIn) return lines;
@@ -223,9 +222,13 @@ export async function refreshAfterPagePromote(
     lines.push(`Nothing answered at ${devUrl}, so the page was not pictured again.`);
     return lines;
   }
-  if (outcome) {
+  if (placed.found.length) {
+    // The sections already in the app kept their files: only the new ones are pictured.
+    const fresh = new Set(placed.found.map(slug => `${page.slug}/${slug}`));
+    const present = outcome.baselines.present.filter(key => fresh.has(key));
+    const pictured = { ...outcome, baselines: { ...outcome.baselines, present } };
     lines.push(
-      ...(await pictureAdopted(context, input.api, input.link, read, map, outcome, devUrl))
+      ...(await pictureAdopted(context, input.api, input.link, read, map, pictured, devUrl))
     );
     return lines;
   }

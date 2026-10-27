@@ -14,11 +14,20 @@ import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
 import type { AdoptBody, PagePromotion } from '../api/types.js';
 import type { CommandContext } from '../commands/context.js';
-import { finishPromotionHere, placeNewSections } from '../commands/finishPromotion.js';
+import {
+  finishPromotionHere,
+  placeNewSections,
+  refreshAfterPagePromote
+} from '../commands/finishPromotion.js';
 import { preparePagePromotion } from '../compositions/promote.js';
 import { writeComposition } from '../compositions/store.js';
 import { readMap } from '../map/file.js';
-import { commitPromotion, describePromotion, readPromotion } from '../runs/promotion.js';
+import {
+  commitPromotion,
+  describePromotion,
+  readPromotion,
+  type PromotionRecord
+} from '../runs/promotion.js';
 import { readSnapshot } from '../runs/snapshot.js';
 import {
   assertCarriesNoRepoContent,
@@ -88,7 +97,7 @@ const COMPOSITION = {
 const ARRANGED = `import { Hero } from "@/components/hero";
 import { Features } from "@/components/features";
 import { Testimonials } from "@/components/testimonials";
-import { Logos } from "@/components/CustomerLogos";
+import { Logos } from "@/components/customer-logos";
 
 export default function Home() {
   return (
@@ -185,7 +194,7 @@ describe("a page composition's promote", () => {
       prepared.targets.map(target => [target.path, target.section?.component ?? null]),
       [
         ['app/page.tsx', null],
-        ['components/CustomerLogos.tsx', 'customer-logos']
+        ['components/customer-logos.tsx', 'customer-logos']
       ]
     );
     // Features on another iteration than its baseline keeps the app's own version (decision 50).
@@ -197,7 +206,7 @@ describe("a page composition's promote", () => {
     assert.match(prompt, /The page’s files:\napp\/page\.tsx\n<\/target>/);
     assert.match(
       prompt,
-      /<new-sections>\ncomponents\/CustomerLogos\.tsx ← rough\/home\/customer-logos\/iteration-01\n<\/new-sections>/
+      /<new-sections>\ncomponents\/customer-logos\.tsx ← rough\/home\/customer-logos\/iteration-01\n<\/new-sections>/
     );
     assert.match(prompt, /<merge>rough\/home\/compositions\/composition-01\/\.base\/<\/merge>/);
     assert.match(prompt, new RegExp(`Roughbook promotion: ${PROMOTION}`));
@@ -234,13 +243,13 @@ describe("a page composition's promote", () => {
 
   it('refuses, asking nothing, a new section’s file that exists or a composition not here', async () => {
     const { repo, api, requests } = await composed();
-    write(repo, 'components/CustomerLogos.tsx', 'export const taken = 1;\n');
+    write(repo, 'components/customer-logos.tsx', 'export const taken = 1;\n');
     await assert.rejects(
       preparePagePromotion(repo, api, LINK, TREE_WITH_SECTION, {
         page: 'home',
         composition: 'composition-01'
       }),
-      /components\/CustomerLogos\.tsx, where Customer logos would be written, already exists/
+      /components\/customer-logos\.tsx, where Customer logos would be written, already exists/
     );
     await assert.rejects(
       preparePagePromotion(repo, api, LINK, TREE_WITH_SECTION, {
@@ -259,7 +268,7 @@ describe("a page composition's promote", () => {
       composition: 'composition-01'
     });
     write(repo, 'app/page.tsx', ARRANGED);
-    write(repo, 'components/CustomerLogos.tsx', LOGOS);
+    write(repo, 'components/customer-logos.tsx', LOGOS);
     write(repo, 'components/hero.tsx', 'export function Hero() { return null; }\n');
     const outbox = outboxFor(repo);
     const { record } = await finishPromotionHere(context, api, outbox, LINK, PROMOTION, {
@@ -272,7 +281,7 @@ describe("a page composition's promote", () => {
       record.result!.changed.filter(item => item.inScope).map(item => [item.path, item.status]),
       [
         ['app/page.tsx', 'changed'],
-        ['components/CustomerLogos.tsx', 'added']
+        ['components/customer-logos.tsx', 'added']
       ]
     );
     assert.match(
@@ -301,7 +310,7 @@ describe("a page composition's promote", () => {
       composition: 'composition-01'
     });
     write(clean.repo, 'app/page.tsx', ARRANGED);
-    write(clean.repo, 'components/CustomerLogos.tsx', LOGOS);
+    write(clean.repo, 'components/customer-logos.tsx', LOGOS);
     const done = await finishPromotionHere(
       clean.context,
       clean.api,
@@ -318,13 +327,20 @@ describe("a page composition's promote", () => {
       checks: 'skipped',
       branch: false
     });
+    // The whole page adopted again, with the app's new order (decision 55).
     const adopt = clean.requests.find(request => request.url.endsWith('/adopt'))!;
     assert.deepEqual(adopt.body, {
       pages: [
         {
           slug: 'home',
           name: 'Home',
-          components: [{ slug: 'customer-logos', name: 'Customer logos', kind: 'section' }]
+          components: [
+            { slug: 'hero', name: 'Hero', kind: 'section' },
+            { slug: 'customer-logos', name: 'Customer logos', kind: 'section' },
+            { slug: 'testimonials', name: 'Testimonials', kind: 'section' },
+            { slug: 'features', name: 'Features', kind: 'section' }
+          ],
+          sections: ['hero', 'customer-logos', 'testimonials', 'features']
         }
       ]
     });
@@ -341,7 +357,7 @@ describe("a page composition's promote", () => {
     );
     assert.match(
       read(clean.repo, 'rough/home/customer-logos/iteration-00/index.tsx'),
-      /components\/CustomerLogos/
+      /components\/customer-logos/
     );
     assert.ok(
       done.refreshed.some(line =>
@@ -356,13 +372,38 @@ describe("a page composition's promote", () => {
     });
   });
 
+  it('adopts the whole page again after a promote that only reorders it', async () => {
+    const { repo, api, requests, context } = await composed();
+    write(
+      repo,
+      'app/page.tsx',
+      HOME_SOURCE.replace(
+        '<Features />\n      <Testimonials />',
+        '<Testimonials />\n      <Features />'
+      )
+    );
+    const lines = await refreshAfterPagePromote(
+      context,
+      { api, outbox: outboxFor(repo), link: LINK },
+      { page: 'home', targets: [] } as unknown as PromotionRecord,
+      'http://localhost:3000'
+    );
+    const adopt = requests.find(request => request.url.endsWith('/adopt'))!;
+    assert.deepEqual((adopt.body as AdoptBody).pages[0]!.sections, [
+      'hero',
+      'testimonials',
+      'features'
+    ]);
+    assert.ok(lines[0]!.startsWith('Adopted 1 page (0 new) and 3 components (0 new).'), lines[0]);
+  });
+
   it('keeps the new section’s slug as the file’s, when the agent named its export otherwise', () => {
     const map = readMapLike();
     const placed = placeNewSections(map, {
       page: 'home',
       targets: [
         {
-          path: 'components/CustomerLogos.tsx',
+          path: 'components/customer-logos.tsx',
           copy: null,
           child: false,
           drifted: false,
@@ -388,7 +429,7 @@ describe("a page composition's promote", () => {
     });
     assert.equal(prepared.branch!.name, 'roughbook/home-composition-01');
     write(repo, 'app/page.tsx', ARRANGED);
-    write(repo, 'components/CustomerLogos.tsx', LOGOS);
+    write(repo, 'components/customer-logos.tsx', LOGOS);
     const context = {
       repoRoot: repo,
       env: {},
@@ -405,10 +446,10 @@ describe("a page composition's promote", () => {
       "Promote the home page's composition-01 from Roughbook",
       '',
       'app/page.tsx',
-      'components/CustomerLogos.tsx'
+      'components/customer-logos.tsx'
     ]);
     assert.equal(git(repo, 'rev-parse', '--abbrev-ref', 'HEAD'), 'roughbook/home-composition-01');
-    assert.ok(fs.existsSync(path.join(repo, 'components/CustomerLogos.tsx')));
+    assert.ok(fs.existsSync(path.join(repo, 'components/customer-logos.tsx')));
   });
 });
 
@@ -444,7 +485,7 @@ function readMapLike() {
         slug: 'logos',
         name: 'Logos',
         kind: 'section' as const,
-        files: ['components/CustomerLogos.tsx'],
+        files: ['components/customer-logos.tsx'],
         export: 'Logos',
         fixture: null,
         alone: 'unknown' as const,

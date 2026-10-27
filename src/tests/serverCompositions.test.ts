@@ -236,7 +236,7 @@ describe("the local server's compositions", () => {
     assert.deepEqual(plan.json.data.targets, [
       { path: 'app/page.tsx', section: null, drifted: false },
       {
-        path: 'components/CustomerLogos.tsx',
+        path: 'components/customer-logos.tsx',
         section: { component: 'customer-logos', iteration: 'iteration-01', name: 'Customer logos' },
         drifted: false
       }

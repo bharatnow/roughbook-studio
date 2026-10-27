@@ -726,6 +726,8 @@ function StudioCanvasView({
       >
         {promoteOf ? (
           <PromotePanel
+            // Its field takes the default once: again when the studio's plan arrives.
+            key={promotePlan ? 'planned' : 'waiting'}
             project={project.tree.slug}
             page={promoteOf.page.slug}
             component={promoteOf.component.slug}
