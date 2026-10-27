@@ -10,6 +10,7 @@ import { previewUrl } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { isDynamic, mapProblems, readMap } from '../map/file.js';
 import type { MapComponent, RepoMap } from '../map/types.js';
+import { LAZY_IMPORT_ERROR, LAZY_IMPORT_NOTICE, isLazyImportFault } from '../recipes/next/fault.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import { recordMapPictures } from '../pictures/mapPictures.js';
@@ -269,6 +270,7 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
   const rendered: { slug: string; url: string; probe?: Probe }[] = [];
   const componentFailures: string[] = [];
   const componentNamed: string[] = [];
+  let lostImport = false;
   /** Previews the app sent to a sign-in page, by where: a guard in a layout every route shares. */
   const guarded = new Map<string, string[]>();
   const tried: { component: MapComponent; url: string }[] = [];
@@ -359,7 +361,12 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
       } else if (outcome?.signIn) {
         sentTo(guarded, outcome.signIn, component.slug);
       } else {
-        const why = outcome?.error ?? `it did not render within ${environment.timeouts.preview} s`;
+        let why = outcome?.error ?? `it did not render within ${environment.timeouts.preview} s`;
+        // Turbopack's lost lazy import (B7b, decision 68): named, and said once what it is.
+        if (isLazyImportFault(why)) {
+          lostImport = true;
+          why = LAZY_IMPORT_ERROR;
+        }
         if (component.alone === 'yes') {
           componentFailures.push(
             `${component.slug}: the map says it renders alone, but it failed: ${why}`
@@ -376,7 +383,7 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
     }
     const componentsDetail = `${rendered.length} of ${cards.length} sections and shared parts rendered alone with their fixtures${tools.browser ? ' and said they were ready' : ''}${
       componentNamed.length ? `; named: ${listed(componentNamed)}` : ''
-    }${atomsLine}.`;
+    }${atomsLine}.${lostImport ? ` ${LAZY_IMPORT_NOTICE}` : ''}`;
     checks.push(
       componentFailures.length
         ? result(

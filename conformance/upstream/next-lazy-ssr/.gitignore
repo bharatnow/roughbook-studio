@@ -1,0 +1,10 @@
+node_modules/
+.next/
+next-env.d.ts
+package-lock.json
+*.tsbuildinfo
+# repro.mjs's server logs
+repro-*.log
+# Written by some Next.js versions on `next dev`
+AGENTS.md
+CLAUDE.md

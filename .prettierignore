@@ -11,3 +11,5 @@ conformance/fixtures
 # What the brownfield fixtures add over them (ROUGHBOOK-BROWNFIELD-PLAN.md, B1), in their stacks' own style.
 conformance/overlays
 release
+# Reproductions for upstream issues, each an app of its own (conformance/upstream/*/ISSUE.md).
+conformance/upstream

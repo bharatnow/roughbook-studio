@@ -57,7 +57,7 @@ export function pickedAddress(key: string): string | null {
  * restarted onto its old development cache. The server's words, for the notice when a preview
  * posts the error itself (the server says it from the app's log when the studio started the app).
  */
-export const LAZY_IMPORT_NOTICE = `"Lazily compiled dynamic import … was not activated" is Turbopack losing a module it compiles only when a page asks for it: the app's dev server restarted onto its old development cache after files changed while it was down. Restart the app's dev server, then ask again. If the repo's switch is behind, roughbook setup --upgrade turns that cache off so it does not happen again.`;
+export const LAZY_IMPORT_NOTICE = `"Lazily compiled dynamic import … was not activated" is Turbopack losing a module it compiles only when a page asks for it, most often after the app's dev server restarted onto its old development cache with files changed while it was down. Restart the app's dev server, then ask again. If the repo's switch is behind, roughbook setup --upgrade turns that cache off so it does not happen again.`;
 
 /** The notice for a message a preview posted, when its error is Turbopack's lost lazy import; null otherwise. */
 export function lazyImportNotice(data: unknown): string | null {

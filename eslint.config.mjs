@@ -9,7 +9,15 @@ import prettier from 'eslint-config-prettier';
 const PLATFORM_FILES = ['src/launch/**/*.ts', 'src/screenshot/**/*.ts', 'src/config/userDir.ts'];
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**', 'conformance/fixtures/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'conformance/fixtures/**',
+      // A reproduction for an upstream issue, with its own package.json; not the studio's code.
+      'conformance/upstream/**'
+    ]
+  },
   js.configs.recommended,
   {
     files: ['src/**/*.ts'],

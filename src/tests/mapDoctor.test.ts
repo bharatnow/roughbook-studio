@@ -11,6 +11,7 @@ import type { DoctorReport, DoctorTools, Probe } from '../doctor/types.js';
 import { readEnvironmentSync } from '../environment/read.js';
 import { renderMap } from '../map/file.js';
 import type { MapComponent, MapPage, RepoMap } from '../map/types.js';
+import { LAZY_IMPORT_NOTICE } from '../recipes/next/fault.js';
 import { next } from '../recipes/next/index.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { applyPrep, planPrep } from '../repo/prep.js';
@@ -112,6 +113,8 @@ function tools(
   repo: string,
   faults: {
     broken?: string[];
+    /** Components whose preview answers Turbopack's lost lazy import (B7b). */
+    lost?: string[];
     pages?: Record<string, number>;
     overlay?: boolean;
     /** Where a page's own code sends the browser once it has loaded, by the page's path. */
@@ -157,6 +160,12 @@ function tools(
       if (!pointerFiles(repo, pointer[1]!)) return { status: 404, body: 'none' };
       if (faults.redirectPreviews) {
         return { status: 307, body: '', location: faults.redirectPreviews };
+      }
+      if (faults.lost?.includes(pointer[1]!)) {
+        return {
+          status: 500,
+          body: `Lazily compiled dynamic import of [project]/rough/doctor-check-map/${pointer[1]}/iteration-01/index.tsx [app-rsc] (ecmascript, lazy compilation proxy FollowReexports(None)) was not activated`
+        };
       }
       return faults.broken?.includes(pointer[1]!)
         ? { status: 500, body: 'TypeError: plans is undefined' }
@@ -343,6 +352,27 @@ describe("doctor's map checks", () => {
       /hero: does not render alone yet: TypeError: plans is undefined/
     );
     assert.equal(check(report, 'map-screenshots').status, 'fail');
+  });
+
+  it('name Turbopack’s lost lazy import with what it is and what to do (B7b, decision 68)', async () => {
+    const repo = await mappedRepo({
+      ...MAP,
+      components: MAP.components.map(item =>
+        item.slug === 'hero' ? { ...item, alone: 'unknown' as const } : item
+      )
+    });
+    const report = await runDoctor(repo, {
+      devUrl: DEV,
+      skipBuild: true,
+      tools: tools(repo, { lost: ['hero'] })
+    });
+    const components = check(report, 'map-components');
+    assert.equal(components.status, 'pass', components.detail);
+    assert.match(
+      components.detail,
+      /hero: does not render alone yet: Lazily compiled dynamic import … was not activated[;.]/
+    );
+    assert.ok(components.detail.endsWith(` ${LAZY_IMPORT_NOTICE}`), components.detail);
   });
 
   it('name a page whose own code sends the browser to sign in, at once and with no picture', async () => {

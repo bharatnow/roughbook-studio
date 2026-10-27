@@ -13,7 +13,7 @@ export const LAZY_IMPORT_ERROR = 'Lazily compiled dynamic import … was not act
 
 /** What it is, and what to do. */
 export const LAZY_IMPORT_FAULT = {
-  what: `"${LAZY_IMPORT_ERROR}" is Turbopack losing a module it compiles only when a page asks for it: the app's dev server restarted onto its old development cache after files changed while it was down.`,
+  what: `"${LAZY_IMPORT_ERROR}" is Turbopack losing a module it compiles only when a page asks for it, most often after the app's dev server restarted onto its old development cache with files changed while it was down.`,
   fix: "Restart the app's dev server, then ask again. If the repo's switch is behind, roughbook setup --upgrade turns that cache off so it does not happen again."
 };
 
