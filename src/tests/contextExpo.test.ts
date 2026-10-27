@@ -524,6 +524,31 @@ describe('metro.config’s edit', () => {
     assert.ok(!expo.contextPreview!.edits(repo, LINK).length);
   });
 
+  it('keeps the config it wrote once the designer added to it: never rewritten or deleted, its block taken out alone', async () => {
+    const repo = await expoRepo();
+    const own = (planMetroConfig(repo) as { after: string }).after;
+    // Checked out with Windows line endings, it is still the studio's own file.
+    write(repo, METRO_CONFIG, own.replace(/\n/g, '\r\n'));
+    assert.equal(planMetroConfig(repo), null);
+    assert.ok(expo.contextPreview!.files(repo, LINK).includes(METRO_CONFIG));
+    // The designer's own setting, after the studio's default.
+    const extended = own.replace(
+      'module.exports = getDefaultConfig(__dirname);\n',
+      'module.exports = getDefaultConfig(__dirname);\nmodule.exports.resolver.assetExts.push("db");\n'
+    );
+    assert.notEqual(extended, own);
+    write(repo, METRO_CONFIG, extended);
+    assert.equal(planMetroConfig(repo), null);
+    assert.ok(!expo.contextPreview!.files(repo, LINK).includes(METRO_CONFIG));
+    assert.ok(!expo.setupFiles(repo, { ...LINK }).includes(METRO_CONFIG));
+    const [edit] = expo.contextPreview!.edits(repo, LINK);
+    assert.equal(edit?.file, METRO_CONFIG);
+    const undone = edit!.undo(extended)!;
+    assert.match(undone, /assetExts\.push\("db"\)/);
+    assert.doesNotMatch(undone, /rough\/_context\/metro\.cjs/);
+    assert.ok(!expo.contextPreview!.missing(repo, LINK).includes(METRO_CONFIG));
+  });
+
   it('edits the app’s own config, and asks for it by hand when the config is not CommonJS', async () => {
     const repo = await expoRepo();
     write(repo, METRO_CONFIG, DEFAULT_CONFIG);

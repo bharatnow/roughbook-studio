@@ -374,8 +374,12 @@ module.exports = getDefaultConfig(__dirname);
 ${configBlock('\n')}
 `;
 
+/**
+ * Whether metro.config.js is the file the studio wrote, as it wrote it (line endings aside). One the
+ * designer added to since is theirs: the block is edited in it and taken out alone, never the file.
+ */
 export function isOwnMetroConfig(text: string | null): boolean {
-  return Boolean(text?.startsWith(OWN_CONFIG_START));
+  return text !== null && text.replace(/\r\n/g, '\n') === OWN_CONFIG;
 }
 
 /** metro.config's edit as `init` plans it: null when it is there; a manual step when it cannot be made. */
@@ -395,16 +399,7 @@ export function planMetroConfig(repo: string): PrepChange | { manual: string } |
       after: OWN_CONFIG
     };
   }
-  if (isOwnMetroConfig(text)) {
-    return text === OWN_CONFIG
-      ? null
-      : {
-          file: METRO_CONFIG,
-          action: 'edit',
-          summary: 'Update the in-page view’s Metro config.',
-          after: OWN_CONFIG
-        };
-  }
+  if (isOwnMetroConfig(text)) return null;
   const plain = undoMetroConfig(text) ?? text;
   const after = editMetroConfig(plain)!;
   if (after === text) return null;
