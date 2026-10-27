@@ -41,13 +41,13 @@ export const CONTEXT_BLOCK = `
 /*
  * The in-page view (${CONTEXT_SENTINEL}): each adopted template part and pattern renders inside its marker,
  * and with ?${SWAP_PARAM}=<page>/<component>/<iteration> the iteration's copy renders in its place, through
- * WordPress's own rendering, with the page's own data. In the local or development environment only, for
- * this machine only; rough/preview-context.json lists what is adopted.
+ * WordPress's own rendering, with the page's own data. In the local environment only, as the preview
+ * route answers, for this machine only; rough/preview-context.json lists what is adopted.
  */
 ( static function (): void {
 	$rough = WP_CONTENT_DIR . '/rough';
 	$list  = $rough . '/preview-context.json';
-	if ( ! in_array( wp_get_environment_type(), array( 'local', 'development' ), true ) || ! is_file( $list ) || isset( $_GET['rough_preview'] ) ) {
+	if ( 'local' !== wp_get_environment_type() || ! is_file( $list ) || isset( $_GET['rough_preview'] ) ) {
 		return;
 	}
 	$host = strtolower( preg_replace( '/:\\d+$/', '', (string) ( $_SERVER['HTTP_HOST'] ?? '' ) ) );

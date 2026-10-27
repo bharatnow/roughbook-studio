@@ -150,7 +150,7 @@ the next request, so the studio reloads the frame (reload: studio). Start from t
 where this theme needs it: its header and footer template parts belong in the wrapper, and a theme that
 runs on another local WordPress (Local, ddev, Lando) needs the plugin copied into that site's mu-plugins
 and rough/ where it finds it. Keep recipe: wordpress so the studio keeps the plugin up to date. For a mapped
-block theme the plugin also holds the in-page view's switch, local or development environment only: each adopted
+block theme the plugin also holds the in-page view's switch, local environment only: each adopted
 template part and pattern renders inside its marker, and ?roughbook-swap=<page>/<component>/<iteration> renders the
 iteration's copy in its place through WordPress's own rendering (rough/preview-context.json lists them).`;
 
@@ -359,7 +359,8 @@ export const wordpress: Recipe = {
   // 2: rough/ is inert on a live site (the guard, rough/.htaccess, .distignore).
   // 3: the in-page view's switch in the preview plugin, for a mapped theme (brownfield B5b).
   // Also 3: the theme mounted and active in wp-env when the repo has no .wp-env.json of its own.
-  version: 3,
+  // 4: the switch, as the preview route, in the local environment alone (review finding 14).
+  version: 4,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {

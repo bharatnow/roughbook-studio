@@ -1,7 +1,7 @@
 // The in-page view's switch for WordPress block themes (ROUGHBOOK-BROWNFIELD-PLAN.md, B5b,
 // decisions 41 and 42): the preview plugin, for a mapped theme, marks each adopted template part
 // and pattern where WordPress renders it and, for a swap, renders the iteration's copy in its place
-// through WordPress's own rendering, in the local or development environment and for this machine
+// through WordPress's own rendering, in the local environment alone and for this machine
 // only. Its list as the studio generates it; the PHP run with stand-ins for WordPress's functions,
 // where PHP is on this machine; and nothing of it for a theme that maps nothing (ground rule 2).
 import assert from 'node:assert/strict';
@@ -168,7 +168,7 @@ describe('the WordPress switch’s list', () => {
 
 describe('the WordPress switch in the setup', () => {
   it('is the preview plugin’s for a mapped theme only, behind a new version, its list generated', async () => {
-    assert.equal(wordpress.version, 3);
+    assert.equal(wordpress.version, 4);
     const repo = await themeRepo();
     const hook = wordpress.contextPreview!;
     assert.equal(hook.sentinel, CONTEXT_SENTINEL);
@@ -355,6 +355,8 @@ describe('the WordPress switch, run', () => {
     for (const env of <Record<string, string>[]>[
       { ROUGHBOOK_ENV: 'production', ROUGHBOOK_QUERY: query },
       { ROUGHBOOK_ENV: 'staging', ROUGHBOOK_QUERY: query },
+      // The local environment alone, as the preview route answers (review finding 14).
+      { ROUGHBOOK_ENV: 'development', ROUGHBOOK_QUERY: query },
       { ROUGHBOOK_HOST: '192.168.1.37:8888', ROUGHBOOK_QUERY: query },
       { ROUGHBOOK_QUERY: `rough_preview=front-page/hero/iteration-01&${query}` }
     ]) {
@@ -367,8 +369,6 @@ describe('the WordPress switch, run', () => {
       assert.equal(shown.head, '');
       assert.equal(shown.footer, '');
     }
-    // The development environment has it, as the local one does.
-    assert.match(run({ ROUGHBOOK_ENV: 'development' }).part, /^<roughbook-section/);
   });
 });
 
