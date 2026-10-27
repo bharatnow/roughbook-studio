@@ -369,10 +369,23 @@ export async function recordChildren(
   const others = (readMap(repoRoot)?.map.components ?? [])
     .filter(item => item.slug !== record.component)
     .flatMap(item => item.files);
-  const candidates = new Map<string, string | null>();
-  for (const file of [...others, ...importedByOriginals(repoRoot, record, relative)]) {
+  // By name, a copy is one app file's only when one has its name: else the one the originals
+  // import, else the one beside them, else none (two components' types.ts are not one child).
+  const imported = new Set(importedByOriginals(repoRoot, record, relative));
+  const beside = new Set(record.files.map(file => path.posix.dirname(file.path)));
+  const named = new Map<string, string[]>();
+  for (const file of new Set([...others, ...imported])) {
     const copy = byName.get(name(file));
-    if (copy && !candidates.has(file)) candidates.set(file, copy);
+    if (copy) named.set(copy, [...(named.get(copy) ?? []), file]);
+  }
+  const only = (files: string[]) => (files.length === 1 ? files[0]! : null);
+  const candidates = new Map<string, string | null>();
+  for (const [copy, files] of named) {
+    const file =
+      only(files) ??
+      only(files.filter(item => imported.has(item))) ??
+      only(files.filter(item => beside.has(path.posix.dirname(item))));
+    if (file) candidates.set(file, copy);
   }
   for (const raw of reported) {
     const file = raw.replace(/\\/g, '/').replace(/^\.\//, '');

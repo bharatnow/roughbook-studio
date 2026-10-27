@@ -20,14 +20,21 @@ import { finishPromotionHere, refreshedBaselines } from '../commands/finishPromo
 import { branchArgument } from '../commands/promote.js';
 import { defaultEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
-import { writeMap } from '../map/file.js';
+import { readMap, writeMap } from '../map/file.js';
 import type { MapComponent, RepoMap } from '../map/types.js';
 import type { PictureShot } from '../pictures/share.js';
 import { recipeFor } from '../recipes/index.js';
 import { approveCommands } from '../repo/approvals.js';
 import { lineDiff, unifiedText } from '../repo/diff.js';
 import type { RepoLink } from '../repo/link.js';
-import { headCommit, inLineEndingsOf, planAppSlot, readBase, writeAppSlot } from '../runs/base.js';
+import {
+  headCommit,
+  inLineEndingsOf,
+  planAppSlot,
+  readBase,
+  recordChildren,
+  writeAppSlot
+} from '../runs/base.js';
 import { preparePromotion } from '../runs/promote.js';
 import {
   commitPromotion,
@@ -312,6 +319,33 @@ function environment(extra: Partial<RepoEnvironment> = {}): RepoEnvironment {
 }
 
 describe('the start of a promote from the app', () => {
+  it('takes a child by name only when one app file has it, the one beside the section first', async () => {
+    const { repo } = await forked();
+    // Two of the map's other components have a types.ts, in folders of their own.
+    write(repo, 'components/a/types.ts', 'export type A = 1;\n');
+    write(repo, 'components/b/types.ts', 'export type B = 2;\n');
+    const map = readMap(repo)!.map;
+    map.components.push(
+      component('a', ['components/a/types.ts']),
+      component('b', ['components/b/types.ts'])
+    );
+    writeMap(repo, map);
+    write(repo, `${FOLDER}/types.ts`, 'export type Mine = 3;\n');
+    const run = { page: 'pricing', component: 'pricing-section', iteration: 'iteration-01' };
+    const added = await recordChildren(repo, run);
+    assert.ok(!added.some(item => item.copy === 'types.ts'), JSON.stringify(added));
+
+    // One beside the section's own file is the one.
+    write(repo, 'components/pricing/types.ts', 'export type Plan = 4;\n');
+    map.components.push(component('pricing-types', ['components/pricing/types.ts']));
+    writeMap(repo, map);
+    const again = await recordChildren(repo, run);
+    assert.deepEqual(
+      again.filter(item => item.copy === 'types.ts').map(item => item.path),
+      ['components/pricing/types.ts']
+    );
+  });
+
   it('targets the original files and each child, found again by name, and fills the stand-ins', async () => {
     const { repo, requests, promote } = await forked();
     // The fork's finish never recorded the plan card: the promote looks again (decision 39).
