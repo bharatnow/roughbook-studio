@@ -332,7 +332,13 @@ export async function completePromotion(
   for (const line of describePromotion(finished)) io.out(line);
   for (const line of refreshed) io.out(`  ${line}`);
   if (finished.commit?.state === 'pending') {
-    await decideCommit(context, finished, options.commit);
+    const outcome = finished.result?.outcome;
+    // --commit, given before the outcome was known, commits a done promote only.
+    if (options.commit === true && outcome !== 'done') {
+      io.out(
+        `  Left uncommitted on ${finished.branch!.name}: the promote is ${outcome}, and --commit commits a done one only. To commit it all the same, run roughbook done ${finished.page}/${finished.component}/${finished.iteration} --commit.`
+      );
+    } else await decideCommit(context, finished, options.commit);
   }
   return finished;
 }

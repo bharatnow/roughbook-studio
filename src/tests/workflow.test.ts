@@ -2111,6 +2111,44 @@ describe('roughbook promote', () => {
     });
   });
 
+  it('commits on --commit only a promote that is done; one that is not, only when asked after', async () => {
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () =>
+        ok({ ...promotion, copyMarkdown: null, assets: [], missingAssets: [] }, 201),
+      [`POST ${PROJECT}/promotions/${PROMOTION}/finish`]: () => ok({ recorded: true })
+    });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=T', ...args], {
+        cwd: studio.repo,
+        encoding: 'utf8'
+      }).trim();
+    write(studio.repo, 'rough/home/hero/iteration-02/index.tsx', 'export default () => null;\n');
+    const start = git('rev-parse', 'HEAD');
+    assert.equal(await studio.run(['promote', 'home/hero', '--branch']), 0);
+    // The agent writes the component, and a file outside the promote's scope.
+    write(studio.repo, 'src/components/Hero.tsx', 'export function Hero() { return null; }\n');
+    write(studio.repo, 'src/lib/extra.ts', 'export const extra = 1;\n');
+    await studio.run(['done', '--commit', '--no-screenshots']);
+    assert.equal(git('rev-list', '--count', `${start}..HEAD`), '0');
+    assert.ok(
+      studio.io.lines.some(line =>
+        /Left uncommitted on roughbook\/home-hero-iteration-02: the promote is out-of-scope/.test(
+          line
+        )
+      ),
+      studio.io.lines.join('\n')
+    );
+    // Asked for after seeing it: committed, its own files only.
+    assert.equal(
+      await studio.run(['done', 'home/hero/iteration-02', '--commit']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    assert.equal(git('rev-list', '--count', `${start}..HEAD`), '1');
+    assert.equal(git('show', '--name-only', '--format=', 'HEAD'), 'src/components/Hero.tsx');
+  });
+
   it("is finished by the agent's finish_run with its promotion, which never commits", async () => {
     const studio = await setup({
       [`GET ${PROJECT}`]: () => ok(tree(2)),
