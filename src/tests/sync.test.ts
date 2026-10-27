@@ -167,6 +167,26 @@ describe('the incremental refresh', () => {
     );
   });
 
+  it('reads again a file whose alias import resolved to nothing, once that file appears', async () => {
+    const repo = path.join(await tempDir('roughbook-sync-'), 'app');
+    syncApp(repo, SIZE);
+    write(
+      repo,
+      'app/late/page.tsx',
+      'import Late from "@/components/late";\nexport default function Page() { return <Late />; }\n'
+    );
+    const input = { repo, ignore: [], own: [] };
+    const entries = listFiles(input).filter(file => file.startsWith('app/'));
+    const memo: DiscoverMemo = { stamps: new Map(), imports: new Map() };
+    await buildGraph(repo, entries, { memo, stamps: stampFiles(repo, listFiles(input)) });
+    write(repo, 'components/late.tsx', 'export default function Late() { return <p>Late</p>; }\n');
+    const again = await buildGraph(repo, entries, {
+      memo,
+      stamps: stampFiles(repo, listFiles(input))
+    });
+    assert.ok(again.inputs.has('components/late.tsx'), [...again.inputs.keys()].join(' '));
+  });
+
   it('writes the map only when it changed, and the map a full one would', async () => {
     const { repo, environment, refresh } = await adoptedApp();
     write(repo, sectionFile(0), sectionSource(0, '\n      <p>Copy edited.</p>'));

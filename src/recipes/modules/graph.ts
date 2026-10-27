@@ -38,9 +38,13 @@ export const CODE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs', '.
 const ASSET =
   /\.(css|scss|sass|less|styl|pcss|svg|png|jpe?g|gif|webp|avif|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|wav|json|md|mdx|txt|html|glsl|wasm|graphql|gql|ya?ml)(\?.*)?$/i;
 
-/** A bare import's package name: `react-dom/client` is react-dom, `@radix-ui/react-tabs/x` is the scoped name. */
+/**
+ * A bare import's package name: `react-dom/client` is react-dom, `@radix-ui/react-tabs/x` is the
+ * scoped name. An alias no package can be named (`@/…`, `~/…`, `#…`) is none: it is the repo's.
+ */
 function packageName(spec: string): string | null {
   if (/^[./]/.test(spec) || /^[a-z]:/i.test(spec) || spec.includes(':')) return null;
+  if (/^(?:@\/|~|#)/.test(spec)) return null;
   const parts = spec.split('/');
   return spec.startsWith('@') ? (parts.length > 1 ? `${parts[0]}/${parts[1]}` : null) : parts[0]!;
 }
