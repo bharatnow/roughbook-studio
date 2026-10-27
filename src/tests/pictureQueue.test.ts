@@ -108,6 +108,28 @@ describe('the picture queue', () => {
     assert.deepEqual(taken, ['b', 'a']);
   });
 
+  it('tries again by itself a while after nothing could be taken, so a card shown early is pictured', async () => {
+    let up = false;
+    const taken: string[] = [];
+    const queue = new PictureQueue(
+      async key => {
+        if (!up) return 'wait';
+        taken.push(key);
+        return 'taken';
+      },
+      { retryMs: 20 }
+    );
+    queue.show(['a', 'b']);
+    await queue.idle();
+    assert.equal(queue.view().paused, true);
+    // The app comes up; the canvas asks nothing more.
+    up = true;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    await queue.idle();
+    assert.deepEqual(taken, ['a', 'b']);
+    queue.stop();
+  });
+
   it('counts a take that throws as failed, and goes on', async () => {
     const taken: string[] = [];
     const queue = new PictureQueue(async key => {

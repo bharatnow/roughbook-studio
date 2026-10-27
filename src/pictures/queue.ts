@@ -18,6 +18,9 @@ export type TakeResult = 'taken' | 'kept' | 'skipped' | 'failed' | 'wait';
 /** How long a failed key waits before the canvas's showing it again tries it again. */
 export const RETRY_AFTER_MS = 60_000;
 
+/** How long the queue waits, once nothing could be taken (the app down), before trying again. */
+export const WAIT_RETRY_MS = 5_000;
+
 /** How many cards the canvas shows at once, near enough: an adoption past it is queued. */
 export const SCREENFUL = 12;
 
@@ -97,7 +100,7 @@ export type QueueView = { taking: string | null; shown: number; rest: number; pa
 
 /**
  * The order with a worker: takes one key at a time with `take` until nothing waits, or until a
- * take says `wait`, when it pauses until the next show or add. `onTaken` hears each key whose
+ * take says `wait`, when it pauses until the next show or add, or WAIT_RETRY_MS. `onTaken` hears each key whose
  * pictures changed, and `onIdle` when nothing is left to take.
  */
 export class PictureQueue {
@@ -106,6 +109,7 @@ export class PictureQueue {
   private running: Promise<void> | null = null;
   private paused = false;
   private stopped = false;
+  private retry: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly take: (key: string) => Promise<TakeResult>,
@@ -113,6 +117,8 @@ export class PictureQueue {
       onTaken?: (key: string) => void;
       onIdle?: () => void;
       now?: () => number;
+      /** How long a pause lasts before the queue tries again by itself. */
+      retryMs?: number;
     } = {}
   ) {
     this.order = new PictureOrder(hooks.now);
@@ -142,9 +148,13 @@ export class PictureQueue {
 
   stop(): void {
     this.stopped = true;
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
   }
 
   private kick(): void {
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
     if (this.running || this.stopped) return;
     this.running = this.drain().finally(() => {
       this.running = null;
@@ -170,6 +180,13 @@ export class PictureQueue {
       if (result === 'wait') {
         this.order.putBack(key);
         this.paused = true;
+        // The app may come up with nothing asked of the queue: it tries again by itself.
+        this.retry = setTimeout(() => {
+          this.retry = null;
+          this.paused = false;
+          this.kick();
+        }, this.hooks.retryMs ?? WAIT_RETRY_MS);
+        this.retry.unref();
         return;
       }
       if (result === 'failed') this.order.failed(key);
