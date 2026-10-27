@@ -1915,9 +1915,9 @@ describe('roughbook promote', () => {
         { scope: 'library', file: 'mark.svg' }
       ],
       // A family token, so the server leaves what the stack decides for this studio to fill (F7).
-      family: 'react-like',
-      // A component with no kept base is a new file (B4).
-      how: 'new'
+      // A component with no kept base is a new file (B4): no `how`, as a 0.3.16 studio sent it,
+      // which a backend from before B4 takes too.
+      family: 'react-like'
     });
     assert.equal(read(studio.repo, 'public/rough/home/hero/hero.png'), 'PNG-BYTES');
     assert.equal(read(studio.repo, 'rough/home/hero/copy.md'), promotion.copyMarkdown);

@@ -260,7 +260,7 @@ async function forked(options: { git?: boolean } = {}) {
   const fake = fakeFetch((request: RecordedRequest) => {
     const url = new URL(request.url).pathname.replace('/v1/api/studio', '');
     if (request.method === 'POST' && url.endsWith('/promotions')) {
-      how = (request.body as { how: string }).how;
+      how = (request.body as { how?: string }).how ?? 'new';
       return ok(promotion(how), 201);
     }
     if (url.endsWith(`/promotions/${PROMOTION}/finish`)) return ok({ recorded: true });
@@ -400,9 +400,9 @@ describe('a new component of a page the map has', () => {
     assert.equal(prepared.how, 'new');
     // Decision 56: the pricing section's folder and kebab-case, not the components folder.
     assert.equal(prepared.targetFile, 'components/pricing/logo-wall.tsx');
-    assert.equal(
-      (requests.find(request => request.url.endsWith('/promotions'))!.body as { how: string }).how,
-      'new'
+    // A new file sends no `how`, as a studio before B4 did.
+    assert.ok(
+      !('how' in (requests.find(request => request.url.endsWith('/promotions'))!.body as object))
     );
 
     const named = await forked();

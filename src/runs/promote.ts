@@ -435,7 +435,7 @@ export async function preparePromotion(
     assets: referencedAssets(sources, link.project),
     // What the prompt says of the stack is then left for this studio to fill (F7).
     family: environment.family,
-    how
+    ...(how === 'new' ? {} : { how })
   });
   assertRunId(promotion.promotionId);
 
