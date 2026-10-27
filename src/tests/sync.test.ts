@@ -246,6 +246,34 @@ describe('renames', () => {
     ]);
   });
 
+  it('points a baseline checked out with Windows line endings at the new path all the same', async () => {
+    const { repo, refresh } = await adoptedApp();
+    const before = sectionFile(1);
+    const after = 'components/moved/section-0001.tsx';
+    // As git with core.autocrlf checks rough/ out on Windows.
+    const entry = `rough/home/section0001/${BASELINE}/index.tsx`;
+    write(repo, entry, read(repo, entry).replace(/\n/g, '\r\n'));
+    write(repo, after, read(repo, before));
+    remove(repo, before);
+    write(
+      repo,
+      'app/page.tsx',
+      pageSource([0, 1, 2]).replace(
+        `@/${before.replace('.tsx', '')}`,
+        '@/components/moved/section-0001'
+      )
+    );
+    const result = (await refresh())!;
+    assert.deepEqual(
+      result.renamed.map(item => item.now.slug),
+      ['section0001']
+    );
+    assert.match(
+      entryOf(repo, 'section0001'),
+      /from "\.\.\/\.\.\/\.\.\/\.\.\/components\/moved\/section-0001"/
+    );
+  });
+
   it('keeps the slug of a component renamed in place, and of one moved and renamed', async () => {
     const { repo, refresh } = await adoptedApp();
     const renamed = sectionSource(2).replaceAll('Section0002', 'IntroBlock');

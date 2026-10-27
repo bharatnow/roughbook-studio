@@ -93,9 +93,11 @@ export function followBaselines(
       if (current === null) continue;
       const placeholder = gonePointer(recipe, entry, `${page}/${component.slug}/${BASELINE}`);
       const next = gone ? placeholder : pointerOf(component, folder);
-      if (next === null || next === current) continue;
-      const ours =
-        current === placeholder || (before !== null && current === pointerOf(before, folder));
+      // Line endings aside: git may check rough/ out with Windows ones (core.autocrlf).
+      const unix = (text: string) => text.replace(/\r\n/g, '\n');
+      const same = (text: string | null) => text !== null && unix(text) === unix(current);
+      if (next === null || same(next)) continue;
+      const ours = same(placeholder) || (before !== null && same(pointerOf(before, folder)));
       if (!ours) {
         result.left.push(`${page}/${component.slug}`);
         continue;
