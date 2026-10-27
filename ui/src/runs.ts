@@ -34,3 +34,15 @@ export function runWord(run: RunView): string {
 export function finishedBy(run: RunView): { word: string; sentence: string } | null {
   return run.finishedBy ? FINISHED_BY[run.finishedBy] : null;
 }
+
+/**
+ * Whether a run open before is finished now: the project is read again at once, so a view open
+ * on it, such as the composition editor waiting for a new section's first iteration, has it.
+ */
+export function runFinishedSince(
+  before: Pick<RunView, 'runId' | 'status'>[],
+  after: Pick<RunView, 'runId' | 'status'>[]
+): boolean {
+  const open = new Set(before.filter(run => run.status === 'started').map(run => run.runId));
+  return after.some(run => open.has(run.runId) && run.status !== 'started');
+}

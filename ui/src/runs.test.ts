@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { finishedBy, runWord } from './runs.ts';
+import { finishedBy, runFinishedSince, runWord } from './runs.ts';
 import type { RunView } from './types.ts';
 
 const RUN: RunView = {
@@ -66,5 +66,16 @@ describe('how a run is said', () => {
     assert.equal(finishedBy({ ...RUN, finishedBy: 'local-ui' })?.word, 'Studio');
     assert.equal(finishedBy({ ...RUN, finishedBy: 'headless' })?.word, 'Unattended');
     assert.equal(finishedBy(RUN), null);
+  });
+});
+
+describe('a run finishing', () => {
+  it('is heard once, between two reads of the runs', () => {
+    const open = { runId: 'r1', status: 'started' as const };
+    const done = { runId: 'r1', status: 'finished' as const };
+    assert.equal(runFinishedSince([], [done]), false);
+    assert.equal(runFinishedSince([open], [open]), false);
+    assert.equal(runFinishedSince([open], [done]), true);
+    assert.equal(runFinishedSince([done], [done]), false);
   });
 });

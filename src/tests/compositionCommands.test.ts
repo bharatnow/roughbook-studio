@@ -54,7 +54,24 @@ describe('saving a composition', () => {
       repo,
       {
         [`POST ${PAGE}/compositions`]: () => ok({ id: 'composition-03', number: 3 }, 201),
-        [`GET /v1/api/studio/orgs/${ORG}/projects/site`]: () => ok(TREE),
+        // The new section, by the name it was made with (decision 61).
+        [`GET /v1/api/studio/orgs/${ORG}/projects/site`]: () =>
+          ok({
+            ...TREE,
+            pages: [
+              {
+                ...TREE.pages[0],
+                components: [
+                  {
+                    slug: 'customer-logos',
+                    name: 'Customer logos',
+                    selectedIteration: null,
+                    iterations: []
+                  }
+                ]
+              }
+            ]
+          }),
         [`PUT ${PAGE}/compositions/composition-03/pictures/thumbnail`]: () =>
           ok({ kind: 'thumbnail', width: 640, height: 400, updatedAt: '' }),
         [`PUT ${PAGE}/compositions/composition-03/pictures/desktop`]: () =>
@@ -102,7 +119,7 @@ describe('saving a composition', () => {
     assert.deepEqual(io.lines.slice(0, 5), [
       'Saved composition-03 of home, “Proof first”: rough/home/compositions/composition-03/',
       '  1. Hero (the app’s own): kept',
-      '  2. customer-logos (iteration-01): added',
+      '  2. Customer logos (iteration-01): added',
       '  3. Testimonials (the app’s own): moved',
       '  4. Features (the app’s own): kept'
     ]);

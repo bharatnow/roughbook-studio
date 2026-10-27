@@ -9,6 +9,7 @@ import {
   compositionId,
   compositionProblems,
   describePlan,
+  sectionNames,
   formatSections,
   parseSections,
   planComposition,
@@ -188,6 +189,24 @@ describe("a composition's plan", () => {
         '  - TESTIMONIALS: removed, replaced'
       ]
     );
+  });
+
+  it('names a new section by the name it was made with, not its slug (decision 61)', () => {
+    const name = sectionNames(
+      { components: [{ slug: 'hero', name: 'Hero' } as RepoMap['components'][number]] },
+      {
+        pages: [
+          { slug: 'about', components: [{ slug: 'customer-logos', name: 'Elsewhere' }] },
+          { slug: 'home', components: [{ slug: 'customer-logos', name: 'Customer logos' }] }
+        ]
+      },
+      'home'
+    );
+    assert.equal(name('customer-logos'), 'Customer logos');
+    assert.equal(name('hero'), 'Hero');
+    assert.equal(name('quotes'), 'quotes');
+    // Offline, with no project read: the map's names.
+    assert.equal(sectionNames(null, null, 'home')('hero'), 'hero');
   });
 
   it('replaces the first section in place, and each removed section once', () => {

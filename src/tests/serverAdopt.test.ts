@@ -230,7 +230,8 @@ describe("the local server's adoption", () => {
       map.pages.map((page: { slug: string }) => page.slug),
       ['home', 'about']
     );
-    assert.deepEqual(map.components[0], {
+    const { shotsAt, ...hero } = map.components[0];
+    assert.deepEqual(hero, {
       slug: 'hero',
       name: 'hero',
       kind: 'section',
@@ -238,6 +239,8 @@ describe("the local server's adoption", () => {
       why: null,
       shots: ['desktop']
     });
+    // When the picture was taken, so the card asks for it again after it is retaken.
+    assert.ok(!Number.isNaN(Date.parse(shotsAt)));
     assert.ok(!JSON.stringify(map).includes('components/'), 'no file of the app');
     const picture = await call('GET', '/api/map/component/hero/screenshots/desktop');
     assert.equal(picture.status, 200);

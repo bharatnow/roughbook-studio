@@ -46,6 +46,7 @@ import {
   type StudioActionId
 } from '../canvas-actions';
 import { studioCanvasInput, type StudioCanvas } from '../canvas-input';
+import { picturesChanged, useShownCards } from '../shown-cards';
 import { studioCommands, type StudioCommand } from '../commands';
 import { describe, findComponent, useStudio } from '../data';
 import { pagesWithView } from '../in-page';
@@ -182,7 +183,7 @@ function StudioCanvasView({
   focus: CanvasFocus;
   session?: string;
 }) {
-  const { runs, terminals, runsReady, refresh, say } = useStudio();
+  const { runs, terminals, runsReady, refresh, say, changes } = useStudio();
   const { setCrumbs, palette, dock, showSession } = useChrome();
   const { Link } = useUiHost();
   const runApp = useAppCommands();
@@ -196,6 +197,13 @@ function StudioCanvasView({
     // The signature stands for all three.
     [signature]
   );
+
+  // The cards on screen have their pictures taken first (decision 65 of the brownfield plan), and
+  // the canvas reads the project again as each one comes out.
+  const showCards = useShownCards(signature);
+  useEffect(() => {
+    if (picturesChanged(changes.keys)) void refresh();
+  }, [changes, refresh]);
 
   // --- the selection, and the address it moves --------------------------------------------------
 
@@ -669,7 +677,10 @@ function StudioCanvasView({
           cards: focus.kind === 'iterations' || focus.kind === 'iteration'
         }}
         defaultView={returning ? (kept.view ?? null) : null}
-        onViewChange={view => (kept.view = view)}
+        onViewChange={view => {
+          kept.view = view;
+          showCards();
+        }}
         defaultUnfolded={unfolded}
         onUnfoldedChange={next => {
           setUnfolded(next);
@@ -679,6 +690,7 @@ function StudioCanvasView({
         onListChange={next => {
           setList(next);
           kept.list = next;
+          showCards();
         }}
         autoFocus={returning}
         marked={new Set(compare)}

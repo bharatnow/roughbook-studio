@@ -12,6 +12,7 @@ import { isDynamic, mapProblems, readMap } from '../map/file.js';
 import type { MapComponent, RepoMap } from '../map/types.js';
 import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
+import { recordMapPictures } from '../pictures/mapPictures.js';
 import { mapScreenshotPath } from '../screenshot/iteration.js';
 import { syncIterations } from '../repo/mirror.js';
 import { ROUGH_DIR } from '../repo/root.js';
@@ -418,6 +419,7 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
           ...(waitMs ? { waitMs } : {})
         }));
       overlays += probe.visibleOverlays ? 1 : 0;
+      let allTaken = true;
       for (const viewport of environment.viewports) {
         // Kept for the canvas's "In the app" cards, which show them before anything is adopted.
         const file = path.join(
@@ -438,7 +440,11 @@ async function pageChecks(input: MapCheckInput): Promise<CheckResult[]> {
         });
         if (ok) taken += 1;
         else missed.push(`${target.slug} at ${viewport.name}`);
+        allTaken &&= ok;
       }
+      // Kept by the canvas's queue while the component is unchanged (decision 65).
+      const component = target.page ? null : cards.find(item => item.slug === target.slug);
+      if (component && allTaken) await recordMapPictures(repoRoot, component, environment);
     }
     checks.push(
       missed.length

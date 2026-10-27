@@ -159,6 +159,8 @@ export type MapView = {
     alone: Known;
     why: string | null;
     shots: string[];
+    /** When its pictures were last taken: a card asks for them again after. */
+    shotsAt?: string | null;
   }[];
   problem: string | null;
 };

@@ -4,10 +4,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react';
 import { Failure, get } from './api';
+import { runFinishedSince } from './runs';
 import type {
   Changes,
   Component,
@@ -112,6 +114,14 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A run that finishes brings its iteration with it: the project is read again at once, so an
+  // open view (the canvas, the composition editor) shows it without a reload (decision 61).
+  const lastRuns = useRef<RunView[]>([]);
+  useEffect(() => {
+    if (runFinishedSince(lastRuns.current, runs)) void refreshProject();
+    lastRuns.current = runs;
+  }, [runs, refreshProject]);
 
   // Runs change while an agent works: often while one is open, rarely otherwise. The project is
   // the local server's copy of the backend's, so asking for it here is cheap: the server decides

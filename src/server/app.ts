@@ -223,6 +223,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     ),
     // The canvas's Adopt and Adopt all (B2 of the brownfield plan).
     route('POST', '/api/adopt', async request => studio.adopt(await readBody(request))),
+    // The cards on screen, whose pictures are taken first (decision 65 of the brownfield plan).
+    route('POST', '/api/pictures/shown', async request =>
+      studio.showCards(await readBody(request))
+    ),
+    route('GET', '/api/pictures', async () => studio.picturesView()),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
       return studio.promote({

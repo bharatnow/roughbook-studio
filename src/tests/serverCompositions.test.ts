@@ -186,7 +186,7 @@ describe("the local server's compositions", () => {
     });
     assert.equal(saved.status, 200, JSON.stringify(saved.json));
     assert.equal(saved.json.data.id, 'composition-01');
-    assert.ok(saved.json.data.lines.includes('  1. customer-logos (iteration-01): added'));
+    assert.ok(saved.json.data.lines.includes('  1. Customer logos (iteration-01): added'));
     const create = backend.requests.find(request => request.url.endsWith('/compositions'))!;
     assert.deepEqual(create.body, { sections, name: 'Logos first' });
 

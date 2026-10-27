@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 import { describeError } from '../api/errors.js';
 import { outboxFor } from '../api/outbox.js';
 import { parseSections } from '../compositions/composition.js';
-import { describePlan } from '../compositions/composition.js';
+import { describePlan, sectionNames } from '../compositions/composition.js';
 import {
   composedAddress,
   makeSection,
@@ -157,13 +157,13 @@ export const composition: Command = {
       ...(values.name !== undefined ? { name: values.name } : {}),
       ...(values.parent !== undefined ? { parent: values.parent } : {})
     });
-    const names = new Map(
-      (readMap(repoRoot)?.map.components ?? []).map(item => [item.slug, item.name])
-    );
+    // A new section is named as it was made, which only the project knows.
+    const tree = await api.project(link.orgId, link.project).catch(() => null);
+    const names = sectionNames(readMap(repoRoot)?.map ?? null, tree, page);
     io.out(
       `Saved ${saved.id} of ${page}${saved.composition.name ? `, “${saved.composition.name}”` : ''}: ${saved.folder}/`
     );
-    for (const line of describePlan(saved.plan, slug => names.get(slug) ?? slug)) io.out(line);
+    for (const line of describePlan(saved.plan, names)) io.out(line);
     const lines = await pictureComposition(
       context,
       link,

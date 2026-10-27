@@ -31,6 +31,7 @@ import {
   picturesAfterShots,
   sharePagePictures
 } from '../pictures/share.js';
+import { leaveForStart, SCREENFUL } from '../pictures/queue.js';
 import { recipeOf } from '../recipes/index.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
@@ -99,8 +100,9 @@ export function describeAdoption({ adopted, baselines }: AdoptOutcome): string[]
 }
 
 /**
- * With the app answering: each adopted component's baseline screenshotted and pictured, and each
- * adopted page pictured at its address. A line for each, as the terminal says it.
+ * With the app answering: the first screenful of adopted components' baselines screenshotted and
+ * pictured, the rest left for start's picture queue, and each adopted page pictured at its
+ * address. A line for each, as the terminal says it.
  */
 export async function pictureAdopted(
   context: CommandContext,
@@ -120,7 +122,10 @@ export async function pictureAdopted(
   } catch {
     // Offline since: the pictures wait in the outbox, which checks the project before sending.
   }
-  for (const key of [...outcome.baselines.written, ...outcome.baselines.present]) {
+  // A screenful now; the rest in start's queue, behind the cards on screen (decision 65).
+  const baselines = [...outcome.baselines.written, ...outcome.baselines.present];
+  const later = baselines.slice(SCREENFUL);
+  for (const key of baselines.slice(0, SCREENFUL)) {
     const [page, component] = key.split('/') as [string, string];
     const target = { page, component, iteration: BASELINE };
     const shots = await queued(repoRoot, () =>
@@ -144,6 +149,15 @@ export async function pictureAdopted(
       shots
     );
     if (pictures) lines.push(`  ${pictures}`);
+  }
+  if (later.length) {
+    await leaveForStart(
+      repoRoot,
+      later.map(key => `${key}/${BASELINE}`)
+    );
+    lines.push(
+      `  The other ${later.length} baselines are pictured by roughbook start, those on screen first, or with roughbook screenshot <page>/<component>/${BASELINE}.`
+    );
   }
   const shoot = pictureShot(context);
   if (shoot) {

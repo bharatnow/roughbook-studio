@@ -22,6 +22,7 @@ import {
 } from '../map/adopt.js';
 import { writeMap } from '../map/file.js';
 import type { MapComponent, MapPage, RepoMap } from '../map/types.js';
+import { SCREENFUL, takeLeftForStart } from '../pictures/queue.js';
 import { recipeFor } from '../recipes/index.js';
 import { iterationHash } from '../screenshot/iteration.js';
 import { fakeFetch, ok, recordingIo, refused, tempDir, type RecordedRequest } from './helpers.js';
@@ -498,5 +499,48 @@ describe('roughbook adopt', () => {
     const quiet = await studio(small, { [ADOPT]: adoptRoute });
     assert.equal(await quiet.run(['adopt', '--all']), 0, quiet.io.errors.join('\n'));
     assert.deepEqual(quiet.io.questions, []);
+  });
+
+  it('pictures a screenful of baselines and leaves the rest for start (decision 65)', async () => {
+    const parts = Array.from({ length: SCREENFUL + 3 }, (_, index) =>
+      component(`part-${index}`, [`components/part-${index}.tsx`])
+    );
+    const repo = await linkedRepo(
+      repoMap(
+        [
+          page(
+            'home',
+            parts.map(c => c.slug)
+          )
+        ],
+        parts
+      )
+    );
+    const shot: string[] = [];
+    const { io, run } = await studio(
+      repo,
+      { [ADOPT]: adoptRoute },
+      {
+        overrides: {
+          askPreview: async url => ({ status: 200, url }),
+          screenshot: async (_repo, _url, target) => {
+            shot.push(target.component);
+            return { files: {}, warning: null };
+          }
+        }
+      }
+    );
+    assert.equal(await run(['adopt', 'home']), 0, io.errors.join('\n'));
+    assert.equal(shot.length, SCREENFUL);
+    assert.deepEqual(await takeLeftForStart(repo), [
+      `home/part-${SCREENFUL}/iteration-00`,
+      `home/part-${SCREENFUL + 1}/iteration-00`,
+      `home/part-${SCREENFUL + 2}/iteration-00`
+    ]);
+    assert.ok(
+      io.lines.includes(
+        '  The other 3 baselines are pictured by roughbook start, those on screen first, or with roughbook screenshot <page>/<component>/iteration-00.'
+      )
+    );
   });
 });

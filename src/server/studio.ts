@@ -50,6 +50,14 @@ import {
   picturesDir,
   sharePagePictures
 } from '../pictures/share.js';
+import { clearMapPictures, MAP_PICTURES_PAGE, takeMapPictures } from '../pictures/mapPictures.js';
+import {
+  PictureQueue,
+  takeLeftForStart,
+  type QueueView,
+  type TakeResult
+} from '../pictures/queue.js';
+import { findBrowser, takeScreenshot } from '../screenshot/browser.js';
 import { resolveVariants, screenshotSet, type ResolvedVariant } from '../environment/variants.js';
 import { currentOs } from '../launch/platform.js';
 import { resolveCommandLine } from '../launch/processes.js';
@@ -90,6 +98,7 @@ import { finishPromotionHere } from '../commands/finishPromotion.js';
 import {
   COMPOSITION_ID,
   describePlan,
+  sectionNames,
   type CompositionSection
 } from '../compositions/composition.js';
 import {
@@ -165,6 +174,8 @@ export type LocalStudioOptions = {
   pty: PtySupport;
   /** How the snapshot and device commands run; replaced in tests. */
   snapshotExec?: SnapshotExec;
+  /** How a map component's pictures are taken; replaced in tests. */
+  mapPictures?: typeof takeMapPictures;
 };
 
 /** The repo's environment as the page needs it for the frame: no path, no command line but the start's. */
@@ -227,6 +238,8 @@ export type MapView = {
     alone: Known;
     why: string | null;
     shots: string[];
+    /** When its pictures were last taken, so a card asks for them again after. */
+    shotsAt: string | null;
   }[];
   /** Why rough/map.md cannot be read, or null. */
   problem: string | null;
@@ -527,6 +540,14 @@ export class LocalStudio {
   private readonly previewToken = newToken();
   /** The standalone server, on this port under the name localhost (see standalone/server.ts). */
   readonly standalone: StandaloneHandler;
+  /**
+   * Pictures as they are needed (decision 65 of the brownfield plan): the cards the canvas shows
+   * first, then the rest, one at a time. Keys are `iteration:<page>/<component>/<iteration>` for
+   * an iteration here and `map:<slug>` for a map component not adopted yet.
+   */
+  readonly pictures: PictureQueue;
+  /** Whether everything else is queued behind the shown cards yet: once, at the canvas's first ask. */
+  private restQueued = false;
 
   constructor(private readonly options: LocalStudioOptions) {
     this.terminals = options.pty.ok ? new Terminals(options.pty.pty) : null;
@@ -537,6 +558,20 @@ export class LocalStudio {
       token: this.previewToken,
       hosts: [this.siteHost],
       frameAncestors: [`http://127.0.0.1:${options.port}`]
+    });
+    this.pictures = new PictureQueue(key => this.takePicture(key), {
+      onTaken: key =>
+        this.changes.note(
+          key.startsWith('map:') ? `${key}${IMAGES}` : `${key.slice('iteration:'.length)}${IMAGES}`
+        ),
+      // The pointers the map's pictures were taken through go once nothing waits.
+      onIdle: () => {
+        try {
+          clearMapPictures(this.repoRoot, this.previewEnvironment());
+        } catch {
+          // The next idle tries again; doctor clears its pages too.
+        }
+      }
     });
   }
 
@@ -917,7 +952,9 @@ export class LocalStudio {
   /** The iterations in this repo and their screenshots, read from disk on every ask. */
   private local() {
     const environment = this.environment;
-    const iterations = listIterations(this.repoRoot, environment.entry);
+    const iterations = listIterations(this.repoRoot, environment.entry).filter(
+      key => !key.startsWith(`${MAP_PICTURES_PAGE}/`)
+    );
     const screenshots: Record<string, string[]> = {};
     const screenshotsAt: Record<string, string> = {};
     const names = screenshotSet(environment.viewports, environment.variants).map(shot => shot.name);
@@ -997,6 +1034,16 @@ export class LocalStudio {
     const viewports = this.environment.viewports.map(viewport => viewport.name);
     const shots = (kind: 'page' | 'component', slug: string) =>
       viewports.filter(size => fs.existsSync(this.disk(mapScreenshotPath(kind, slug, size))));
+    const shotsAt = (slug: string) => {
+      const first = viewports[0];
+      try {
+        return first
+          ? fs.statSync(this.disk(mapScreenshotPath('component', slug, first))).mtime.toISOString()
+          : null;
+      } catch {
+        return null;
+      }
+    };
     return {
       pages: read.map.pages.map(page => ({
         slug: page.slug,
@@ -1012,7 +1059,8 @@ export class LocalStudio {
         kind: component.kind,
         alone: component.alone,
         why: component.why,
-        shots: shots('component', component.slug)
+        shots: shots('component', component.slug),
+        shotsAt: shotsAt(component.slug)
       })),
       problem: null
     };
@@ -1069,14 +1117,13 @@ export class LocalStudio {
     return { lines: describeAdoption(outcome), written: outcome.baselines.written };
   }
 
-  /** After adoption: the new baselines' screenshots and pictures, and the adopted pages' pictures. */
+  /**
+   * After adoption: the new baselines' screenshots and pictures, in the picture queue behind the
+   * cards on screen (decision 65), and the adopted pages' pictures.
+   */
   private async pictureAdopted(baselines: string[], pages: string[]): Promise<void> {
+    this.pictures.add(baselines.map(key => `iteration:${key}/${BASELINE}`));
     try {
-      for (const key of baselines) {
-        const [page, component] = key.split('/') as [string, string];
-        await this.screenshots({ page, component, iteration: BASELINE });
-        this.changes.note(`${key}/${BASELINE}${IMAGES}`);
-      }
       const shoot = pictureShot(this.context);
       const map = readMap(this.repoRoot)?.map;
       if (!shoot || !map || this.environment.mode !== 'live') return;
@@ -1160,13 +1207,12 @@ export class LocalStudio {
     });
     this.projectChanged();
     void this.pictureComposition(page, saved.id);
-    const names = new Map(
-      (readMap(this.repoRoot)?.map.components ?? []).map(item => [item.slug, item.name])
-    );
+    // A new section is named as it was made, which only the project knows.
+    const { tree } = await this.project().catch(() => ({ tree: null }));
     return {
       id: saved.id,
       number: saved.number,
-      lines: describePlan(saved.plan, slug => names.get(slug) ?? slug)
+      lines: describePlan(saved.plan, sectionNames(readMap(this.repoRoot)?.map ?? null, tree, page))
     };
   }
 
@@ -1903,6 +1949,104 @@ export class LocalStudio {
     return bytes;
   }
 
+  /**
+   * The cards the canvas shows now, by card key (`iteration:<page>/<component>/<iteration>`): their
+   * pictures are taken first, in that order, then every other card's, and the baselines
+   * `roughbook adopt` left. Ids only; at most 200.
+   */
+  async showCards(body: Record<string, unknown>): Promise<QueueView> {
+    const cards = body.cards;
+    if (!Array.isArray(cards) || cards.length > 200) {
+      throw new BadRequest('Name the cards on screen, at most 200.');
+    }
+    const keys = cards.map(card => {
+      const [page = '', component = '', iteration = '', ...rest] = (
+        /^iteration:(.*)$/.exec(String(card))?.[1] ?? ''
+      ).split('/');
+      if (rest.length || !SLUG.test(page) || !SLUG.test(component) || !ITERATION.test(iteration)) {
+        throw new BadRequest('A card is named iteration:<page>/<component>/<iteration>.');
+      }
+      return this.pictureKey(page, component, iteration);
+    });
+    this.pictures.show(keys.filter((key): key is string => key !== null));
+    const left = await takeLeftForStart(this.repoRoot).catch(() => []);
+    this.pictures.add(left.map(key => `iteration:${key}`));
+    if (!this.restQueued) {
+      this.restQueued = true;
+      this.pictures.add(this.everyPictureKey());
+    }
+    return this.pictures.view();
+  }
+
+  /** What the picture queue is doing. */
+  picturesView(): QueueView {
+    return this.pictures.view();
+  }
+
+  /** A card's key in the queue: its iteration here, or its map component not adopted yet. */
+  private pictureKey(page: string, component: string, iteration: string): string | null {
+    if (iterationExists(this.repoRoot, page, component, iteration)) {
+      return `iteration:${page}/${component}/${iteration}`;
+    }
+    return iteration === BASELINE ? `map:${component}` : null;
+  }
+
+  /** Every card's key: the iterations here, then the map's components not adopted yet. */
+  private everyPictureKey(): string[] {
+    const iterations = listIterations(this.repoRoot, this.environment.entry).filter(
+      key => !key.startsWith(`${MAP_PICTURES_PAGE}/`)
+    );
+    let components: string[] = [];
+    try {
+      const adopted = new Set(iterations.map(key => key.split('/')[1]));
+      components = (readMap(this.repoRoot)?.map.components ?? [])
+        .filter(item => item.kind !== 'atom' && !adopted.has(item.slug))
+        .map(item => `map:${item.slug}`);
+    } catch {
+      // A map that cannot be read has no cards.
+    }
+    return [...iterations.map(key => `iteration:${key}`), ...components];
+  }
+
+  /** Takes one card's pictures, unless the ones it has show its source as it is now. */
+  private async takePicture(key: string): Promise<TakeResult> {
+    if (this.snapshotMode) return 'skipped';
+    if (this.appView().status !== 'up' && (await this.checkApp()).status !== 'up') return 'wait';
+    if (key.startsWith('map:')) {
+      const slug = key.slice('map:'.length);
+      const component = readMap(this.repoRoot)?.map.components.find(item => item.slug === slug);
+      if (!component) return 'skipped';
+      const browser = findBrowser(this.context.env);
+      if (!browser && !this.options.mapPictures) return 'failed';
+      const environment = this.previewEnvironment();
+      return queued(this.repoRoot, () =>
+        (this.options.mapPictures ?? takeMapPictures)({
+          repoRoot: this.repoRoot,
+          environment,
+          recipe: recipeFor(environment.recipe),
+          component,
+          devUrl: this.devUrl,
+          browser: browser ?? '',
+          take: takeScreenshot,
+          check: this.options.context.askPreview
+        })
+      );
+    }
+    const [page = '', component = '', iteration = ''] = key.slice('iteration:'.length).split('/');
+    if (!iterationExists(this.repoRoot, page, component, iteration)) return 'skipped';
+    const open = (await listRuns(this.repoRoot)).some(
+      run =>
+        run.status === 'started' &&
+        run.page === page &&
+        run.component === component &&
+        run.iteration === iteration
+    );
+    if (open) return 'skipped';
+    const shots = await this.screenshots({ page, component, iteration });
+    if (shots.skipped) return 'kept';
+    return Object.keys(shots.files).length ? 'taken' : 'failed';
+  }
+
   /** A screenshot's file, when the iteration has one at that size. */
   screenshotFile(target: ReviewTarget, size: string): string | null {
     this.assertIteration(target);
@@ -2124,6 +2268,7 @@ export class LocalStudio {
   }
 
   close(): void {
+    this.pictures.stop();
     for (const job of this.jobs.values()) job.controller.abort();
     for (const timer of this.reshots.values()) clearTimeout(timer);
     this.reshots.clear();

@@ -83,6 +83,18 @@ export function madeOnWeb(iteration: Pick<Iteration, 'origin' | 'generation'>, h
   return !here && SKETCH_MODES.has(iteration.generation.mode);
 }
 
+/**
+ * A card's picture: with the server's image key, since an <img> cannot send the token, and when
+ * it was taken, so a picture taken again is asked for again (decision 65).
+ */
+function pictureUrl(path: string, shotKey: string | undefined, at: string | null | undefined) {
+  const query = new URLSearchParams();
+  if (shotKey) query.set('key', shotKey);
+  if (at) query.set('at', at);
+  const text = query.toString();
+  return text ? `${path}?${text}` : path;
+}
+
 /** The iteration's number, from its id. */
 function numberOf(id: string): number {
   return Number(/(\d+)$/.exec(id)?.[1] ?? 0);
@@ -160,6 +172,7 @@ export function studioCanvasInput(
       };
       // The first screenshot is the card's picture: the first viewport in the first variant.
       const shot = web ? null : (local.screenshots[`${where}/${iteration.id}`]?.[0] ?? null);
+      const shotAt = local.screenshotsAt?.[`${where}/${iteration.id}`];
       out.push({
         id: iteration.id,
         name: iteration.name,
@@ -167,7 +180,11 @@ export function studioCanvasInput(
         thumbnail: web
           ? SKETCH_PICTURE
           : shot
-            ? `${iterationPath(page, component.slug, iteration.id)}/screenshots/${shot}${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
+            ? pictureUrl(
+                `${iterationPath(page, component.slug, iteration.id)}/screenshots/${shot}`,
+                shotKey,
+                shotAt
+              )
             : null,
         // A sketch has no stage here: it opens where it is on the canvas.
         href: web ? `/${where}/iterations#${iteration.id}` : `/${where}/${iteration.id}`,
@@ -235,7 +252,11 @@ export function studioCanvasInput(
       name: component.name,
       status: { glyph: 'none', word: 'In the app' },
       thumbnail: shot
-        ? `/api/map/component/${component.slug}/screenshots/${shot}${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
+        ? pictureUrl(
+            `/api/map/component/${component.slug}/screenshots/${shot}`,
+            shotKey,
+            component.shotsAt
+          )
         : null,
       href: `/${page}`,
       created: null,

@@ -241,3 +241,19 @@ export function describePlan(plan: CompositionPlan, name: (slug: string) => stri
   }
   return lines;
 }
+
+/**
+ * How a plan names its sections (decision 61): the project's names, which have the new sections
+ * made in the studio, then the map's; the slug only for one neither knows.
+ */
+export function sectionNames(
+  map: Pick<RepoMap, 'components'> | null,
+  tree: { pages: { slug: string; components: { slug: string; name: string }[] }[] } | null,
+  page: string
+): (slug: string) => string {
+  const names = new Map((map?.components ?? []).map(item => [item.slug, item.name]));
+  for (const component of tree?.pages.find(item => item.slug === page)?.components ?? []) {
+    if (component.name.trim()) names.set(component.slug, component.name);
+  }
+  return slug => names.get(slug) ?? slug;
+}
