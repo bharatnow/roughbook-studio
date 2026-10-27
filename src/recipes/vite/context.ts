@@ -275,6 +275,11 @@ export function writeContext(repo: string): boolean {
 const IMPORT_LINE = `import { existsSync as roughbookExists } from "node:fs";`;
 const PLUGIN_CALL = 'roughbookContext(), ';
 const BLOCK_START = '// Roughbook, development only: the in-page view';
+/** The import and the plugin's call as a formatter may leave them. */
+const IMPORT_WRITTEN =
+  /^[ \t]*import\s*\{\s*existsSync\s+as\s+roughbookExists\s*\}\s*from\s*["']node:fs["'][ \t]*;?[ \t]*\r?\n/m;
+const CALL_ON_ITS_LINE = /^[ \t]*roughbookContext\(\)[ \t]*,[ \t]*\r?\n/m;
+const CALL_INLINE = /roughbookContext\(\)\s*,\s*/;
 
 /** The config file this app has, or null. */
 export function viteConfigFile(repo: string): string | null {
@@ -320,8 +325,22 @@ export function undoViteConfig(text: string): string | null {
   if (close === -1) return null;
   let before = text.slice(0, start).replace(/(?:\r?\n)+$/, '');
   const after = text.slice(close + eol.length + 1).replace(/^(?:\r?\n)+/, '');
-  before = before.replace(`${IMPORT_LINE}${eol}`, '').replace(PLUGIN_CALL, '');
+  before = before.replace(IMPORT_WRITTEN, '');
+  before = CALL_ON_ITS_LINE.test(before)
+    ? before.replace(CALL_ON_ITS_LINE, '')
+    : before.replace(CALL_INLINE, '');
   return `${before}${eol}${after}`;
+}
+
+/** Whether two configs differ only as a formatter would make them: spaces, quotes, `;`, trailing commas and parentheses. */
+function sameCode(a: string, b: string): boolean {
+  const plain = (text: string) =>
+    text
+      .replace(/\s+/g, '')
+      .replace(/'/g, '"')
+      .replace(/[;()]/g, '')
+      .replace(/,(?=[\]})])/g, '');
+  return plain(a) === plain(b);
 }
 
 /** vite.config's edit as `init` plans it: null when it is there; a manual step when it cannot be made. */
@@ -331,7 +350,7 @@ export function planViteConfig(repo: string): PrepChange | { manual: string } | 
   if (file && text?.includes(BLOCK_START)) {
     const plain = undoViteConfig(text);
     const now = plain === null ? null : editViteConfig(plain);
-    if (now === null || now === text) return null;
+    if (now === null || sameCode(now, text)) return null;
     return { file, action: 'edit', summary: 'Update the in-page view’s plugin.', after: now };
   }
   const after = text !== null ? editViteConfig(text) : null;

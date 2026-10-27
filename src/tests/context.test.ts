@@ -658,6 +658,27 @@ if (roughbookExists("app/rough-preview/context/loader.cjs")) {
     assert.equal(undoNextConfig(js), cjs);
   });
 
+  it('knows its edit after a formatter went over it, and takes it out whole', async () => {
+    // As prettier with singleQuote writes it: other quotes, the long rules line broken.
+    const formatted = editNextConfig(CONFIG, 'next.config.ts', 'app')!
+      .replaceAll('"', "'")
+      .replace(
+        "rules: { ...roughbookConfig.turbopack?.rules, '*.{tsx,jsx,js}': [roughbookRule(false), roughbookRule(true)] },",
+        "rules: {\n      ...roughbookConfig.turbopack?.rules,\n      '*.{tsx,jsx,js}': [roughbookRule(false), roughbookRule(true)],\n    },"
+      );
+    assert.equal(undoNextConfig(formatted), CONFIG.replaceAll('"', "'"));
+    const repo = await nextRepo();
+    write(repo, 'next.config.ts', formatted);
+    assert.equal(planNextConfig(repo, 'app'), null);
+    // Without semicolons, CommonJS too.
+    const cjs = 'const config = { reactStrictMode: true }\n\nmodule.exports = config\n';
+    const js = editNextConfig(cjs, 'next.config.js', 'app')!.replace(
+      'const { existsSync: roughbookExists } = require("node:fs");',
+      "const { existsSync: roughbookExists } = require('node:fs')"
+    );
+    assert.equal(undoNextConfig(js), cjs);
+  });
+
   it('asks for it by hand when the config exports no variable it can extend', async () => {
     const repo = await tempDir('roughbook-context-');
     write(repo, 'next.config.mjs', 'export default { reactStrictMode: true };\n');

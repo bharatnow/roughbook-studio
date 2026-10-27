@@ -173,6 +173,27 @@ describe('vite.config’s edit', () => {
     assert.equal(undoViteConfig(editedCrlf), crlf);
   });
 
+  it('knows its edit after a formatter went over it, and takes it out whole', async () => {
+    // As prettier with singleQuote and no semicolons writes it, the plugins one per line.
+    const formatted = editViteConfig(CONFIG)!
+      .replace(
+        `import { existsSync as roughbookExists } from "node:fs";`,
+        `import { existsSync as roughbookExists } from 'node:fs'`
+      )
+      .replace(
+        'plugins: [roughbookContext(), react()],',
+        'plugins: [\n    roughbookContext(),\n    react(),\n  ],'
+      )
+      .replaceAll('"', "'");
+    assert.equal(
+      undoViteConfig(formatted),
+      CONFIG.replace('plugins: [react()],', 'plugins: [\n    react(),\n  ],')
+    );
+    const repo = await tempDir('roughbook-context-vite-');
+    write(repo, 'vite.config.ts', formatted);
+    assert.equal(planViteConfig(repo), null);
+  });
+
   it('asks for it by hand when the config has no plugins list', async () => {
     const repo = await tempDir('roughbook-context-vite-');
     write(repo, 'vite.config.js', 'export default {}\n');

@@ -352,6 +352,11 @@ export function writeContext(repo: string): boolean {
 const IMPORT_LINE = `import { existsSync as roughbookExists } from "node:fs";`;
 const REQUIRE_LINE = `const { existsSync: roughbookExists } = require("node:fs");`;
 const BLOCK_START = '// Roughbook, development only: the in-page view';
+/** The import and the require as a formatter may leave them: either quotes, with or without `;`. */
+const IMPORT_WRITTEN =
+  /^[ \t]*import\s*\{\s*existsSync\s+as\s+roughbookExists\s*\}\s*from\s*["']node:fs["'][ \t]*;?[ \t]*\r?\n/m;
+const REQUIRE_WRITTEN =
+  /^[ \t]*const\s*\{\s*existsSync\s*:\s*roughbookExists\s*\}\s*=\s*require\(\s*["']node:fs["']\s*\)[ \t]*;?[ \t]*\r?\n/m;
 /**
  * Turbopack's development cache off (decision 67): `next dev` restarted onto it after files changed
  * while it was down can answer "Lazily compiled dynamic import … was not activated" for an
@@ -452,10 +457,19 @@ export function undoNextConfig(text: string): string | null {
   if (close === -1) return null;
   let before = text.slice(0, start).replace(/(?:\r?\n)+$/, '');
   const after = text.slice(close + eol.length + 1).replace(/^(?:\r?\n)+/, '');
-  for (const line of [IMPORT_LINE, REQUIRE_LINE]) {
-    before = before.replace(`${line}${eol}`, '');
-  }
+  for (const line of [IMPORT_WRITTEN, REQUIRE_WRITTEN]) before = before.replace(line, '');
   return `${before}${eol}${after}`;
+}
+
+/** Whether two configs differ only as a formatter would make them: spaces, quotes, `;`, trailing commas and parentheses. */
+function sameCode(a: string, b: string): boolean {
+  const plain = (text: string) =>
+    text
+      .replace(/\s+/g, '')
+      .replace(/'/g, '"')
+      .replace(/[;()]/g, '')
+      .replace(/,(?=[\]})])/g, '');
+  return plain(a) === plain(b);
 }
 
 /** next.config's edit as `init` plans it: null when it is there; a manual step when it cannot be made. */
@@ -468,7 +482,7 @@ export function planNextConfig(
   if (file && text?.includes(BLOCK_START)) {
     const plain = undoNextConfig(text);
     const now = plain === null ? null : editNextConfig(plain, file, appDir);
-    if (now === null || now === text) return null;
+    if (now === null || sameCode(now, text)) return null;
     return { file, action: 'edit', summary: 'Update the in-page view’s rule.', after: now };
   }
   const after = file && text !== null ? editNextConfig(text, file, appDir) : null;
