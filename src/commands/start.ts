@@ -225,7 +225,10 @@ export const start: Command = {
       err: line => io.err(line),
       stale: () => stale,
       onMapChanged: () => studio.projectChanged(),
-      onAdopted: () => studio.projectChanged()
+      onAdopted: (baselines, pages) => {
+        studio.projectChanged();
+        studio.queueAdopted(baselines, pages);
+      }
     });
     const stopSync = sync.watch();
     void sync.refresh();
