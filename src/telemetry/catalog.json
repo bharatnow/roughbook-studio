@@ -483,7 +483,7 @@
       }
     },
     "promotion.finished": {
-      "description": "A promote's agent finished and the studio checked it: how it went into the app, its outcome, how the app's build and the repo's checks went, and whether it was put on a new branch.",
+      "description": "A promote's agent finished and the studio checked it: how it went into the app, whether it was a component's or a page's composition, its outcome, how the app's build and the repo's checks went, and whether it was put on a new branch.",
       "sentBy": "server",
       "props": {
         "how": {
@@ -492,6 +492,13 @@
             "new",
             "in-place",
             "merge"
+          ]
+        },
+        "subject": {
+          "kind": "enum",
+          "values": [
+            "component",
+            "page"
           ]
         },
         "outcome": {
@@ -521,6 +528,52 @@
         },
         "branch": {
           "kind": "boolean"
+        }
+      }
+    },
+    "composition.created": {
+      "description": "A page composition was saved: on the web from sketches, or in a studio from the app's own sections, and how many sections it has.",
+      "sentBy": "server",
+      "props": {
+        "origin": {
+          "kind": "enum",
+          "values": [
+            "sketch",
+            "local"
+          ]
+        },
+        "sections": {
+          "kind": "int",
+          "min": 0,
+          "max": 30
+        }
+      }
+    },
+    "composition.promoted": {
+      "description": "A page's composition was handed to an agent to arrange the app's page: in place or as a merge, and how many sections it adds, removes and moves.",
+      "sentBy": "server",
+      "props": {
+        "how": {
+          "kind": "enum",
+          "values": [
+            "in-place",
+            "merge"
+          ]
+        },
+        "added": {
+          "kind": "int",
+          "min": 0,
+          "max": 30
+        },
+        "removed": {
+          "kind": "int",
+          "min": 0,
+          "max": 500
+        },
+        "moved": {
+          "kind": "int",
+          "min": 0,
+          "max": 30
         }
       }
     },
@@ -615,7 +668,7 @@
       }
     },
     "picture.uploaded": {
-      "description": "A studio uploaded a picture: which one, whether of an iteration or of an adopted page, and the iteration’s origin (null for a page).",
+      "description": "A studio uploaded a picture: which one, whether of an iteration, an adopted page or a composition of its sections, and the iteration’s origin (null otherwise).",
       "sentBy": "server",
       "props": {
         "kind": {
@@ -632,7 +685,8 @@
           "kind": "enum",
           "values": [
             "iteration",
-            "page"
+            "page",
+            "composition"
           ]
         },
         "origin": {
