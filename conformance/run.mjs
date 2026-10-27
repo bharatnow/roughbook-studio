@@ -284,13 +284,55 @@ async function serveLogged(work, port, devUrl, log) {
   throw new Error(`next dev did not answer within ${environment.timeouts.start} s (${log}).`);
 }
 
+const NEXT_CONFIGS = [
+  'next.config.ts',
+  'next.config.mts',
+  'next.config.js',
+  'next.config.mjs',
+  'next.config.cjs'
+];
+
+/** Turbopack's development cache as it stands: its size and its newest file's time. */
+function cacheState(dir) {
+  let size = 0;
+  let newest = 0;
+  for (const file of fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }) : []) {
+    try {
+      const stat = fs.statSync(path.join(dir, file));
+      size += stat.size;
+      newest = Math.max(newest, stat.mtimeMs);
+    } catch {
+      // Turbopack replaced it while this looked.
+    }
+  }
+  return `${size}:${newest}`;
+}
+
+/**
+ * Whether the cache changed from `before` and then stayed the same for 3 s, within 120 s, as
+ * conformance/upstream/next-lazy-ssr/repro.mjs waits for it.
+ */
+async function cacheWritten(dir, before) {
+  const start = Date.now();
+  let last = before;
+  let since = Date.now();
+  while (Date.now() - start < 120_000) {
+    const now = cacheState(dir);
+    if (now !== last) [last, since] = [now, Date.now()];
+    else if (now !== before && Date.now() - since > 3000) return true;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 /**
  * The Turbopack cache fault (B7b of the brownfield plan, decisions 67 and 68), as the lead
  * reproduced it: `next dev` restarted onto its old development cache after files changed while it
  * was down answered "Lazily compiled dynamic import … was not activated" for what the earlier run
- * never compiled. Run 1 asks one swap; while it is down the in-page section's file moves, with the
- * imports, the map and the switch's files following; run 2, on the same .next/dev, asks a swap
- * and previews run 1 never compiled. Each must answer 200, and neither log may hold the error.
+ * never compiled. Run 1 asks one swap and, with the cache on, waits until Turbopack has written
+ * it; while it is down the in-page section's file moves, with the imports, the map and the
+ * switch's files following; run 2, on the same .next/dev, asks a swap and previews run 1 never
+ * compiled. Each must answer 200, and neither log may hold the error.
  */
 async function checkRestart(work, port, devUrl) {
   await stopStartedProcesses();
@@ -346,12 +388,25 @@ async function checkRestart(work, port, devUrl) {
   const address = map.pages.find(item => item.slug === page)?.address ?? `/${page}`;
   const answers = [];
 
+  const cacheDir = path.join(work, '.next', 'dev', 'cache', 'turbopack');
+  const before = cacheState(cacheDir);
   const first = await serveLogged(work, port, devUrl, logs[0]);
   const swap02 = await ask(
     `${address}?roughbook-swap=${swapAt('iteration-02')}`,
     swapAt('iteration-02')
   );
   answers.push(['run 1: swap iteration-02', swap02]);
+  // Turbopack writes its cache once the server has been idle a moment; stopped before then, run 2
+  // has nothing to restore and the fault cannot show. With the cache off nothing is written.
+  const config = NEXT_CONFIGS.map(file => path.join(work, file)).find(file => fs.existsSync(file));
+  const cacheOn = !/turbopackFileSystemCacheForDev:\s*false/.test(
+    config ? fs.readFileSync(config, 'utf8') : ''
+  );
+  lines.push(
+    cacheOn
+      ? `run 1 left the cache ${(await cacheWritten(cacheDir, before)) ? 'written' : 'unwritten after 120 s'}`
+      : "the config turns Turbopack's development cache off: nothing to wait for"
+  );
   await stopProcess(first);
 
   // While it is down: the adopted file moves, the app's imports follow, then the map and the
