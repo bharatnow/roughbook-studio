@@ -190,7 +190,7 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
       ? seeUntil(tools, url, previewMs, environment.overlays, shows)
       : askUntil(tools, url, previewMs, shows);
   const failures: string[] = [];
-  // A switch that is there but behind (B7b: next.config's block before the cache setting).
+  // A switch that is there but behind (B7b: a block written before the recipe's cache setting).
   const behind = hook.behind?.(repoRoot) ?? null;
   if (behind) failures.push(behind);
   const named: string[] = [];
