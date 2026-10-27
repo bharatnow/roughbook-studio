@@ -410,7 +410,7 @@ describe('previews', () => {
     );
     assert.match(
       renderPreviewRegistry([]),
-      /loaders: Record<string, \(\) => Promise<\{ default: ComponentType \}>> = \{\n\};/
+      /loaders: Record<string, \(\) => Promise<\{ default: unknown \}>> = \{\n\};/
     );
   });
 

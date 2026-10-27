@@ -195,7 +195,9 @@ export const next: Recipe = {
   // 4: the in-page view's switch, its files beside the route and its rule in next.config (B5).
   // 5: the route renders a mapped page's composition, with Pick (B6).
   // 6: the browser's in-page wrapper reads rough/context-keys.ts, no iteration in its graph (B6).
-  version: 6,
+  // 7: the registries type each iteration's default export as unknown, so a baseline of a component
+  // with required props passes the app's type check (B6).
+  version: 7,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
