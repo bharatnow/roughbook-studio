@@ -12,7 +12,7 @@
 // doctor's map checks run (ROUGHBOOK-BROWNFIELD-PLAN.md, B1). Needs `npm run build` first, since it
 // runs the studio from dist/. Given several fixtures, it runs each in turn, in a process of its own
 // with the same flags, and exits with the worst of their codes (B5b, decision 45).
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -97,7 +97,8 @@ if (pinned.store && !store) {
 const dist = file => import(pathToFileURL(path.join(root, 'dist', file)).href);
 const { planPrep, applyPrep } = await dist('repo/prep.js');
 const { runDoctor, renderReport, exitCodeFor } = await dist('doctor/run.js');
-const { serveUntil, stopStartedProcesses } = await dist('launch/processes.js');
+const { serveUntil, stopProcess, stopStartedProcesses, trackProcess } =
+  await dist('launch/processes.js');
 const { closeKeptBrowsers } = await dist('screenshot/browser.js');
 const { recipeFor } = await dist('recipes/index.js');
 const { mapRepo, describeMap, countMap } = await dist('map/run.js');
@@ -222,6 +223,203 @@ async function checkComposition(work, devUrl, key) {
       status === 200 && inOrder
         ? `${address} rendered ${wanted.length} sections in order, each in its marker.`
         : `${address} answered ${status ?? 'nothing'}, with ${found.join(', ') || 'no markers'}; wanted ${wanted.join(', ')}.`
+  };
+}
+
+/** A baseline of `page`/`slug` as roughbook adopt writes it; false when the recipe cannot point at it. */
+function writeBaseline(work, map, page, slug) {
+  const folder = path.join(work, 'rough', page, slug, 'iteration-00');
+  if (fs.existsSync(folder)) return true;
+  const component = map.components.find(item => item.slug === slug);
+  // Its fixture, where the map wrote one: a section with required props renders alone with it.
+  const fixtureFile = component?.fixture ? path.join(work, ...component.fixture.split('/')) : null;
+  const fixture =
+    fixtureFile && fs.existsSync(fixtureFile) ? fs.readFileSync(fixtureFile, 'utf8') : null;
+  const files =
+    component &&
+    recipe.pointer?.(component, { iterationDir: `rough/${page}/${slug}/iteration-00`, fixture });
+  if (!files) return false;
+  for (const [file, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(folder, file)), { recursive: true });
+    fs.writeFileSync(path.join(folder, file), text);
+  }
+  return true;
+}
+
+/** `next dev` on `port` with its output in `log`, once it answers; stopped with everything else. */
+async function serveLogged(work, port, devUrl, log) {
+  const out = fs.openSync(log, 'w');
+  const child = trackProcess(
+    spawn(
+      process.execPath,
+      [
+        path.join(work, 'node_modules', 'next', 'dist', 'bin', 'next'),
+        'dev',
+        '--port',
+        String(port)
+      ],
+      {
+        cwd: work,
+        stdio: ['ignore', out, out],
+        windowsHide: true,
+        detached: process.platform !== 'win32'
+      }
+    )
+  );
+  fs.closeSync(out);
+  const deadline = Date.now() + environment.timeouts.start * 1000;
+  while (Date.now() < deadline && child.exitCode === null) {
+    try {
+      const response = await fetch(`${devUrl}/`, {
+        signal: AbortSignal.timeout(60_000),
+        redirect: 'manual'
+      });
+      await response.body?.cancel();
+      return child;
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  await stopProcess(child);
+  throw new Error(`next dev did not answer within ${environment.timeouts.start} s (${log}).`);
+}
+
+/**
+ * The Turbopack cache fault (B7b of the brownfield plan, decisions 67 and 68), as the lead
+ * reproduced it: `next dev` restarted onto its old development cache after files changed while it
+ * was down answered "Lazily compiled dynamic import … was not activated" for what the earlier run
+ * never compiled. Run 1 asks one swap; while it is down the in-page section's file moves, with the
+ * imports, the map and the switch's files following; run 2, on the same .next/dev, asks a swap
+ * and previews run 1 never compiled. Each must answer 200, and neither log may hold the error.
+ */
+async function checkRestart(work, port, devUrl) {
+  await stopStartedProcesses();
+  const map = readMap(work)?.map;
+  const [page, slug] = pinned.inPage[0].split('/');
+  const lines = [];
+  // What no run has compiled yet: two more iterations of the in-page section, and baselines of
+  // the sections of another page.
+  for (const iteration of ['iteration-02', 'iteration-03']) {
+    const target = { page, component: slug, iteration };
+    writeAppSlot(
+      work,
+      `rough/${page}/${slug}/${iteration}`,
+      planAppSlot(work, recipe, environment, target),
+      { parent: 'iteration-00', commit: null }
+    );
+  }
+  const other = map.pages.find(item => item.slug !== page && item.address === '/');
+  const previews = (other?.sections ?? [])
+    .filter(section => writeBaseline(work, map, other.slug, section))
+    .slice(0, 3)
+    .map(section => `${other.slug}/${section}/iteration-00`);
+  recipe.syncPreview(work);
+  const logs = ['run-1', 'run-2'].map(run =>
+    path.join(work, '.next', `roughbook-conformance-${run}.log`)
+  );
+  fs.mkdirSync(path.dirname(logs[0]), { recursive: true });
+  /** A page's answer: its status, and for a swap whether its marker says it swapped that in. */
+  const ask = async (address, swap = null) => {
+    try {
+      const response = await fetch(`${devUrl}${address}`, {
+        signal: AbortSignal.timeout(240_000),
+        redirect: 'manual'
+      });
+      const html = await response.text();
+      const shown = swap === null || html.includes(`data-roughbook-swap="${swap}"`);
+      // What an error page says, in a line.
+      const why =
+        response.status === 200
+          ? ''
+          : (/(?:Error|⨯)[^<\n]{0,200}/.exec(html)?.[0] ??
+            html
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 200));
+      return { status: response.status, ok: response.status === 200 && shown, shown, why };
+    } catch {
+      return { status: null, ok: false, shown: false };
+    }
+  };
+  const swapAt = iteration => `${page}/${slug}/${iteration}`;
+  const address = map.pages.find(item => item.slug === page)?.address ?? `/${page}`;
+  const answers = [];
+
+  const first = await serveLogged(work, port, devUrl, logs[0]);
+  const swap02 = await ask(
+    `${address}?roughbook-swap=${swapAt('iteration-02')}`,
+    swapAt('iteration-02')
+  );
+  answers.push(['run 1: swap iteration-02', swap02]);
+  await stopProcess(first);
+
+  // While it is down: the adopted file moves, the app's imports follow, then the map and the
+  // switch's files, as a teammate's commit and roughbook start would leave them.
+  const component = map.components.find(item => item.slug === slug);
+  const from = component.files[0];
+  const to = from.replace(/([^/]+)(\.\w+)$/, '$1-moved$2');
+  fs.renameSync(path.join(work, ...from.split('/')), path.join(work, ...to.split('/')));
+  const [spec, moved] = [from, to].map(file => `@/${file.replace(/\.\w+$/, '')}`);
+  let imports = 0;
+  for (const folder of ['app', 'components']) {
+    for (const file of fs.readdirSync(path.join(work, folder), { recursive: true })) {
+      if (!/\.tsx?$/.test(file)) continue;
+      const full = path.join(work, folder, file);
+      const text = fs.readFileSync(full, 'utf8');
+      const now = text.replaceAll(`"${spec}"`, `"${moved}"`).replaceAll(`'${spec}'`, `'${moved}'`);
+      if (now !== text) {
+        fs.writeFileSync(full, now);
+        imports += 1;
+      }
+    }
+  }
+  const mappedAgain = await mapRepo(work, await readEnvironment(work), await readRepoLink(work), {
+    full: true
+  });
+  applyPrep(
+    planPrep(work, {
+      link: { version: 1, orgId: 'conformance', project: 'fixture', roughCommitted: true },
+      recipe
+    })
+  );
+  recipe.syncPreview(work);
+  const followed = fs
+    .readFileSync(path.join(work, 'rough', 'context-modules.json'), 'utf8')
+    .includes(to);
+  lines.push(
+    `moved ${from} to ${to}: ${imports} file${imports === 1 ? '' : 's'} import it; the map ${mappedAgain?.renamed.length ? `renamed ${mappedAgain.renamed.length}` : 'renamed nothing'}; the switch's files ${followed ? 'follow it' : 'do not name it'}`
+  );
+
+  const second = await serveLogged(work, port, devUrl, logs[1]);
+  answers.push(['run 2: the page', await ask(address)]);
+  answers.push([
+    'run 2: swap iteration-03',
+    await ask(`${address}?roughbook-swap=${swapAt('iteration-03')}`, swapAt('iteration-03'))
+  ]);
+  for (const key of previews) {
+    answers.push([`run 2: preview ${key}`, await ask(environment.preview.replace('{key}', key))]);
+  }
+  await stopProcess(second);
+
+  const lost = logs.map(log => fs.readFileSync(log, 'utf8').split('was not activated').length - 1);
+  for (const [what, answer] of answers) {
+    lines.push(
+      `${what}: ${answer.status ?? 'nothing'}${answer.status === 200 && !answer.shown ? ' without the iteration in its marker' : ''}${answer.why ? ` (${answer.why})` : ''}`
+    );
+  }
+  lines.push(`"was not activated" in the logs: run 1 ${lost[0]}, run 2 ${lost[1]}`);
+  const ok =
+    followed &&
+    previews.length > 0 &&
+    answers.every(([, answer]) => answer.ok) &&
+    lost.every(count => count === 0);
+  return {
+    ok,
+    message: ok
+      ? `next dev restarted onto its cache after the move answered all ${answers.length} asks.`
+      : 'next dev restarted onto its cache after the move did not answer everything.',
+    lines
   };
 }
 
@@ -414,6 +612,15 @@ In its page: ${pinned.inPage.join(', ')}, with iteration-01 copied from the app;
     console.log(`
 Composition: ${composed.message}`);
     if (!composed.ok) code = 1;
+  }
+
+  // The Turbopack cache fault (B7b): next dev restarted onto its cache after a move.
+  if (live && !speed && pinned.restart && pinned.inPage?.length) {
+    const restarted = await checkRestart(work, port, devUrl);
+    console.log(`
+Restart: ${restarted.message}`);
+    for (const line of restarted.lines) console.log(`  ${line}`);
+    if (!restarted.ok) code = 1;
   }
 } catch (error) {
   console.error(`\n${error instanceof Error ? error.message : String(error)}`);
