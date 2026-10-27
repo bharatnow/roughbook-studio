@@ -408,6 +408,45 @@ describe('building the map', () => {
     assert.equal(new Set(slugs).size, slugs.length);
   });
 
+  it('marks nothing gone while a page cannot be read, as mid-edit, and keeps its sections', () => {
+    const first = buildMap([found()], null, { fixture: 'preview.json' }).map;
+    // app/page.tsx does not parse for a moment: the discoverer finds none of its sections.
+    const broken = found({
+      pages: found().pages.map(page => (page.address === '/' ? { ...page, sections: [] } : page)),
+      components: found().components.filter(
+        item =>
+          !item.key.startsWith('components/hero') && !item.key.startsWith('components/pricing')
+      ),
+      missed: [
+        {
+          what: 'app/page.tsx',
+          why: 'could not be read, so its sections are not known',
+          unread: true
+        }
+      ]
+    });
+    const built = buildMap([broken], first, {
+      fixture: 'preview.json',
+      hasWork: () => true,
+      today: '2026-10-27'
+    });
+    assert.deepEqual(built.went, []);
+    assert.ok(!built.map.components.some(item => item.gone));
+    assert.deepEqual(
+      built.map.pages.find(page => page.slug === 'home')!.sections,
+      first.pages.find(page => page.slug === 'home')!.sections
+    );
+    // A file that is really gone still goes, page read or not.
+    const deleted = buildMap([broken], first, {
+      fixture: 'preview.json',
+      hasWork: () => true,
+      today: '2026-10-27',
+      exists: file => file !== 'components/pricing.tsx'
+    });
+    assert.equal(deleted.map.components.find(item => item.slug === 'pricing')!.gone, '2026-10-27');
+    assert.ok(!deleted.map.components.find(item => item.slug === 'hero')!.gone);
+  });
+
   it('keeps slugs and what the map run wrote when a file moves, and drops what is gone', async () => {
     const repo = await tempDir();
     const first = buildMap([found()], null, { fixture: 'preview.json' }).map;

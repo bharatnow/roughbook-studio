@@ -216,6 +216,23 @@ export function buildMap(
     }
   }
 
+  // A file that could not be read this time (mid-edit) hides what it renders: while one is, what
+  // is no longer found but whose files are still there is held as it was, neither gone nor renamed.
+  const unread = new Set(
+    found.flatMap(result => result.missed.filter(item => item.unread).map(item => item.what))
+  );
+  const held = unread.size
+    ? before.components.filter(
+        item =>
+          !item.byAgent &&
+          !taken.has(item.slug) &&
+          !foundKeys.has(keyOf(item)) &&
+          item.files.length > 0 &&
+          item.files.every(exists)
+      )
+    : [];
+  for (const item of held) taken.add(item.slug);
+
   // Renames: what the map had and no longer finds, matched to what is found new by its code.
   const lost = before.components.filter(
     item => !item.byAgent && !taken.has(item.slug) && !foundKeys.has(keyOf(item))
@@ -309,6 +326,7 @@ export function buildMap(
   }
   for (const item of keptAgent) components.set(item.slug, item);
   for (const item of keptGone) components.set(item.slug, item);
+  for (const item of held) components.set(item.slug, item);
   const isGone = (slug: string) => Boolean(components.get(slug)?.gone);
 
   // Pages: the slug the map had for the address, the discoverer's name, or the address's.
@@ -334,8 +352,11 @@ export function buildMap(
       for (let count = 2; pageSlugs.has(slug); count += 1) slug = clip(`${base}-${count}`);
     }
     pageSlugs.add(slug);
+    // A page whose file could not be read keeps the sections it had, and what was last found.
+    const unreadPage = Boolean(earlier) && page.files.some(file => unread.has(file));
     const discovered = toSlugs(page.sections);
-    foundSections[slug] = discovered;
+    foundSections[slug] =
+      unreadPage && earlier ? (options.lastFound?.[earlier.slug] ?? earlier.sections) : discovered;
     pages.push({
       slug,
       name:
@@ -347,12 +368,14 @@ export function buildMap(
       signIn: earlier && earlier.signIn !== 'unknown' ? earlier.signIn : page.signIn,
       files: page.files,
       sections: inApp(
-        keptSections(
-          discovered,
-          earlier?.sections ?? [],
-          earlier ? options.lastFound?.[earlier.slug] : undefined,
-          components
-        )
+        unreadPage && earlier
+          ? earlier.sections.filter(item => components.has(item))
+          : keptSections(
+              discovered,
+              earlier?.sections ?? [],
+              earlier ? options.lastFound?.[earlier.slug] : undefined,
+              components
+            )
       ),
       byAgent: false
     });

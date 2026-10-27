@@ -64,7 +64,15 @@ export type MapComponent = {
 };
 
 /** Something a discoverer saw and could not place, with the reason (decision 3: never silence). */
-export type Missed = { what: string; why: string };
+export type Missed = {
+  what: string;
+  why: string;
+  /**
+   * The file could not be read or parsed this time (a syntax error mid-edit): what it renders is
+   * not known, so nothing it rendered before is taken as gone from the app.
+   */
+  unread?: boolean;
+};
 
 export type RepoMap = {
   /** The format's version. */

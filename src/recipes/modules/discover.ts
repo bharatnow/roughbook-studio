@@ -147,12 +147,17 @@ export async function discoverModules(
     if (failure) {
       missed.push({
         what: file,
-        why: `could not be read, so its sections are not known: ${failure}`
+        why: `could not be read, so its sections are not known: ${failure}`,
+        unread: true
       });
       return null;
     }
     if (!readModule(repo, file)) {
-      missed.push({ what: file, why: 'could not be read, so its sections are not known' });
+      missed.push({
+        what: file,
+        why: 'could not be read, so its sections are not known',
+        unread: true
+      });
       return null;
     }
     return rendered(analysis, { file, export: exported }, { descend: true });
