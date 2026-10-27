@@ -3,8 +3,9 @@
 // dev server, once a swap has asked it for an iteration that does not compile, fails the plain page
 // too. The studio checks each iteration with esbuild before the switch's registry may import it:
 // its files parse, and every import it makes resolves. One that does not is left out of the graph,
-// and only a swap that asks for it fails. The answer is kept until a file in the folder changes, so
-// the registry can be rewritten every few seconds (roughbook start) without checking again.
+// and only a swap that asks for it fails. The answer is kept until a file in the folder or one it
+// was bundled from changes, so the registry can be rewritten every few seconds (roughbook start)
+// without checking again.
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildSync, type Message } from 'esbuild';
@@ -32,7 +33,47 @@ const ASSETS = [
   '.mp3'
 ];
 
-const checked = new Map<string, { stamp: string; problem: string | null }>();
+/** How many bundles were made, for the tests: none while nothing an answer was kept for changed. */
+export const compileStats = { bundles: 0 };
+
+/**
+ * Each folder's answer, kept for its own files' stamp and those of the files it was bundled from
+ * outside it (review finding 10): a fixed app file lets the iteration back in, the folder unchanged.
+ * `inputs` is null when the answer cannot be kept (an import the studio cannot place).
+ */
+const checked = new Map<
+  string,
+  { stamp: string; inputs: string[] | null; inputsStamp: string; problem: string | null }
+>();
+
+/** Files and folders by time and size, or as absent: what else an answer is kept for. */
+function stampPaths(repo: string, files: string[]): string {
+  return files
+    .map(file => {
+      const stat = fs.statSync(path.resolve(repo, file), { throwIfNoEntry: false });
+      return `${file}:${stat ? `${stat.mtimeMs}:${stat.size}` : 'none'}`;
+    })
+    .join('|');
+}
+
+/**
+ * What a failed bundle depends on outside the folder: the file each error is in, and for a
+ * relative import it could not find, the folder that file would be in, which changes when it is
+ * made. Null for an import the studio cannot place (an alias), so that answer is not kept.
+ */
+function failureInputs(errors: Message[], repo: string, dir: string): string[] | null {
+  const inputs = new Set<string>();
+  for (const error of errors) {
+    if (!error.location) continue;
+    const importer = path.resolve(repo, error.location.file);
+    if (!importer.startsWith(dir + path.sep)) inputs.add(importer);
+    const missing = /^Could not resolve "([^"]+)"/.exec(error.text)?.[1];
+    if (missing === undefined) continue;
+    if (!missing.startsWith('.')) return null;
+    inputs.add(path.dirname(path.resolve(path.dirname(importer), missing)));
+  }
+  return [...inputs];
+}
 
 /** What the folder holds now, by name, time and size: what the answer is kept for. */
 function stamp(dir: string): string {
@@ -77,10 +118,18 @@ export function compileProblem(repo: string, folder: string, entry: string): str
   const dir = path.join(repo, ...folder.split('/'));
   const now = stamp(dir);
   const known = checked.get(dir);
-  if (known?.stamp === now) return known.problem;
+  if (
+    known?.stamp === now &&
+    known.inputs !== null &&
+    known.inputsStamp === stampPaths(repo, known.inputs)
+  ) {
+    return known.problem;
+  }
   let problem: string | null = null;
+  let inputs: string[] | null = [];
+  compileStats.bundles += 1;
   try {
-    buildSync({
+    const built = buildSync({
       entryPoints: [path.join(dir, entry)],
       absWorkingDir: repo,
       bundle: true,
@@ -90,13 +139,24 @@ export function compileProblem(repo: string, folder: string, entry: string): str
       format: 'esm',
       jsx: 'automatic',
       logLevel: 'silent',
-      loader: Object.fromEntries(ASSETS.map(extension => [extension, 'empty' as const]))
+      loader: Object.fromEntries(ASSETS.map(extension => [extension, 'empty' as const])),
+      metafile: true
     });
+    // The app's files it was bundled from; its own are in the folder's stamp.
+    inputs = Object.keys(built.metafile.inputs)
+      .map(file => path.resolve(repo, file))
+      .filter(file => !file.startsWith(dir + path.sep));
   } catch (error) {
     // esbuild's own failure (no binary for this machine) says nothing of the iteration.
-    const errors = (error as { errors?: Message[] }).errors;
-    problem = errors?.[0] ? describe(errors[0], repo, dir) : null;
+    const errors = (error as { errors?: Message[] }).errors ?? [];
+    problem = errors[0] ? describe(errors[0], repo, dir) : null;
+    inputs = errors.length ? failureInputs(errors, repo, dir) : null;
   }
-  checked.set(dir, { stamp: now, problem });
+  checked.set(dir, {
+    stamp: now,
+    inputs,
+    inputsStamp: inputs === null ? '' : stampPaths(repo, inputs),
+    problem
+  });
   return problem;
 }
