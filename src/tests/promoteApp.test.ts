@@ -597,6 +597,44 @@ describe('a promote on a branch', () => {
 });
 
 describe('the finish', () => {
+  it('leaves out the files the designer says were theirs, and offers them no revert', async () => {
+    const { repo, api, outbox, promote } = await forked();
+    await promote();
+    writeBack(repo);
+    write(repo, 'lib/plans.ts', 'export const plans = [];\n');
+    const finished = await finishPromotion(repo, api, outbox, environment(), PROMOTION, {
+      mine: ['lib']
+    });
+    assert.equal(finished.result!.outcome, 'done');
+    assert.deepEqual(finished.result!.outOfScope, []);
+    assert.deepEqual(finished.result!.mine, ['lib/plans.ts']);
+    const words = describePromotion(finished).join('\n');
+    assert.doesNotMatch(words, /roughbook revert .* lib\/plans\.ts/);
+    assert.match(words, /1 file changed outside the promote's files was yours, not counted\./);
+  });
+
+  it('puts back no file that changed again since the finish, so a later edit is never lost', async () => {
+    const { repo, api, outbox, promote } = await forked();
+    await promote();
+    writeBack(repo);
+    write(repo, 'lib/plans.ts', 'export const plans = [];\n');
+    const finished = await finishPromotion(repo, api, outbox, environment(), PROMOTION);
+    assert.equal(finished.result!.outcome, 'out-of-scope');
+    // The designer goes on editing it, then asks for it back.
+    write(repo, 'lib/plans.ts', 'export const plans = [{ name: "Team", price: "$9" }];\n');
+    await assert.rejects(
+      putBackPromoted(repo, finished, 'lib/plans.ts'),
+      /lib\/plans\.ts changed since the promote of pricing\/pricing-section\/iteration-01 finished/
+    );
+    assert.equal(
+      read(repo, 'lib/plans.ts'),
+      'export const plans = [{ name: "Team", price: "$9" }];\n'
+    );
+    // As the finish left it, it is put back.
+    write(repo, 'lib/plans.ts', 'export const plans = [];\n');
+    assert.equal(await putBackPromoted(repo, finished, 'lib/plans.ts'), 'restored');
+  });
+
   it('names a file outside the targets and offers it back', async () => {
     const { repo, api, outbox, promote } = await forked();
     await promote();

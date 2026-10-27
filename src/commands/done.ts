@@ -15,6 +15,7 @@ import type { RunRecord } from '../runs/types.js';
 import { confirm } from '../io.js';
 import { unifiedText } from '../repo/diff.js';
 import {
+  changedOutside,
   commitPromotion,
   declinePromotionCommit,
   describePromotion,
@@ -180,12 +181,31 @@ async function askWhoseChanges(
   link: RepoLink,
   run: RunRecord
 ): Promise<string[]> {
-  const { io } = context;
   const { outOfScope } = await assessRun(context.repoRoot!, link, run);
+  return askWhose(context, outOfScope, `outside ${run.targetFolder} since the run started`);
+}
+
+/** The same for a promote: its changes outside its own files, before it is finished. */
+async function askWhosePromoteChanges(
+  context: CommandContext,
+  link: RepoLink,
+  record: PromotionRecord
+): Promise<string[]> {
+  const environment = await readEnvironment(context.repoRoot!, link);
+  const outside = await changedOutside(context.repoRoot!, environment, record);
+  return askWhose(context, outside, "outside the promote's files since it started");
+}
+
+/** Lists `files`, changed `where`, and asks whether they were the designer's: `.` for yes. */
+async function askWhose(
+  context: CommandContext,
+  files: string[],
+  where: string
+): Promise<string[]> {
+  const { io } = context;
+  const outOfScope = files;
   if (!outOfScope.length) return [];
-  io.out(
-    `${outOfScope.length} file${outOfScope.length === 1 ? '' : 's'} changed outside ${run.targetFolder} since the run started:`
-  );
+  io.out(`${outOfScope.length} file${outOfScope.length === 1 ? '' : 's'} changed ${where}:`);
   for (const file of outOfScope.slice(0, SHOWN)) io.out(`  ${file}`);
   if (outOfScope.length > SHOWN) io.out(`  ... and ${outOfScope.length - SHOWN} more`);
   const theirs = await confirm(
@@ -290,9 +310,13 @@ export const done: Command = {
       failed ||= finished.outcome === 'failed' && !values.failed;
     }
     for (const record of promotes) {
+      const mine = values.mine?.length
+        ? values.mine
+        : await askWhosePromoteChanges(context, link, record);
       const finished = await completePromotion(context, api, outbox, link, record, {
         outcome: values.failed || values.cancelled ? 'failed' : undefined,
         conflicts: values.conflict ?? [],
+        mine,
         devUrl: url,
         refresh: !values['no-screenshots'],
         commit: values.commit === true ? true : values['no-commit'] ? false : undefined

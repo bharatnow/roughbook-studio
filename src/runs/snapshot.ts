@@ -132,7 +132,7 @@ export async function listRepoFiles(
   };
 }
 
-async function hashFile(file: string): Promise<string | null> {
+export async function hashFile(file: string): Promise<string | null> {
   try {
     const info = await stat(file);
     if (info.size > HASH_LIMIT) return `size:${info.size}:${info.mtimeMs}`;

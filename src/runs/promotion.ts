@@ -25,12 +25,14 @@ import { BASE_DIR, inLineEndingsOf, sameText, type BaseRecord } from './base.js'
 import { queued } from './queue.js';
 import {
   compareFiles,
+  hashFile,
   hashRepo,
   readSnapshot,
   revertFile,
   snapshotContent,
   type Revert
 } from './snapshot.js';
+import { isMine } from './lifecycle.js';
 import { assertRunId } from './store.js';
 
 /** How the change reaches the app: a new file, the component's own files, or a merge (B4's contract). */
@@ -82,6 +84,11 @@ export type ChangedFile = {
   status: 'added' | 'changed' | 'removed';
   /** A target or a file the studio wrote for the promote; otherwise out of scope (decision 36). */
   inScope: boolean;
+  /**
+   * The file's hash as the finish left it, null when removed: a revert puts back only a file still
+   * so, never a change made since. Absent in a record from before it was kept.
+   */
+  sha256?: string | null;
 };
 
 export type PromotionResult = {
@@ -89,6 +96,8 @@ export type PromotionResult = {
   changed: ChangedFile[];
   /** App files changed outside the targets and the studio's own writes, offered for revert. */
   outOfScope: string[];
+  /** Files changed outside them that the designer said were their own: not counted, not offered. */
+  mine?: string[];
   /** Where a merge's two changes conflict, from the agent's report (decision 37). */
   conflicts: string[];
   /** Targets the agent wrote anyway in a conflicting merge, put back by the studio. */
@@ -522,6 +531,8 @@ export type FinishPromotionOptions = {
   outcome?: 'failed';
   /** Where a merge's two changes conflict, from the agent's report (decision 37). */
   conflicts?: string[];
+  /** Files the designer says they changed themselves: `.` for all, a file, or a folder. */
+  mine?: string[];
   /** Runs the build and the checks; this machine's shell by default, a stand-in in tests. */
   run?: CommandRunner;
   now?: Date;
@@ -531,6 +542,51 @@ export type FinishPromotionOptions = {
 /** An app file, as the promote's diff and scope see it: outside rough/ and the studio's state. */
 function appFile(file: string): boolean {
   return file !== ROUGH_DIR && !file.startsWith(`${ROUGH_DIR}/`);
+}
+
+/** The app files changed since the promote's snapshot, each in its scope or not, as they are now. */
+async function changedSince(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  record: PromotionRecord,
+  before: Record<string, string>
+): Promise<ChangedFile[]> {
+  // The localized copy file is where the prompt lands the approved copy (decision 34).
+  const scope = new Set([
+    ...record.targets.map(target => target.path),
+    ...record.studioWrites,
+    ...(environment.copy.kind === 'localized' ? [environment.copy.file] : [])
+  ]);
+  const after = await hashRepo(repoRoot, environment.ignore);
+  const changes = compareFiles(before, after.files);
+  return [
+    ...changes.added.map(file => ({ path: file, status: 'added' as const })),
+    ...changes.changed.map(file => ({ path: file, status: 'changed' as const })),
+    ...changes.removed.map(file => ({ path: file, status: 'removed' as const }))
+  ]
+    .filter(item => appFile(item.path))
+    .map(item => ({
+      ...item,
+      inScope: scope.has(item.path),
+      sha256: after.files[item.path] ?? null
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * The app files an open promote changed so far outside its scope, for the designer to say which
+ * were their own before it is finished.
+ */
+export async function changedOutside(
+  repoRoot: string,
+  environment: RepoEnvironment,
+  record: PromotionRecord
+): Promise<string[]> {
+  const snapshot = await readSnapshot(repoRoot, record.promotionId);
+  if (!snapshot || record.status === 'finished') return [];
+  return (await changedSince(repoRoot, environment, record, snapshot.files))
+    .filter(item => !item.inScope)
+    .map(item => item.path);
 }
 
 /**
@@ -556,24 +612,7 @@ export async function finishPromotion(
   const snapshot = await readSnapshot(repoRoot, promotionId);
   if (!snapshot) throw new Error(`The snapshot of promotion ${promotionId} is gone.`);
 
-  // The localized copy file is where the prompt lands the approved copy (decision 34).
-  const scope = new Set([
-    ...record.targets.map(target => target.path),
-    ...record.studioWrites,
-    ...(environment.copy.kind === 'localized' ? [environment.copy.file] : [])
-  ]);
-  const changedNow = async () => {
-    const after = await hashRepo(repoRoot, environment.ignore);
-    const changes = compareFiles(snapshot.files, after.files);
-    return [
-      ...changes.added.map(file => ({ path: file, status: 'added' as const })),
-      ...changes.changed.map(file => ({ path: file, status: 'changed' as const })),
-      ...changes.removed.map(file => ({ path: file, status: 'removed' as const }))
-    ]
-      .filter(item => appFile(item.path))
-      .map(item => ({ ...item, inScope: scope.has(item.path) }))
-      .sort((a, b) => a.path.localeCompare(b.path));
-  };
+  const changedNow = () => changedSince(repoRoot, environment, record, snapshot.files);
 
   let changed = await changedNow();
   const targetPaths = new Set(record.targets.map(target => target.path));
@@ -610,7 +649,9 @@ export async function finishPromotion(
     }
     if (lineEndings.length) changed = await changedNow();
   }
-  const outOfScope = changed.filter(item => !item.inScope).map(item => item.path);
+  const outside = changed.filter(item => !item.inScope).map(item => item.path);
+  const mine = outside.filter(file => isMine(file, options.mine ?? []));
+  const outOfScope = outside.filter(file => !mine.includes(file));
 
   const ran =
     !conflict && options.outcome !== 'failed' && wroteTarget()
@@ -657,6 +698,7 @@ export async function finishPromotion(
       outcome,
       changed,
       outOfScope,
+      ...(mine.length ? { mine } : {}),
       conflicts,
       putBackOnConflict,
       lineEndings,
@@ -779,9 +821,15 @@ export async function putBackPromoted(
   record: PromotionRecord,
   file: string
 ): Promise<Revert> {
-  if (!record.result?.changed.some(item => item.path === file)) {
+  const changed = record.result?.changed.find(item => item.path === file);
+  const label = `${record.page}/${record.component}/${record.iteration}`;
+  if (!changed) {
+    throw new Error(`${file} is not among the files the promote of ${label} changed.`);
+  }
+  // Only as the finish left it: a change made since is someone's work, which a put back would lose.
+  if (changed.sha256 !== undefined && (await hashFile(toDisk(repoRoot, file))) !== changed.sha256) {
     throw new Error(
-      `${file} is not among the files the promote of ${record.page}/${record.component}/${record.iteration} changed.`
+      `${file} changed since the promote of ${label} finished, so putting back what it was before would lose that change. The studio leaves it as it is.`
     );
   }
   const result = await revertFile(repoRoot, record.promotionId, file);
@@ -850,6 +898,12 @@ export function describePromotion(record: PromotionRecord): string[] {
         : `  Changed outside the promote's files, which it must leave alone (decision 36); put each back with roughbook revert:`
     );
     for (const file of result.outOfScope) lines.push(`    roughbook revert ${label} ${file}`);
+  }
+  if (result.mine?.length) {
+    const count = result.mine.length;
+    lines.push(
+      `  ${count} file${count === 1 ? '' : 's'} changed outside the promote's files ${count === 1 ? 'was' : 'were'} yours, not counted.`
+    );
   }
   if (result.build) lines.push(`  ${describeRun('The build', result.build)}`);
   else if (inScope.length) lines.push('  The build: skipped, rough/environment.md names none.');

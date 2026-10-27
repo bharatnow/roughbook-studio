@@ -2149,6 +2149,26 @@ describe('roughbook promote', () => {
     assert.equal(git('show', '--name-only', '--format=', 'HEAD'), 'src/components/Hero.tsx');
   });
 
+  it("takes --mine for a promote too: the designer's own files are not counted against it", async () => {
+    const studio = await setup({
+      [`GET ${PROJECT}`]: () => ok(tree(2)),
+      [`POST ${PROJECT}/promotions`]: () =>
+        ok({ ...promotion, copyMarkdown: null, assets: [], missingAssets: [] }, 201),
+      [`POST ${PROJECT}/promotions/${PROMOTION}/finish`]: () => ok({ recorded: true })
+    });
+    write(studio.repo, 'rough/home/hero/iteration-02/index.tsx', 'export default () => null;\n');
+    assert.equal(await studio.run(['promote', 'home/hero']), 0);
+    write(studio.repo, 'src/components/Hero.tsx', 'export function Hero() { return null; }\n');
+    write(studio.repo, 'src/lib/extra.ts', 'export const extra = 1;\n');
+    assert.equal(
+      await studio.run(['done', '--mine', 'src/lib/extra.ts', '--no-screenshots']),
+      0,
+      studio.io.errors.join('\n')
+    );
+    const finish = studio.requests.find(request => request.url.endsWith('/finish'))!;
+    assert.equal((finish.body as { outcome: string }).outcome, 'done');
+  });
+
   it("is finished by the agent's finish_run with its promotion, which never commits", async () => {
     const studio = await setup({
       [`GET ${PROJECT}`]: () => ok(tree(2)),
