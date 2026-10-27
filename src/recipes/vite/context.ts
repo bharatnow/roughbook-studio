@@ -1,7 +1,7 @@
 // The in-page view's switch for Vite with React (B5b of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 41
 // and 42), in development only. A Vite app renders in the browser, with no server of its own, so
-// the switch is a Vite plugin that applies to the dev server alone (`apply: "serve"`; `vite build`
-// never runs it) and wraps each adopted component's module: the module re-exports the file as it
+// the switch is a Vite plugin that applies to the dev server alone (`apply`: never in `vite build`,
+// a preview, Vitest or Storybook) and wraps each adopted component's module: the module re-exports the file as it
 // is (imported again with ?roughbook-original, which the plugin leaves alone) and puts the adopted
 // export inside its marker. The wrapper reads the swap from the page's address in the browser, on
 // this machine only, and renders the iteration in the component's place with the same props, the
@@ -76,7 +76,14 @@ export default function roughbookContext() {
   let known = adopted();
   return {
     name: "roughbook-context",
-    apply: "serve",
+    // The dev server alone: never the build or a preview of it, nor Vitest's or Storybook's server,
+    // where an adopted component would render inside its marker in tests and stories.
+    apply(config, env) {
+      if (env.command !== "serve" || env.isPreview || env.mode === "test") return false;
+      if (process.env.VITEST || process.env.STORYBOOK) return false;
+      const names = (config.plugins ?? []).flat(Infinity).map((plugin) => plugin?.name ?? "");
+      return !names.some((name) => typeof name === "string" && name.startsWith("storybook:"));
+    },
     enforce: "pre",
     configureServer(server) {
       // The list changes as components are adopted: the wrappers follow without a restart.

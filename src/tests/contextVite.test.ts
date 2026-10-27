@@ -222,9 +222,10 @@ export default defineConfig({
   });
 });
 
+type ApplyEnv = { command: 'serve' | 'build'; mode: string; isPreview?: boolean };
 type Plugin = {
   name: string;
-  apply: string;
+  apply(config: { plugins?: unknown[] }, env: ApplyEnv): boolean;
   enforce: string;
   transform(code: string, id: string): { code: string } | null;
   configureServer(server: FakeServer): void;
@@ -252,7 +253,23 @@ describe('the plugin', () => {
       default: () => Plugin;
     };
     const plugin = made.default();
-    assert.equal(plugin.apply, 'serve');
+    // The dev server alone: not the build, a preview of it, Vitest or Storybook (review finding 12).
+    const serve: ApplyEnv = { command: 'serve', mode: 'development', isPreview: false };
+    assert.equal(plugin.apply({}, serve), true);
+    assert.equal(plugin.apply({}, { ...serve, command: 'build', mode: 'production' }), false);
+    assert.equal(plugin.apply({}, { ...serve, isPreview: true }), false);
+    assert.equal(plugin.apply({}, { ...serve, mode: 'test' }), false);
+    const storybook = { plugins: [[{ name: 'storybook:react-docgen-plugin' }], null] };
+    assert.equal(plugin.apply(storybook, serve), false);
+    for (const name of ['VITEST', 'STORYBOOK']) {
+      process.env[name] = 'true';
+      try {
+        assert.equal(plugin.apply({}, serve), false, name);
+      } finally {
+        delete process.env[name];
+      }
+    }
+    assert.equal(plugin.apply({ plugins: [{ name: 'vite:react-babel' }] }, serve), true);
     assert.equal(plugin.enforce, 'pre');
     const id = (file: string) =>
       path

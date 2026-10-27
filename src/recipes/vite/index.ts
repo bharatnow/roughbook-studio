@@ -158,7 +158,8 @@ export const vite: Recipe = {
   name: 'Vite with React',
   // 2: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 3: the in-page view's plugin and wrapper, and vite.config's edit (brownfield B5b).
-  version: 4,
+  // 5: the plugin stays out of Vitest, Storybook and vite preview (review finding 12).
+  version: 5,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
