@@ -51,7 +51,8 @@ export function CompositionPromote({
   const branchOffered = Boolean(plan?.branchChoice) && !plan?.branchChoice.unavailable;
   const branch = branchName ?? plan?.branchChoice.defaultName ?? `roughbook/${page}-${id}`;
   const branching = branchOffered && onBranch;
-  const shownFinish = finished ?? plan?.finish ?? null;
+  // The plan's finish is an earlier promote's: once one is started here, only its own is shown.
+  const shownFinish = finished ?? (result ? null : plan?.finish) ?? null;
   const open = plan?.open && !result;
 
   async function promote() {
