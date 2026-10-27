@@ -27,6 +27,7 @@ import { staleReason, studioBuild } from '../repo/stale.js';
 import { readBase, sha256 } from '../runs/base.js';
 import { planTargets } from '../runs/promotion.js';
 import { appPath, watchApp } from '../runs/watch.js';
+import { STUDIO_VERSION } from '../version.js';
 import { assertCarriesNoRepoContent, fakeFetch, ok, tempDir } from './helpers.js';
 import { LINK, ORG, read, write } from './homeApp.js';
 import { pageSource, sectionFile, sectionSource, syncApp } from './syncApp.js';
@@ -828,6 +829,7 @@ describe("start's sync", () => {
     const first = studioBuild(files);
     fs.utimesSync(files.self, new Date(), new Date(Date.now() + 5000));
     assert.notEqual(studioBuild(files), first);
-    assert.match(studioBuild()!, /^0\.3\.16:/);
+    // This studio's own build: its version, then its own file's stamp.
+    assert.ok(studioBuild()!.startsWith(`${STUDIO_VERSION}:`));
   });
 });
