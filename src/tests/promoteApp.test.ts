@@ -635,6 +635,27 @@ describe('the finish', () => {
     assert.equal(await putBackPromoted(repo, finished, 'lib/plans.ts'), 'restored');
   });
 
+  it('finishes once when two finish it at the same time, as the local UI and finish_run can', async () => {
+    const { repo, api, outbox, promote, requests } = await forked();
+    await promote();
+    writeBack(repo);
+    const env = environment({ build: { command: 'npm run build', output: ['.next'] } });
+    await approveCommands(repo, [{ command: 'npm run build', shell: env.shell }]);
+    let builds = 0;
+    const run: CommandRunner = async () => {
+      builds += 1;
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return { code: 0, output: 'done\n' };
+    };
+    const [first, second] = await Promise.all([
+      finishPromotion(repo, api, outbox, env, PROMOTION, { run }),
+      finishPromotion(repo, api, outbox, env, PROMOTION, { run })
+    ]);
+    assert.equal(builds, 1);
+    assert.equal(requests.filter(request => request.url.endsWith('/finish')).length, 1);
+    assert.deepEqual(first, second);
+  });
+
   it('names a file outside the targets and offers it back', async () => {
     const { repo, api, outbox, promote } = await forked();
     await promote();

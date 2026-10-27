@@ -1,4 +1,4 @@
-import { mkdir, open, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 export type LockOptions = {
@@ -6,7 +6,24 @@ export type LockOptions = {
   staleMs?: number;
   /** How long to wait for another process before giving up. */
   waitMs?: number;
+  /**
+   * Breaks a lock at once when the process that took it is no longer running (stopped with Ctrl+C
+   * in the middle), for a lock held long enough that waiting out `staleMs` would be felt.
+   */
+  breakDead?: boolean;
 };
+
+/** Whether the process that wrote `lock` has gone; false while it cannot be told. */
+async function holderGone(lock: string): Promise<boolean> {
+  const pid = Number(await readFile(lock, 'utf8').catch(() => ''));
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
 
 /**
  * Windows refuses to create a file while one of the same name is still being deleted, so a lock
@@ -21,7 +38,7 @@ const RELEASING = new Set(['EPERM', 'EACCES', 'EBUSY']);
 export async function withLock<T>(
   file: string,
   work: () => Promise<T>,
-  { staleMs = 60_000, waitMs = 60_000 }: LockOptions = {}
+  { staleMs = 60_000, waitMs = 60_000, breakDead = false }: LockOptions = {}
 ): Promise<T> {
   const lock = `${file}.lock`;
   await mkdir(path.dirname(lock), { recursive: true });
@@ -36,7 +53,11 @@ export async function withLock<T>(
       const code = (error as NodeJS.ErrnoException).code ?? '';
       if (code !== 'EEXIST' && !RELEASING.has(code)) throw error;
       const held = await stat(lock).catch(() => null);
-      if (code === 'EEXIST' && held && Date.now() - held.mtimeMs > staleMs) {
+      if (
+        code === 'EEXIST' &&
+        held &&
+        (Date.now() - held.mtimeMs > staleMs || (breakDead && (await holderGone(lock))))
+      ) {
         await rm(lock, { force: true });
         continue;
       }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -90,6 +91,29 @@ describe('state files', () => {
       { staleMs: 0 }
     );
     assert.equal(ran, true);
+  });
+
+  it('breaks a long lock at once when its process is gone, and only then', async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, 'promotion.json');
+    // A process that took it and was stopped: its pid runs no more.
+    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
+    await writeFile(`${file}.lock`, String(gone));
+    let ran = false;
+    await withLock(
+      file,
+      async () => {
+        ran = true;
+      },
+      { staleMs: 3_600_000, waitMs: 1_000, breakDead: true }
+    );
+    assert.equal(ran, true);
+    // One still running (this test's parent) is waited for.
+    await writeFile(`${file}.lock`, String(process.ppid));
+    await assert.rejects(
+      withLock(file, async () => {}, { staleMs: 3_600_000, waitMs: 100, breakDead: true }),
+      /Another Roughbook process holds/
+    );
   });
 });
 

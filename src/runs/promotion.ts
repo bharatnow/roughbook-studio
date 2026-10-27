@@ -605,6 +605,26 @@ export async function finishPromotion(
   promotionId: string,
   options: FinishPromotionOptions = {}
 ): Promise<PromotionRecord> {
+  // One finish at a time: a second (the local UI's Finish beside an agent's finish_run) waits for
+  // it, then has the finished record. Held as long as a build and its checks can take.
+  return withLock(
+    `${promotionFile(repoRoot, promotionId)}.finish`,
+    () => finishNow(repoRoot, api, outbox, environment, promotionId, options),
+    { staleMs: FINISH_HELD_MS, waitMs: FINISH_HELD_MS, breakDead: true }
+  );
+}
+
+/** How long a finish may hold its promote: the build's and the checks' time, and then some. */
+const FINISH_HELD_MS = 60 * 60_000;
+
+async function finishNow(
+  repoRoot: string,
+  api: StudioApi,
+  outbox: Outbox,
+  environment: RepoEnvironment,
+  promotionId: string,
+  options: FinishPromotionOptions
+): Promise<PromotionRecord> {
   const record = await readPromotion(repoRoot, promotionId);
   if (!record) throw new Error(`There is no promotion ${promotionId} in this repo.`);
   if (record.status === 'finished') return record;
