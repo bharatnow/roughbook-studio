@@ -25,7 +25,7 @@ import {
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
-import { inPageNote, inPageSrc } from '../in-page';
+import { inPageNote, inPageSrc, lazyImportNotice } from '../in-page';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
@@ -135,10 +135,23 @@ function useSnapshotState(
  * and rarely once it answers.
  */
 export function useApp(initial: AppView | null): AppView {
-  const { state, refreshState } = useStudio();
+  const { state, refreshState, say } = useStudio();
   const [app, setApp] = useState<AppView | null>(initial);
   const current = app ?? state?.app ?? null;
   const status = current?.status ?? 'unknown';
+  // Turbopack's lost lazy import (B7b): from the app's log, or from a preview's own error message.
+  const fault = current?.fault ?? null;
+  useEffect(() => {
+    if (fault) say({ tone: 'error', text: fault });
+  }, [fault, say]);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const text = lazyImportNotice(event.data);
+      if (text) say({ tone: 'error', text });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [say]);
   useEffect(() => {
     let live = true;
     const timer = window.setInterval(
@@ -158,7 +171,7 @@ export function useApp(initial: AppView | null): AppView {
       window.clearInterval(timer);
     };
   }, [status, refreshState]);
-  return current ?? { status: 'unknown', terminal: null, since: null, lastLine: null };
+  return current ?? { status: 'unknown', terminal: null, since: null, lastLine: null, fault: null };
 }
 
 function presetLabel(preset: string): string {

@@ -16,6 +16,7 @@ import type { MapComponent, MapPage, RepoMap } from '../map/types.js';
 import { recipeFor } from '../recipes/index.js';
 import { CONTEXT_SENTINEL } from '../recipes/context.js';
 import { contextFiles, editNextConfig } from '../recipes/next/context.js';
+import { LAZY_IMPORT_FAULT } from '../recipes/next/fault.js';
 import { pictureDifference, pngPixels } from '../snapshot/png.js';
 import { tempDir } from './helpers.js';
 
@@ -111,7 +112,13 @@ function png(rgb: [number, number, number]): Buffer {
  * `shifts` makes the picture with markers differ from the one without.
  */
 function tools(
-  faults: { broken?: string[]; unmarked?: boolean; shifts?: boolean; moves?: boolean } = {}
+  faults: {
+    broken?: string[];
+    lost?: string[];
+    unmarked?: boolean;
+    shifts?: boolean;
+    moves?: boolean;
+  } = {}
 ) {
   let shots = 0;
   const asked: string[] = [];
@@ -127,6 +134,13 @@ function tools(
       if (url.pathname !== '/pricing') return new Response('missing', { status: 404 });
       const swap = url.searchParams.get('roughbook-swap');
       if (swap && faults.broken?.includes(swap)) return new Response('Boom', { status: 500 });
+      // Turbopack's error for an import its restart onto the old cache lost (B7b).
+      if (swap && faults.lost?.includes(swap)) {
+        return new Response(
+          `<html><body><pre>Error: Lazily compiled dynamic import [project]/rough/${swap}/index.tsx [app-rsc] (ecmascript, async loader) was not activated</pre></body></html>`,
+          { status: 500 }
+        );
+      }
       if (faults.unmarked) return new Response('<section>plans</section>');
       const marker = (key: string, swapped?: string) =>
         `<roughbook-section data-roughbook-section="${key}"${swapped ? ` data-roughbook-swap="${swapped}"` : ''} style="display:contents">`;
@@ -264,6 +278,45 @@ describe('map-context', () => {
     });
     assert.equal(shopify.status, 'skip');
     assert.match(shopify.detail, /has no in-page view yet/);
+  });
+
+  it('names Turbopack’s lost lazy import and says to restart the dev server (decision 68)', async () => {
+    const found = await check(
+      await repo(),
+      tools({ lost: ['pricing/pricing-section/iteration-02'] }).tools
+    );
+    assert.equal(found.status, 'fail');
+    assert.match(
+      found.detail,
+      /pricing\/pricing-section\/iteration-02: \/pricing\?roughbook-swap=pricing\/pricing-section\/iteration-02 answered HTTP 500: Lazily compiled dynamic import … was not activated/
+    );
+    assert.ok(found.detail.includes(LAZY_IMPORT_FAULT.what), found.detail);
+    assert.ok(found.fix?.startsWith(LAZY_IMPORT_FAULT.fix), found.fix ?? '');
+    // Without it, the words are as they were.
+    const broken = await check(
+      await repo(),
+      tools({ broken: ['pricing/pricing-section/iteration-02'] }).tools
+    );
+    assert.ok(!broken.detail.includes(LAZY_IMPORT_FAULT.what));
+    assert.ok(!broken.fix?.includes(LAZY_IMPORT_FAULT.fix));
+  });
+
+  it('asks for setup --upgrade when next.config’s block leaves Turbopack’s development cache on (decision 67)', async () => {
+    const root = await repo();
+    const config = path.join(root, 'next.config.mjs');
+    const current = fs.readFileSync(config, 'utf8');
+    fs.writeFileSync(config, current.replace(', turbopackFileSystemCacheForDev: false', ''));
+    const found = await check(root, tools().tools);
+    assert.equal(found.status, 'fail');
+    assert.match(
+      found.detail,
+      /^next\.config\.mjs: the switch's block leaves Turbopack's development cache on \(it has no turbopackFileSystemCacheForDev: false\)/
+    );
+    // The swaps are still asked for.
+    assert.match(found.detail, /2 of 2 iterations of 1 adopted section shown/);
+    assert.match(found.fix ?? '', /^Run roughbook setup --upgrade, which rewrites the block/);
+    fs.writeFileSync(config, current);
+    assert.equal((await check(root, tools().tools)).status, 'pass');
   });
 
   it('reads a marker by its key and the iteration it says it swapped in', () => {

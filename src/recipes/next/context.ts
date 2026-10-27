@@ -34,6 +34,7 @@ import {
   type ContextSection
 } from '../context.js';
 import { compileProblem } from '../compiles.js';
+import { LAZY_IMPORT_ERROR } from './fault.js';
 import { previewRouteDir } from './preview.js';
 
 export const CONTEXT_REGISTRY = `${ROUGH_DIR}/context-registry.ts`;
@@ -351,10 +352,27 @@ export function writeContext(repo: string): boolean {
 const IMPORT_LINE = `import { existsSync as roughbookExists } from "node:fs";`;
 const REQUIRE_LINE = `const { existsSync: roughbookExists } = require("node:fs");`;
 const BLOCK_START = '// Roughbook, development only: the in-page view';
+/**
+ * Turbopack's development cache off (decision 67): `next dev` restarted onto it after files changed
+ * while it was down can answer "Lazily compiled dynamic import … was not activated" for an
+ * iteration the earlier run never compiled.
+ */
+const CACHE_SETTING = 'turbopackFileSystemCacheForDev: false';
 
 /** The config file this app has, or null. */
 export function nextConfigFile(repo: string): string | null {
   return NEXT_CONFIGS.find(name => read(repo, name) !== null) ?? null;
+}
+
+/**
+ * What doctor says of a config whose block was written before the cache setting (version 7 and
+ * before), or null when it has the setting or no block.
+ */
+export function nextConfigBehind(repo: string): string | null {
+  const file = nextConfigFile(repo);
+  const text = file ? read(repo, file) : null;
+  if (!file || !text?.includes(BLOCK_START) || text.includes(CACHE_SETTING)) return null;
+  return `${file}: the switch's block leaves Turbopack's development cache on (it has no ${CACHE_SETTING}), so \`next dev\` restarted onto that cache can answer "${LAZY_IMPORT_ERROR}" for a preview or a swap`;
 }
 
 /** The rule's block, at the end of the config, for the config's variable `name`. */
@@ -382,7 +400,12 @@ function configBlock(name: string, appDir: string, typed: boolean, eol: string):
     `    loaders: [{ loader: ${JSON.stringify(`./${dir}/loader.cjs`)}, options: { browser } }],`,
     `  });`,
     `  // An iteration is compiled only when a page asks to show it, so one that does not compile never breaks a page.`,
-    `  roughbookConfig.experimental = { ...roughbookConfig.experimental, ...{ turbopackLazyDynamicImportsSSR: true } };`,
+    `  // Without the development cache: next dev restarted onto it after files changed can lose such an import`,
+    `  // ("Lazily compiled dynamic import ... was not activated"). next build keeps its own.`,
+    `  roughbookConfig.experimental = {`,
+    `    ...roughbookConfig.experimental,`,
+    `    ...{ turbopackLazyDynamicImportsSSR: true, ${CACHE_SETTING} },`,
+    `  };`,
     `  roughbookConfig.turbopack = {`,
     `    ...roughbookConfig.turbopack,`,
     `    rules: { ...roughbookConfig.turbopack?.rules, "*.{tsx,jsx,js}": [roughbookRule(false), roughbookRule(true)] },`,

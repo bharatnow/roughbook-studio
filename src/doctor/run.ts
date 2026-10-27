@@ -40,6 +40,7 @@ import { buildGate } from './gate.js';
 import { mapChecks, place, SIGN_IN } from './map.js';
 import type { ContextGate } from './context.js';
 import { contextAddress, contextSections, contextSwitch } from '../recipes/context.js';
+import { LAZY_IMPORT_ERROR, LAZY_IMPORT_FAULT, isLazyImportFault } from '../recipes/next/fault.js';
 import { setupFilesCheck } from './setupFiles.js';
 import { runSnapshotChecks } from './snapshot.js';
 import { judgeSpeed, type SpeedMeasures } from './speed.js';
@@ -481,6 +482,16 @@ export async function runDoctor(repoRoot: string, options: DoctorOptions): Promi
           'fail',
           `${url(GOOD)} sends the preview to ${sentTo}${toSignIn ? ', a sign-in page' : ''} (HTTP ${good!.status}).`,
           sentFix
+        )
+      );
+    } else if (!rendered && good && isLazyImportFault(good.text)) {
+      // Turbopack lost the sample's lazy import (B7b, decision 68): a restart mends it.
+      checks.push(
+        result(
+          'renders',
+          'fail',
+          `${url(GOOD)} answered HTTP ${good.status}: ${LAZY_IMPORT_ERROR}. ${LAZY_IMPORT_FAULT.what}`,
+          LAZY_IMPORT_FAULT.fix
         )
       );
     } else if (!rendered) {

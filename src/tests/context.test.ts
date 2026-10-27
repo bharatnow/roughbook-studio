@@ -585,6 +585,65 @@ describe('next.config’s edit', () => {
     assert.equal(undoNextConfig(CONFIG), null);
   });
 
+  it('writes the block as pinned here, with Turbopack’s development cache off (decision 67)', () => {
+    const edited = editNextConfig(CONFIG, 'next.config.ts', 'app')!;
+    const block = edited.slice(edited.indexOf('// Roughbook, development only'));
+    assert.equal(
+      block,
+      `// Roughbook, development only: the in-page view: shows an iteration in its real page and marks the page's
+// sections (rough/CONTRACT.md). Its rules apply in \`next dev\` alone, and only once the files beside the
+// preview route are there; roughbook uninstall takes this out.
+if (roughbookExists("app/rough-preview/context/loader.cjs")) {
+  const roughbookConfig: import("next").NextConfig = nextConfig;
+  const roughbookRule = (browser: boolean) => ({
+    condition: {
+      all: [
+        "development" as const,
+        { not: "foreign" as const },
+        browser ? "browser" as const : { not: "browser" as const },
+        { not: { path: /^(?:rough|app\\/rough-preview)\\// } },
+        { not: { query: /roughbook-original/ } },
+      ],
+    },
+    loaders: [{ loader: "./app/rough-preview/context/loader.cjs", options: { browser } }],
+  });
+  // An iteration is compiled only when a page asks to show it, so one that does not compile never breaks a page.
+  // Without the development cache: next dev restarted onto it after files changed can lose such an import
+  // ("Lazily compiled dynamic import ... was not activated"). next build keeps its own.
+  roughbookConfig.experimental = {
+    ...roughbookConfig.experimental,
+    ...{ turbopackLazyDynamicImportsSSR: true, turbopackFileSystemCacheForDev: false },
+  };
+  roughbookConfig.turbopack = {
+    ...roughbookConfig.turbopack,
+    rules: { ...roughbookConfig.turbopack?.rules, "*.{tsx,jsx,js}": [roughbookRule(false), roughbookRule(true)] },
+  };
+}
+`
+    );
+  });
+
+  it('rewrites a block written before the cache setting on setup --upgrade, and uninstall takes the new one out', async () => {
+    const repo = await nextRepo();
+    const current = editNextConfig(CONFIG, 'next.config.ts', 'app')!;
+    // The block as version 7 wrote it: the lazy imports alone.
+    const old = current
+      .replace(/\n {2}\/\/ Without the development cache[^\n]*\n[^\n]*\n/, '\n')
+      .replace(
+        /roughbookConfig\.experimental = \{\n[^\n]*\n[^\n]*\n {2}\};/,
+        'roughbookConfig.experimental = { ...roughbookConfig.experimental, ...{ turbopackLazyDynamicImportsSSR: true } };'
+      );
+    assert.notEqual(old, current);
+    assert.doesNotMatch(old, /turbopackFileSystemCacheForDev/);
+    write(repo, 'next.config.ts', old);
+    const planned = planNextConfig(repo, 'app');
+    assert.ok(planned && 'after' in planned, JSON.stringify(planned));
+    assert.equal(planned.summary, 'Update the in-page view’s rule.');
+    assert.equal(planned.after, current);
+    assert.equal(undoNextConfig(current), CONFIG);
+    assert.equal(next.version, 8);
+  });
+
   it('keeps the file’s line endings, and writes CommonJS and plain JavaScript as such', () => {
     const crlf = CONFIG.replace(/\n/g, '\r\n');
     const edited = editNextConfig(crlf, 'next.config.ts', 'src/app')!;

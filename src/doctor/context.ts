@@ -16,6 +16,7 @@ import {
   contextSwitch,
   type ContextSection
 } from '../recipes/context.js';
+import { LAZY_IMPORT_ERROR, LAZY_IMPORT_FAULT, isLazyImportFault } from '../recipes/next/fault.js';
 import type { Recipe } from '../recipes/types.js';
 import type { RepoLink } from '../repo/link.js';
 import { pictureDifference } from '../snapshot/png.js';
@@ -189,7 +190,29 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
       ? seeUntil(tools, url, previewMs, environment.overlays, shows)
       : askUntil(tools, url, previewMs, shows);
   const failures: string[] = [];
+  // A switch that is there but behind (B7b: next.config's block before the cache setting).
+  const behind = hook.behind?.(repoRoot) ?? null;
+  if (behind) failures.push(behind);
   const named: string[] = [];
+  /** Whether a page answered Turbopack's lost lazy import (decision 68). */
+  let lost = false;
+  /** What a page answered, naming Turbopack's lost lazy import where it is that. */
+  const answered = (status: number | null, html: string, body: boolean) => {
+    if (status === null) return 'answered nothing';
+    if (isLazyImportFault(html)) {
+      lost = true;
+      return `answered HTTP ${status}: ${LAZY_IMPORT_ERROR}`;
+    }
+    return body ? `answered HTTP ${status}: ${firstLine(html)}` : `answered HTTP ${status}`;
+  };
+  /** Why a page drawn in the browser did not show, the same way. */
+  const because = (found: { shown: boolean; why?: string }) => {
+    const why = found.why;
+    if (!why) return '';
+    if (!isLazyImportFault(why)) return ` (${why})`;
+    lost = true;
+    return ` (${LAZY_IMPORT_ERROR})`;
+  };
   let swaps = 0;
   /** The pages checked, each once, for the pictures. */
   const pages = new Map<string, ContextSection[]>();
@@ -205,8 +228,8 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
     if (!plain.shown) {
       failures.push(
         plain.status === 200
-          ? `${section.key}: ${address} shows no marker naming it${'why' in plain && plain.why ? ` (${plain.why})` : ''}`
-          : `${section.key}: ${address} answered ${plain.status === null ? 'nothing' : `HTTP ${plain.status}`}`
+          ? `${section.key}: ${address} shows no marker naming it${because(plain)}`
+          : `${section.key}: ${address} ${answered(plain.status, plain.html, false)}`
       );
       continue;
     }
@@ -221,8 +244,8 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
       }
       failures.push(
         asked.status === 200
-          ? `${iteration.key}: ${hook.address(address, iteration.key)} did not show it in its marker${'why' in asked && asked.why ? ` (${asked.why})` : ''}`
-          : `${iteration.key}: ${hook.address(address, iteration.key)} answered ${asked.status === null ? 'nothing' : `HTTP ${asked.status}: ${firstLine(asked.html)}`}`
+          ? `${iteration.key}: ${hook.address(address, iteration.key)} did not show it in its marker${because(asked)}`
+          : `${iteration.key}: ${hook.address(address, iteration.key)} ${answered(asked.status, asked.html, true)}`
       );
     }
   }
@@ -310,12 +333,19 @@ export async function contextCheck(input: ContextCheckInput): Promise<CheckResul
     .join('; ');
   // What the in-page view covers on this stack, when the recipe says (a native target that has none).
   const note = hook.note ? ` ${hook.note}` : '';
+  const fix = [
+    lost ? LAZY_IMPORT_FAULT.fix : '',
+    behind ? 'Run roughbook setup --upgrade, which rewrites the block.' : '',
+    "Open the page with the swap in a browser to see why, or run roughbook setup --upgrade if the switch is behind. Markers that change a page's picture meet a selector of the app's that counts children (main > *, :first-child): show that section alone until the selector allows for them."
+  ]
+    .filter(Boolean)
+    .join(' ');
   return failures.length
     ? result(
         'map-context',
         'fail',
-        `${listed(failures)}. ${detail}.${note}`,
-        "Open the page with the swap in a browser to see why, or run roughbook setup --upgrade if the switch is behind. Markers that change a page's picture meet a selector of the app's that counts children (main > *, :first-child): show that section alone until the selector allows for them."
+        `${listed(failures)}. ${detail}.${lost ? ` ${LAZY_IMPORT_FAULT.what}` : ''}${note}`,
+        fix
       )
     : result('map-context', 'pass', `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.${note}`);
 }

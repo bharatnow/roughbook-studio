@@ -78,6 +78,11 @@ export type ContextPreview = {
    */
   missing(repo: string, link: RepoLink): string[];
   /**
+   * What of the switch is there but behind, in a sentence `setup --upgrade` mends, or null:
+   * map-context fails with it and still asks for the swaps.
+   */
+  behind?(repo: string): string | null;
+  /**
    * A page's address with an iteration swapped in, or none, as the frame asks for it: Pick on, or
    * the markers off (doctor's comparison of the pictures).
    */

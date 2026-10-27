@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { LAZY_IMPORT_NOTICE as SERVER_NOTICE } from '../../src/recipes/next/fault.ts';
 import {
+  LAZY_IMPORT_NOTICE,
   inPageNote,
   inPageSrc,
   pageViewAddress,
   pageViewSrc,
   pagesWithView,
+  lazyImportNotice,
   pickedAddress
 } from './in-page.ts';
 import { parseRoute } from './router.ts';
@@ -64,5 +67,26 @@ describe('the in-page view’s note', () => {
     assert.equal(inPageNote(noted, 'pricing/faq/iteration-01'), null);
     assert.equal(inPageNote(local, 'pricing/pricing-section/iteration-01'), null);
     assert.equal(inPageNote({ inPage: null, inPageNote: 'x' }, 'pricing/faq/iteration-01'), null);
+  });
+});
+
+describe('Turbopack’s lost lazy import in the frame (B7b, decision 68)', () => {
+  it('says what it is and to restart the dev server, for a preview’s error message alone', () => {
+    const lost = {
+      roughbook: 'error',
+      id: 'home/hero/iteration-00',
+      message:
+        'Lazily compiled dynamic import [project]/rough/home/hero/iteration-00/index.tsx [app-rsc] (ecmascript, async loader) was not activated'
+    };
+    assert.equal(lazyImportNotice(lost), LAZY_IMPORT_NOTICE);
+    assert.match(LAZY_IMPORT_NOTICE, /Restart the app's dev server/);
+    assert.equal(lazyImportNotice({ ...lost, roughbook: 'ready' }), null);
+    assert.equal(lazyImportNotice({ ...lost, message: 'Boom' }), null);
+    assert.equal(lazyImportNotice('Lazily compiled dynamic import x was not activated'), null);
+    assert.equal(lazyImportNotice(null), null);
+  });
+
+  it('has the server’s words', () => {
+    assert.equal(LAZY_IMPORT_NOTICE, SERVER_NOTICE);
   });
 });

@@ -57,6 +57,8 @@ export type AppView = {
   since: string | null;
   /** The last line the app printed while starting. */
   lastLine: string | null;
+  /** What the app's session printed that a restart mends (Turbopack's lost lazy import), in words. */
+  fault: string | null;
 };
 
 export type StudioState = {

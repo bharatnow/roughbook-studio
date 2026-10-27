@@ -8,6 +8,7 @@ import type { DoctorReport, DoctorTools, Probe } from '../doctor/types.js';
 import { findSentinel } from '../doctor/sentinel.js';
 import { readEnvironmentSync } from '../environment/read.js';
 import { parseCommandLine, resolveCommandLine } from '../launch/processes.js';
+import { LAZY_IMPORT_FAULT } from '../recipes/next/fault.js';
 import { next } from '../recipes/next/index.js';
 import { themeFiles, wordpress } from '../recipes/wordpress/index.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
@@ -104,6 +105,8 @@ function fakeTools(
     downUntilServed: boolean;
     /** The app's proxy sends a visitor with no session to its sign-in page, from the preview too. */
     signIn: boolean;
+    /** Turbopack lost the sample's lazy import after a restart onto its old cache (B7b). */
+    lost: boolean;
   }> = {}
 ): DoctorTools & {
   built: string[];
@@ -130,6 +133,12 @@ function fakeTools(
       return { status: 307, body: '', location: `/login?redirect=${url.pathname}` };
     }
     // Doctor's third sample, for the speed check, renders like the first.
+    if (faults.lost && key === 'sample/iteration-01') {
+      return {
+        status: 500,
+        body: `<pre>Error: Lazily compiled dynamic import [project]/rough/${key}/index.tsx [app-rsc] (ecmascript, async loader) was not activated</pre>`
+      };
+    }
     if (key === 'sample/iteration-01' || key === 'sample/iteration-03') {
       const files = sample(repo, key === 'sample/iteration-01' ? 'iteration-01' : 'iteration-03');
       // A stale server keeps showing the first marker, never the change to it.
@@ -364,6 +373,19 @@ describe('roughbook doctor', () => {
       assert.equal(exitCodeFor(report.outcome), 1);
       assert.equal(doctorPage(repo), null, `${id} cleaned up`);
     }
+  });
+
+  it('names Turbopack’s lost lazy import when the preview answers it, and says to restart the dev server', async () => {
+    const repo = await tempRepo();
+    const report = await runDoctor(repo, { devUrl: DEV, tools: fakeTools(repo, { lost: true }) });
+    const renders = report.checks.find(check => check.id === 'renders')!;
+    assert.equal(renders.status, 'fail');
+    assert.match(
+      renders.detail,
+      /answered HTTP 500: Lazily compiled dynamic import … was not activated\. "Lazily compiled/
+    );
+    assert.ok(renders.detail.endsWith(LAZY_IMPORT_FAULT.what), renders.detail);
+    assert.equal(renders.fix, LAZY_IMPORT_FAULT.fix);
   });
 
   it('says when the preview refuses the network only by the name a request gives', async () => {

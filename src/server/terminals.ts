@@ -119,6 +119,12 @@ export class Terminals {
     return lines.length ? lines[lines.length - 1]!.slice(0, 200) : null;
   }
 
+  /** Whether a running session printed what `test` looks for, in the scrollback it keeps. */
+  printed(id: string, test: (text: string) => boolean): boolean {
+    const session = this.sessions.get(id);
+    return session?.status === 'running' && test(session.scrollback);
+  }
+
   get(id: string): TerminalInfo | null {
     const session = this.sessions.get(id);
     return session ? this.info(session) : null;

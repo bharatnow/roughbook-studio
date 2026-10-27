@@ -18,6 +18,7 @@ import {
   CONTEXT_MODULES,
   CONTEXT_REGISTRY,
   contextFiles,
+  nextConfigBehind,
   nextConfigFile,
   planNextConfig,
   undoNextConfig,
@@ -197,7 +198,8 @@ export const next: Recipe = {
   // 6: the browser's in-page wrapper reads rough/context-keys.ts, no iteration in its graph (B6).
   // 7: the registries type each iteration's default export as unknown, so a baseline of a component
   // with required props passes the app's type check (B6).
-  version: 7,
+  // 8: next.config's block turns Turbopack's development cache off (B7b, decision 67).
+  version: 8,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {
@@ -296,6 +298,7 @@ export const next: Recipe = {
       const pending = [...absent, ...route];
       return text !== null && undoNextConfig(text) === null ? [...pending, config!] : pending;
     },
+    behind: nextConfigBehind,
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL
   },

@@ -30,6 +30,7 @@ import {
   ProjectCache
 } from '../server/projectCache.js';
 import { readEnvironmentSync } from '../environment/read.js';
+import { LAZY_IMPORT_NOTICE } from '../recipes/next/fault.js';
 import { approveCommands, environmentCommands } from '../repo/approvals.js';
 import { LocalStudio } from '../server/studio.js';
 import { Terminals } from '../server/terminals.js';
@@ -1220,7 +1221,16 @@ describe('the local server', () => {
     const twice = await api('POST', '/api/app/start');
     assert.equal(twice.json.data.started, false);
     assert.equal(pty.spawned.length, before + 1);
+    // Turbopack's lost lazy import in the app's log: the frame's notice says what it is (B7b).
+    assert.equal((await api('GET', '/api/app')).json.data.fault, null);
+    pty.spawned
+      .at(-1)!
+      .emit(
+        '\u001b[31m⨯\u001b[39m Error: Lazily compiled dynamic import [project]/rough/home/hero/iteration-00/index.tsx [app-rsc] (ecmascript, async loader) was not activated\r\n'
+      );
+    assert.equal((await api('GET', '/api/app')).json.data.fault, LAZY_IMPORT_NOTICE);
     studio.terminals!.stop(state.app.terminal);
+    assert.equal((await api('GET', '/api/app')).json.data.fault, null);
   });
 
   it('asks the backend for the project and its ratings only when they may have changed', async () => {

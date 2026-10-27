@@ -43,6 +43,7 @@ import {
 import { readMap } from '../map/file.js';
 import { contextAddress, contextSections } from '../recipes/context.js';
 import { recipeFor } from '../recipes/index.js';
+import { LAZY_IMPORT_NOTICE, isLazyImportFault } from '../recipes/next/fault.js';
 import type { ComponentKind, Known, RepoMap } from '../map/types.js';
 import {
   pictureShot,
@@ -215,6 +216,11 @@ export type AppView = {
   since: string | null;
   /** The last line the app printed while starting, for the frame's progress. */
   lastLine: string | null;
+  /**
+   * What the app's session printed that a restart mends, in the frame's notice: Turbopack's lost
+   * lazy import (B7b, decision 68). Null otherwise, or when the studio did not start the app.
+   */
+  fault: string | null;
 };
 
 /**
@@ -526,7 +532,13 @@ export class LocalStudio {
     value: RepoEnvironment;
     problem: string | null;
   } | null = null;
-  private app: AppView = { status: 'unknown', terminal: null, since: null, lastLine: null };
+  private app: AppView = {
+    status: 'unknown',
+    terminal: null,
+    since: null,
+    lastLine: null,
+    fault: null
+  };
   private readonly reshots = new Map<string, NodeJS.Timeout>();
   /** Snapshot images per key, as the last render left them; rendering while the command runs. */
   private readonly snapshotStates = new Map<string, SnapshotView>();
@@ -674,7 +686,7 @@ export class LocalStudio {
     // In standalone mode the studio's own server is the app, up while the studio is; in snapshot
     // mode nothing runs between renders.
     if (this.standaloneMode || this.snapshotMode) {
-      return { status: 'up', terminal: null, since: null, lastLine: null };
+      return { status: 'up', terminal: null, since: null, lastLine: null, fault: null };
     }
     const terminal = this.app.terminal ? this.terminals?.get(this.app.terminal) : null;
     if (this.app.status === 'starting' && terminal?.status === 'exited') {
@@ -685,6 +697,10 @@ export class LocalStudio {
       lastLine:
         this.app.terminal && terminal?.status === 'running'
           ? (this.terminals?.lastLine(this.app.terminal) ?? null)
+          : null,
+      fault:
+        this.app.terminal && this.terminals?.printed(this.app.terminal, isLazyImportFault)
+          ? LAZY_IMPORT_NOTICE
           : null
     };
   }
@@ -776,7 +792,8 @@ export class LocalStudio {
       status: 'starting',
       terminal: terminal.id,
       since: new Date().toISOString(),
-      lastLine: null
+      lastLine: null,
+      fault: null
     };
     return { started: true, reason: null, terminal };
   }
