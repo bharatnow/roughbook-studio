@@ -556,7 +556,12 @@ export async function finishPromotion(
   const snapshot = await readSnapshot(repoRoot, promotionId);
   if (!snapshot) throw new Error(`The snapshot of promotion ${promotionId} is gone.`);
 
-  const scope = new Set([...record.targets.map(target => target.path), ...record.studioWrites]);
+  // The localized copy file is where the prompt lands the approved copy (decision 34).
+  const scope = new Set([
+    ...record.targets.map(target => target.path),
+    ...record.studioWrites,
+    ...(environment.copy.kind === 'localized' ? [environment.copy.file] : [])
+  ]);
   const changedNow = async () => {
     const after = await hashRepo(repoRoot, environment.ignore);
     const changes = compareFiles(snapshot.files, after.files);

@@ -421,7 +421,10 @@ export async function preparePromotion(
       : await planBranch(
           repoRoot,
           options.branch === true ? defaultBranch(page, component, iteration) : options.branch,
-          targets.map(target => target.path)
+          [
+            ...targets.map(target => target.path),
+            ...(environment.copy.kind === 'localized' ? [environment.copy.file] : [])
+          ]
         );
 
   const sources = textFiles(folder, environment.sources).map(file => fs.readFileSync(file, 'utf8'));

@@ -289,7 +289,10 @@ export async function preparePagePromotion(
       : await planBranch(
           repoRoot,
           options.branch === true ? defaultPageBranch(page, id) : options.branch,
-          targets.map(target => target.path)
+          [
+            ...targets.map(target => target.path),
+            ...(environment.copy.kind === 'localized' ? [environment.copy.file] : [])
+          ]
         );
 
   const sources = targets

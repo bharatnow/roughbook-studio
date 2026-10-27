@@ -554,6 +554,18 @@ describe('the finish', () => {
     assert.equal(await putBackPromoted(repo, finished, 'lib/plans.ts'), 'restored');
   });
 
+  it('keeps the localized copy file, where the prompt lands the approved copy, in scope', async () => {
+    const { repo, api, outbox, promote } = await forked();
+    await promote({ branch: true });
+    writeBack(repo);
+    write(repo, 'lib/copy.json', '{ "pricing-section": { "title": "Plans" } }\n');
+    const env = environment({ copy: { kind: 'localized', file: 'lib/copy.json' } });
+    const finished = await finishPromotion(repo, api, outbox, env, PROMOTION);
+    assert.equal(finished.result!.outcome, 'done');
+    assert.deepEqual(finished.result!.outOfScope, []);
+    assert.deepEqual(finished.commit!.files, [CARD, SECTION, 'lib/copy.json']);
+  });
+
   it('runs the build and the checks, and says how they went with the failing lines', async () => {
     const { repo, api, outbox, promote, requests } = await forked();
     await promote();
