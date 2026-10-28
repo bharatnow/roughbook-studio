@@ -103,6 +103,14 @@ export type RepoEnvironment = {
    * where the key goes, for interaction the images cannot give. Null when the repo has none.
    */
   device: string | null;
+  /**
+   * The command that runs an accessibility audit on one iteration (A13 of the Apple plan): an
+   * XCUITest's `performAccessibilityAudit()` in a UI test target the repo's own setup provides,
+   * with `{key}` where the key goes and ROUGHBOOK_KEY set. It prints `roughbook: audit <key>: ok`
+   * or one `roughbook: audit <key>: issue <message>` line per issue. Null, or left out by a
+   * recipe, when the repo has none: then nothing is audited and nothing warns.
+   */
+  audit?: string | null;
   viewports: Viewport[];
   /** Colour schemes, locales and text sizes the frame and screenshots cover (decision 33); words only here. */
   variants: string[];

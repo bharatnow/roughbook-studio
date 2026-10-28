@@ -35,6 +35,7 @@ export function environmentCommands(environment: RepoEnvironment): EnvironmentCo
   add('start', environment.start.command);
   add('snapshot', environment.snapshot);
   add('device', environment.device);
+  add('audit', environment.audit);
   add('build', environment.build.command);
   add('production', environment.production?.command);
   for (const check of environment.checks) add('checks', check);

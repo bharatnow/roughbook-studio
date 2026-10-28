@@ -42,9 +42,9 @@ type CliTarget = {
   name: string;
   agents: RunAgent[];
   kind: 'cli';
-  /** Arguments that take any earlier entry away, so adding never meets one. */
-  remove: string[];
-  add(server: ServerCommand): string[];
+  /** Arguments that take any earlier entry by this name away, so adding never meets one. */
+  remove(name?: string): string[];
+  add(server: ServerCommand, name?: string): string[];
 };
 
 export type McpTarget = ConfigTarget | CliTarget;
@@ -69,13 +69,13 @@ export const MCP_TARGETS: McpTarget[] = [
     name: 'Claude Code',
     agents: ['claude-code'],
     kind: 'cli',
-    remove: ['mcp', 'remove', '--scope', 'user', SERVER_NAME],
-    add: server => [
+    remove: (name = SERVER_NAME) => ['mcp', 'remove', '--scope', 'user', name],
+    add: (server, name = SERVER_NAME) => [
       'mcp',
       'add',
       '--scope',
       'user',
-      SERVER_NAME,
+      name,
       ...envOptions(server),
       '--',
       server.command,
@@ -87,11 +87,11 @@ export const MCP_TARGETS: McpTarget[] = [
     name: 'Codex',
     agents: ['codex'],
     kind: 'cli',
-    remove: ['mcp', 'remove', SERVER_NAME],
-    add: server => [
+    remove: (name = SERVER_NAME) => ['mcp', 'remove', name],
+    add: (server, name = SERVER_NAME) => [
       'mcp',
       'add',
-      SERVER_NAME,
+      name,
       ...envOptions(server),
       '--',
       server.command,
@@ -216,8 +216,12 @@ export function serverCommand(options: {
 }
 
 /** The entry as it would sit in the target's file, for showing or pasting. */
-export function snippet(target: ConfigTarget, server: ServerCommand): string {
-  return formatJson({ [target.key]: { [SERVER_NAME]: target.entry(server) } });
+export function snippet(
+  target: ConfigTarget,
+  server: ServerCommand,
+  name: string = SERVER_NAME
+): string {
+  return formatJson({ [target.key]: { [name]: target.entry(server) } });
 }
 
 export type FileChange = {
@@ -236,13 +240,15 @@ async function readText(file: string): Promise<string | null> {
 
 /**
  * Puts the entry in one file, keeping everything else in it. A file that is not plain JSON, such
- * as one with comments, is left alone and reported, for the designer to paste into.
+ * as one with comments, is left alone and reported, for the designer to paste into. `name` is
+ * the server's: the studio's own, or another the studio adds beside it, such as Xcode's bridge.
  */
 export async function mergeEntry(
   file: string,
   key: ConfigTarget['key'],
   entry: JsonObject,
-  onlyIfThere: boolean
+  onlyIfThere: boolean,
+  name: string = SERVER_NAME
 ): Promise<FileChange['status']> {
   const text = await readText(file);
   if (text === null && onlyIfThere) return 'skipped';
@@ -257,11 +263,11 @@ export async function mergeEntry(
   if (!config || typeof config !== 'object' || Array.isArray(config)) return 'unreadable';
   const servers = (config as JsonObject)[key] ?? {};
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return 'unreadable';
-  const existing = (servers as JsonObject)[SERVER_NAME];
+  const existing = (servers as JsonObject)[name];
   if (isDeepStrictEqual(existing, entry)) return 'unchanged';
   await writeJsonAtomic(file, {
     ...(config as JsonObject),
-    [key]: { ...(servers as JsonObject), [SERVER_NAME]: entry }
+    [key]: { ...(servers as JsonObject), [name]: entry }
   });
   return existing === undefined ? 'added' : 'updated';
 }

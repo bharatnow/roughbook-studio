@@ -7,6 +7,7 @@
 //   Tests/RoughSnapshotTests/Iterations/          the mirror of rough/
 //   Tests/RoughSnapshotTests/RoughIteration.swift what an iteration is
 //   Tests/RoughSnapshotTests/RoughRegistry.swift  each iteration's type, by key (generated)
+//   Tests/RoughSnapshotTests/RoughSamples.swift   each component's sample data, for #Preview (generated)
 //   Tests/RoughSnapshotTests/RoughPreview.swift   rough/RoughPreview.swift, copied
 //   Tests/RoughSnapshotTests/RoughSnapshotTests.swift   the snapshot command
 //   Package.swift                                 the target, appended
@@ -25,6 +26,7 @@ export const FIXTURE = 'preview.json';
 export const WRAPPER = `${ROUGH_DIR}/RoughPreview.swift`;
 export const ITERATION_FILE = `${TARGET_DIR}/RoughIteration.swift`;
 export const REGISTRY_FILE = `${TARGET_DIR}/RoughRegistry.swift`;
+export const SAMPLES_FILE = `${TARGET_DIR}/RoughSamples.swift`;
 export const WRAPPER_COPY = `${TARGET_DIR}/RoughPreview.swift`;
 export const TEST_FILE = `${TARGET_DIR}/RoughSnapshotTests.swift`;
 const MARKER = 'Written by Roughbook (the SwiftUI recipe)';
@@ -71,6 +73,108 @@ protocol RoughIteration: View {
     init(fixture: [String: String]) throws
 }
 `;
+
+/** A Swift string literal's text, between its quotes. */
+export function swiftString(text: string): string {
+  let out = '';
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (char === '\\') out += '\\\\';
+    else if (char === '"') out += '\\"';
+    else if (char === '\n') out += '\\n';
+    else if (char === '\r') out += '\\r';
+    else if (char === '\t') out += '\\t';
+    else if (code < 0x20) out += `\\u{${code.toString(16)}}`;
+    else out += char;
+  }
+  return out;
+}
+
+function lowerCamel(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((part, index) => (index ? part.charAt(0).toUpperCase() + part.slice(1) : part))
+    .join('');
+}
+
+/**
+ * A component's sample data in RoughSamples, named by its page and component: home/hero is
+ * home_hero, order-history/line-item is orderHistory_lineItem. Slugs hold no underscore, so no two
+ * components share a name.
+ */
+export function sampleName(key: string): string {
+  const [page = '', component = ''] = key.split('/');
+  const name = `${lowerCamel(page)}_${lowerCamel(component)}`;
+  return /^[A-Za-z]/.test(name) ? name : `rough${name}`;
+}
+
+/** A fixture's value as the snapshot tests read it: text as it is, anything else as its JSON. */
+function fixtureValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/**
+ * Each component's fixture, by its page/component: the values of the first of its iterations, in
+ * key order, whose fixture file reads as a JSON object; none for a component without one.
+ */
+export function componentSamples(
+  repo: string,
+  keys: string[]
+): Map<string, Record<string, string> | null> {
+  const samples = new Map<string, Record<string, string> | null>();
+  for (const key of [...keys].sort()) {
+    const component = key.split('/').slice(0, 2).join('/');
+    if (samples.get(component)) continue;
+    samples.set(component, null);
+    let json: unknown;
+    try {
+      json = JSON.parse(
+        fs.readFileSync(path.join(repo, ROUGH_DIR, ...key.split('/'), FIXTURE), 'utf8')
+      );
+    } catch {
+      continue;
+    }
+    if (!json || typeof json !== 'object' || Array.isArray(json)) continue;
+    samples.set(
+      component,
+      Object.fromEntries(
+        Object.entries(json as Record<string, unknown>).map(([name, value]) => [
+          name,
+          fixtureValue(value)
+        ])
+      )
+    );
+  }
+  return samples;
+}
+
+/**
+ * RoughSamples.swift: one sample per component, from its fixture, so every direction's #Preview
+ * shows the same data.
+ */
+export function renderSamples(samples: Map<string, Record<string, string> | null>): string {
+  const lines = [...samples.keys()].sort().map(component => {
+    const values = Object.entries(samples.get(component) ?? {}).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    );
+    const body = values.length
+      ? `[\n${values.map(([name, value]) => `        "${swiftString(name)}": "${swiftString(value)}",\n`).join('')}    ]`
+      : '[:]';
+    return `    static let ${sampleName(component)}: [String: String] = ${body}\n`;
+  });
+  return `// ${MARKER} from the fixtures in ${ROUGH_DIR}/. Do not edit; it is never committed.
+/// Each component's sample data, from its first iteration's ${FIXTURE}: every direction's #Preview
+/// uses the same values, so the canvas compares the designs and not their data.
+enum RoughSamples {
+${lines.join('')}}
+`;
+}
+
+/** RoughSamples.swift for the iterations in rough/ now. */
+export function samplesFor(repo: string): string {
+  return renderSamples(componentSamples(repo, listIterations(repo, ENTRY)));
+}
 
 /** The registry: each iteration's type, by key. */
 export function renderRegistry(keys: string[]): string {
@@ -187,13 +291,14 @@ function writeIfChanged(file: string, text: string): void {
   fs.writeFileSync(file, text);
 }
 
-/** Keeps the registry and the wrapper's copy up with rough/, in a repo the recipe prepared. */
+/** Keeps the registry, the samples and the wrapper's copy up with rough/, in a repo the recipe prepared. */
 export function syncSwiftPreview(repo: string): void {
   if (!fs.existsSync(path.join(repo, ...TARGET_DIR.split('/')))) return;
   writeIfChanged(
     path.join(repo, ...REGISTRY_FILE.split('/')),
     renderRegistry(listIterations(repo, ENTRY))
   );
+  writeIfChanged(path.join(repo, ...SAMPLES_FILE.split('/')), samplesFor(repo));
   writeIfChanged(path.join(repo, ...WRAPPER_COPY.split('/')), wrapperCopy(repo));
 }
 

@@ -1,5 +1,7 @@
 import { parseArgs } from 'node:util';
 import { adapterFor } from '../agents/index.js';
+import { askYesNo } from '../io.js';
+import { recipeFor } from '../recipes/index.js';
 import {
   MCP_TARGETS,
   SERVER_NAME,
@@ -13,6 +15,13 @@ import {
   type Where
 } from '../mcp/install.js';
 import { stableBinaryPath, standaloneBinary } from '../launch/runtime.js';
+import {
+  XCODE_BRIDGE,
+  XCODE_BRIDGE_MISSING,
+  XCODE_BRIDGE_NEEDS,
+  XCODE_SERVER_NAME,
+  findXcodeBridge
+} from '../launch/xcode.js';
 import { McpServer, serveStdio } from '../mcp/server.js';
 import { INSTRUCTIONS, studioTools } from '../mcp/tools.js';
 import { STUDIO_VERSION } from '../version.js';
@@ -33,11 +42,12 @@ async function addThroughCli(
   context: CommandContext,
   target: Extract<McpTarget, { kind: 'cli' }>,
   server: ServerCommand,
-  print: boolean
+  print: boolean,
+  name = SERVER_NAME
 ): Promise<boolean> {
   const { io } = context;
   const cli = target.id === 'claude-code' ? 'claude' : target.id;
-  const line = commandLine(cli, target.add(server));
+  const line = commandLine(cli, target.add(server, name));
   if (print) {
     io.out(`${target.name}: run`);
     io.out(`  ${line}`);
@@ -45,10 +55,10 @@ async function addThroughCli(
   }
   const detection = await context.detect(adapterFor(target.id));
   if (detection.found && detection.executable) {
-    await context.runCommand(detection.executable, target.remove, 30_000);
-    const added = await context.runCommand(detection.executable, target.add(server), 30_000);
+    await context.runCommand(detection.executable, target.remove(name), 30_000);
+    const added = await context.runCommand(detection.executable, target.add(server, name), 30_000);
     if (added.ok) {
-      io.out(`${target.name}: added ${SERVER_NAME} with ${cli} mcp add.`);
+      io.out(`${target.name}: added ${name} with ${cli} mcp add.`);
       return true;
     }
     const why = added.stderr.trim().split(/\r?\n/)[0] || `it exited with ${added.code}`;
@@ -65,11 +75,12 @@ async function addToFiles(
   context: CommandContext,
   target: Extract<McpTarget, { kind: 'file' }>,
   server: ServerCommand,
-  print: boolean
+  print: boolean,
+  name = SERVER_NAME
 ): Promise<boolean> {
   const { io } = context;
   const where: Where = { platform: context.platform, home: context.home, env: context.env };
-  const shown = snippet(target, server).trimEnd().split('\n');
+  const shown = snippet(target, server, name).trimEnd().split('\n');
   if (print) {
     io.out(`${target.name}: in ${target.files(where)[0]!.file}`);
     for (const line of shown) io.out(`  ${line}`);
@@ -77,7 +88,7 @@ async function addToFiles(
   }
   let ok = true;
   for (const { file, onlyIfThere } of target.files(where)) {
-    const status = await mergeEntry(file, target.key, target.entry(server), onlyIfThere);
+    const status = await mergeEntry(file, target.key, target.entry(server), onlyIfThere, name);
     if (status === 'skipped') continue;
     if (status === 'unreadable') {
       ok = false;
@@ -86,9 +97,107 @@ async function addToFiles(
       continue;
     }
     const said = { added: 'added to', updated: 'updated in', unchanged: 'already in' }[status];
-    io.out(`${target.name}: ${SERVER_NAME} ${said} ${file}`);
+    io.out(`${target.name}: ${name} ${said} ${file}`);
   }
   return ok;
+}
+
+/** One target's entry, by its agent's own command or in its file. */
+function addTo(
+  context: CommandContext,
+  target: McpTarget,
+  server: ServerCommand,
+  print: boolean,
+  name = SERVER_NAME
+): Promise<boolean> {
+  return target.kind === 'cli'
+    ? addThroughCli(context, target, server, print, name)
+    : addToFiles(context, target, server, print, name);
+}
+
+/** Every editor and agent found here, once each: a CLI counts for the file its editor reads. */
+async function foundTargets(context: CommandContext): Promise<McpTarget[]> {
+  const found: McpTarget[] = [];
+  for (const target of MCP_TARGETS) {
+    for (const id of target.agents) {
+      if ((await context.detect(adapterFor(id))).found) {
+        found.push(target);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** The agents Xcode's bridge is added for (A13 of the Apple plan). */
+const XCODE_TARGETS: readonly string[] = ['claude-code', 'codex', 'cursor'];
+
+/**
+ * Adds Xcode's MCP bridge beside the studio's server, for each target that takes it, when
+ * `xcrun --find mcpbridge` resolves on a Mac; one line saying why not otherwise. `bridge` is the
+ * answer already found, when the caller asked first.
+ */
+async function addXcodeBridge(
+  context: CommandContext,
+  targets: McpTarget[],
+  print: boolean,
+  bridge?: string | null
+): Promise<boolean> {
+  const { io } = context;
+  const found =
+    bridge === undefined ? await findXcodeBridge(context.platform, context.runCommand) : bridge;
+  if (!found) {
+    io.out(XCODE_BRIDGE_MISSING);
+    return true;
+  }
+  let ok = true;
+  for (const target of targets) {
+    if (!XCODE_TARGETS.includes(target.id)) {
+      io.out(`${target.name}: Xcode's bridge is added only for Claude Code, Codex and Cursor.`);
+      continue;
+    }
+    ok = (await addTo(context, target, XCODE_BRIDGE, print, XCODE_SERVER_NAME)) && ok;
+  }
+  io.out(`The ${XCODE_SERVER_NAME} server hands the agent Xcode's tools. ${XCODE_BRIDGE_NEEDS}`);
+  return ok;
+}
+
+/**
+ * Whether a repo's stack takes Xcode's bridge: its recipe says so, or the recipe its family is
+ * named for does, as for an app project the setup run fits without a recipe.
+ */
+export function takesXcodeBridge(stack: {
+  recipe?: string | null;
+  family?: string | null;
+}): boolean {
+  return Boolean(recipeFor(stack.recipe)?.xcodeBridge || recipeFor(stack.family)?.xcodeBridge);
+}
+
+/**
+ * What `init` and `setup` offer a repo whose recipe takes Xcode's bridge, on a Mac whose Xcode
+ * has it: asked, never done silently; no, or nobody to answer, adds nothing.
+ */
+export async function offerXcodeBridge(
+  context: CommandContext,
+  stack: { recipe?: string | null; family?: string | null }
+): Promise<void> {
+  if (!takesXcodeBridge(stack)) return;
+  const bridge = await findXcodeBridge(context.platform, context.runCommand);
+  if (!bridge) return;
+  const targets = (await foundTargets(context)).filter(target => XCODE_TARGETS.includes(target.id));
+  if (!targets.length) return;
+  const { io } = context;
+  const names = targets.map(target => target.name).join(', ');
+  const yes = await askYesNo(
+    io,
+    `Add Xcode's MCP bridge (xcrun mcpbridge) to ${names}, so the agent can use Xcode's tools? ${XCODE_BRIDGE_NEEDS}`,
+    false
+  );
+  if (!yes) {
+    io.out("Xcode's bridge was not added. roughbook mcp install --xcode adds it later.");
+    return;
+  }
+  await addXcodeBridge(context, targets, false, bridge);
 }
 
 /** `mcp install [<editor>...]`: the named ones, else every editor and agent found here. */
@@ -99,6 +208,7 @@ async function install(args: string[], context: CommandContext): Promise<number>
     allowPositionals: true,
     options: {
       print: { type: 'boolean', default: false },
+      xcode: { type: 'boolean', default: false },
       'dev-url': { type: 'string' }
     }
   });
@@ -111,14 +221,7 @@ async function install(args: string[], context: CommandContext): Promise<number>
       targets.push(target);
     }
   } else {
-    for (const target of MCP_TARGETS) {
-      for (const id of target.agents) {
-        if ((await context.detect(adapterFor(id))).found) {
-          targets.push(target);
-          break;
-        }
-      }
-    }
+    targets = await foundTargets(context);
     if (!targets.length) {
       throw new Error(
         `No editor or agent that takes MCP servers was found. Name one, such as roughbook mcp install cursor. Choose from: ${ids}.`
@@ -140,12 +243,9 @@ async function install(args: string[], context: CommandContext): Promise<number>
   });
   let ok = true;
   for (const target of targets) {
-    const done =
-      target.kind === 'cli'
-        ? await addThroughCli(context, target, server, values.print)
-        : await addToFiles(context, target, server, values.print);
-    ok &&= done;
+    ok = (await addTo(context, target, server, values.print)) && ok;
   }
+  if (values.xcode) ok = (await addXcodeBridge(context, targets, values.print)) && ok;
   if (!values.print) {
     io.out('');
     io.out(
@@ -158,7 +258,7 @@ async function install(args: string[], context: CommandContext): Promise<number>
 export const mcp: Command = {
   name: 'mcp',
   summary: "Serve runs to an editor's agent over MCP; install adds it to your editors",
-  usage: 'mcp [install [<editor>...] [--print]] [--dev-url <url>]',
+  usage: 'mcp [install [<editor>...] [--xcode] [--print]] [--dev-url <url>]',
   needsRepo: false,
   async run(args, context) {
     if (args[0] === 'install') return install(args.slice(1), context);

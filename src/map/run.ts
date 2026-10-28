@@ -30,12 +30,16 @@ import type {
 import { listFiles, readText } from './walk.js';
 
 /**
- * The discoverers that fit a repo: its recipe's, and every other recipe's its stack tokens name
- * (a server app whose views are a bundler's pages gets both), in the launch order.
+ * The discoverers that fit a repo: its recipe's, every other recipe's its stack tokens name (a
+ * server app whose views are a bundler's pages gets both), and the recipe its family names (a
+ * native project that detection gives a family but no recipe), in the launch order.
  */
 export function discoverersFor(environment: RepoEnvironment): Recipe[] {
   const own = recipeOf(environment);
-  const named = new Set(environment.stack.map(token => token.split('-')[0]!));
+  const named = new Set([
+    ...environment.stack.map(token => token.split('-')[0]!),
+    environment.family
+  ]);
   return RECIPES.filter(recipe => recipe.discover && (recipe === own || named.has(recipe.id)));
 }
 

@@ -10,7 +10,8 @@ import { assessRun, finishRun, type FinishOptions } from '../runs/lifecycle.js';
 import { queued } from '../runs/queue.js';
 import type { Shots } from '../screenshot/iteration.js';
 import { picturesAfterShots } from '../pictures/share.js';
-import { listRuns, namesRun } from '../runs/store.js';
+import { listRuns, namesRun, readRun } from '../runs/store.js';
+import { auditIteration } from '../audit/run.js';
 import type { RunRecord } from '../runs/types.js';
 import { confirm } from '../io.js';
 import { unifiedText } from '../repo/diff.js';
@@ -68,11 +69,20 @@ export async function finishWithScreenshots(
   options: CompleteOptions
 ): Promise<{ run: RunRecord; shots: Shots | null; pictures?: string | null }> {
   const repoRoot = context.repoRoot!;
-  const run = await finishRun(repoRoot, api, outbox, link, runId, options);
+  const read = options.environment ?? (await readEnvironment(repoRoot, link));
+  // The repo's accessibility audit, when it has one, for a run finishing as made: its issues are
+  // warnings beside the checks', one run at a time through the repo's queue (A13).
+  const open = await readRun(repoRoot, runId);
+  const audit =
+    open?.status === 'started' && !options.outcome && read.audit
+      ? await queued(repoRoot, () =>
+          auditIteration(repoRoot, read, `${open.page}/${open.component}/${open.iteration}`)
+        )
+      : [];
+  const run = await finishRun(repoRoot, api, outbox, link, runId, { ...options, audit });
   if (run.failure || run.outcome === 'cancelled' || run.outcome === 'failed') {
     return { run, shots: null };
   }
-  const read = options.environment ?? (await readEnvironment(repoRoot, link));
   // A standalone server started only for this would be gone before anyone looked.
   if (!options.screenshots && !options.environment && read.mode === 'standalone') {
     return { run, shots: null };

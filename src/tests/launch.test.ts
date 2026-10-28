@@ -696,6 +696,91 @@ describe('the SwiftUI recipe', () => {
       swiftui.placeholder('Iteration.swift', 'home/hero/iteration-02')
     );
   });
+
+  it('ends every direction with a named #Preview over the sample data every direction shares', async () => {
+    assert.equal(swiftui.version, 2);
+    const parent = await tempDir('roughbook-swift-');
+    const repo = writeScaffold(swiftui, parent, 'harbor');
+    const files = prepare(repo, swiftui);
+    assert.ok(files.includes('Tests/RoughSnapshotTests/RoughSamples.swift'));
+    assert.ok(
+      swiftui
+        .setupFiles(repo, { ...LINK, appDir: null })
+        .includes('Tests/RoughSnapshotTests/RoughSamples.swift')
+    );
+    // With no fixtures yet, the file still declares the type the previews name.
+    assert.match(read(repo, 'Tests/RoughSnapshotTests/RoughSamples.swift'), /enum RoughSamples \{/);
+
+    // The placeholder ends with the preview, named for the run's direction when it is known.
+    const named = (
+      swiftui.placeholder as (entry: string, key?: string, direction?: string) => string
+    )('Iteration.swift', 'home/hero/iteration-01', 'Quiet "editorial" type');
+    assert.match(
+      named,
+      /#Preview\("Quiet \\"editorial\\" type"\) \{\n {4}HomeHeroIteration01\(fixture: RoughSamples\.home_hero\)\n\}\n$/
+    );
+    const placeholder = swiftui.placeholder('Iteration.swift', 'home/hero/iteration-01');
+    assert.match(
+      placeholder,
+      /#Preview\("home\/hero\/iteration-01"\) \{\n {4}HomeHeroIteration01\(fixture: RoughSamples\.home_hero\)\n\}\n$/
+    );
+    // The rules say the same, with the direction's name from the prompt.
+    const rules = swiftui.agentRules(swiftui.environment(null));
+    assert.match(rules, /#Preview\("<direction>"\)/);
+    assert.match(rules, /RoughSamples\.home_hero/);
+    assert.match(rules, /Direction:/);
+
+    // One sample per component, from its first iteration with a fixture, in its own file.
+    write(repo, 'rough/home/hero/iteration-01/Iteration.swift', named);
+    write(repo, 'rough/home/hero/iteration-02/Iteration.swift', placeholder);
+    write(
+      repo,
+      'rough/home/hero/iteration-02/preview.json',
+      '{ "heading": "Morning \\"bread\\"\\n", "count": 3 }\n'
+    );
+    write(repo, 'rough/home/hero/iteration-03/preview.json', '{ "heading": "Not this one" }\n');
+    write(repo, 'rough/home/hero/iteration-03/Iteration.swift', placeholder);
+    write(repo, 'rough/order-history/line-item/iteration-01/Iteration.swift', placeholder);
+    syncIterations(repo, swiftui.environment(null));
+    const samples = read(repo, 'Tests/RoughSnapshotTests/RoughSamples.swift');
+    assert.ok(
+      samples.includes(
+        'static let home_hero: [String: String] = [\n        "count": "3",\n        "heading": "Morning \\"bread\\"\\n",\n    ]'
+      ),
+      samples
+    );
+    assert.ok(!samples.includes('Not this one'));
+    assert.ok(samples.includes('static let orderHistory_lineItem: [String: String] = [:]'));
+    // The registry still lists every iteration for the snapshot tests, as before.
+    assert.match(
+      read(repo, 'Tests/RoughSnapshotTests/RoughRegistry.swift'),
+      /"home\/hero\/iteration-02": HomeHeroIteration02\.self/
+    );
+    assert.match(
+      read(repo, 'Tests/RoughSnapshotTests/RoughSnapshotTests.swift'),
+      /ImageRenderer\(content: view\)/
+    );
+
+    // A fork renames the type; a preview named by its key follows, a direction's name stays.
+    assert.match(
+      swiftui.retarget!(
+        'Iteration.swift',
+        placeholder,
+        'home/hero/iteration-01',
+        'home/hero/iteration-04'
+      ),
+      /#Preview\("home\/hero\/iteration-04"\) \{\n {4}HomeHeroIteration04\(fixture: RoughSamples\.home_hero\)/
+    );
+    const forked = swiftui.retarget!(
+      'Iteration.swift',
+      named,
+      'home/hero/iteration-01',
+      'home/hero/iteration-04'
+    );
+    assert.match(forked, /#Preview\("Quiet \\"editorial\\" type"\)/);
+    assert.match(forked, /struct HomeHeroIteration04: RoughIteration/);
+    assert.doesNotMatch(forked, /HomeHeroIteration01/);
+  });
 });
 
 describe('the Jetpack Compose recipe', () => {

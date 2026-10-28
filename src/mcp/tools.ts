@@ -10,7 +10,10 @@ import { requireApi, type CommandContext } from '../commands/context.js';
 import { finishPromotionHere } from '../commands/finishPromotion.js';
 import { requireRepoLink } from '../repo/link.js';
 import { findRepoRoot } from '../repo/root.js';
+import { auditIteration } from '../audit/run.js';
+import { readEnvironment } from '../environment/read.js';
 import { assessRun } from '../runs/lifecycle.js';
+import { queued } from '../runs/queue.js';
 import {
   describeRun,
   listPromotions,
@@ -191,6 +194,10 @@ export function describeCheck(check: Check, run: RunRecord): string {
   }
 }
 
+/** What get_checks says of the repo's accessibility audit, when rough/environment.md names one. */
+export const AUDIT_CHECK =
+  "The repo's accessibility audit (the audit command in rough/environment.md) finds no issues in the iteration. Warnings only.";
+
 function json(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -260,7 +267,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     name: 'get_checks',
     title: 'Check a Roughbook iteration',
     description:
-      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, and app files importing from rough/. Fix what fails, then call finish_run.",
+      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, app files importing from rough/, and the repo's accessibility audit when rough/environment.md names one (warnings only). Fix what fails, then call finish_run.",
     inputSchema: {
       type: 'object',
       properties: { run: RUN, repo: REPO },
@@ -271,10 +278,18 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
       const repos = await reposFor(context, text(args.repo, 'repo'), call);
       const { repoRoot, run } = await findRun(repos, text(args.run, 'run'));
       // A finished run is what Done found; checking again would count later changes against it.
-      const now =
-        run.status === 'finished'
-          ? run
-          : await assessRun(repoRoot, await requireRepoLink(repoRoot), run);
+      const link = run.status === 'finished' ? null : await requireRepoLink(repoRoot);
+      const environment = await readEnvironment(repoRoot, link ?? undefined).catch(() => null);
+      const audited = Boolean(environment?.audit);
+      let now: Pick<RunRecord, 'failure' | 'warnings' | 'outOfScope'> = run;
+      if (link) {
+        const assessed = await assessRun(repoRoot, link, run);
+        // The repo's accessibility audit, when it has one: warnings only (A13).
+        const audit = audited
+          ? await queued(repoRoot, () => auditIteration(repoRoot, environment!, label(run)))
+          : [];
+        now = { ...assessed, warnings: [...assessed.warnings, ...audit] };
+      }
       const passes = !now.failure && !now.warnings.length;
       return json({
         run: run.runId,
@@ -284,7 +299,8 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
         checks: [
           ...run.checks.map(check => describeCheck(check, run)),
           `Nothing outside ${run.targetFolder}/ changes.`,
-          'No file outside rough/ imports from rough/.'
+          'No file outside rough/ imports from rough/.',
+          ...(audited ? [AUDIT_CHECK] : [])
         ],
         now: {
           passes,

@@ -42,6 +42,7 @@ import {
 import { handoffLine, writePrompt } from '../runs/slots.js';
 import { takeSnapshot } from '../runs/snapshot.js';
 import { requireApi, type Command, type CommandContext } from './context.js';
+import { offerXcodeBridge } from './mcp.js';
 import { chooseAgent, openInEditor, sayEditorLaunch } from './shared.js';
 
 /** Where doctor leaves its last report, which `setup --fix` reads. */
@@ -415,6 +416,14 @@ export const setup: Command = {
         agent: values.agent,
         model: values.model ?? null,
         report
+      });
+    }
+    // A repo whose recipe takes Xcode's bridge, on a Mac that has it: asked, never under --yes.
+    if (!values.yes) {
+      const detected = detectStack(repoRoot);
+      await offerXcodeBridge(context, {
+        recipe: detected.recipe,
+        family: link.family ?? detected.family
       });
     }
     return startSetupRun(context, api, repoRoot, link, {

@@ -12,6 +12,7 @@ import { withSnippet } from '../../repo/setup.js';
 import { PLACEHOLDER_LINE } from '../../runs/placeholder.js';
 import { familyCraft } from '../craft.js';
 import type { PreviewPlan, Recipe } from '../types.js';
+import { discoverSwift } from './discover.js';
 import {
   ENTRY,
   FIXTURE,
@@ -20,6 +21,7 @@ import {
   PREVIEW_WRAPPER,
   REGISTRY_FILE,
   ROUGH_ITERATION,
+  SAMPLES_FILE,
   SNAPSHOT_TEST,
   TARGET,
   TARGET_DIR,
@@ -30,6 +32,9 @@ import {
   mainTarget,
   manifestSnippet,
   renderRegistry,
+  sampleName,
+  samplesFor,
+  swiftString,
   syncSwiftPreview,
   typeName,
   wrapperCopy
@@ -37,6 +42,17 @@ import {
 
 const MANIFEST = 'Package.swift';
 const RELEASE_PATH = '.build/rough-release';
+
+/** The closing preview of an iteration's file: named for its direction, over the shared samples. */
+function previewBlock(key: string, name: string): string {
+  return `#Preview("${swiftString(name)}") {
+    ${typeName(key)}(fixture: RoughSamples.${sampleName(key)})
+}
+`;
+}
+
+/** The preview line of an iteration's file, when it is the one named by its key. */
+const keyPreview = (key: string) => `#Preview("${swiftString(key)}")`;
 
 function snippetFor(repo: string): string | null {
   const manifest = read(repo, MANIFEST);
@@ -70,6 +86,11 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
       file: REGISTRY_FILE,
       content: renderRegistry(listIterations(repo, ENTRY)),
       summary: 'Add the registry of iterations the snapshot tests render.'
+    },
+    {
+      file: SAMPLES_FILE,
+      content: samplesFor(repo),
+      summary: "Add each component's sample data, which every direction's preview shows."
     },
     { file: WRAPPER_COPY, content: wrapperCopy(repo), summary: "Add the wrapper's copy." },
     { file: TEST_FILE, content: SNAPSHOT_TEST, summary: 'Add the tests that render snapshots.' }
@@ -106,6 +127,8 @@ the studio adds is the test target ${TARGET}, in ${TARGET_DIR}/ (gitignored), wh
 its end, declared only where that folder is: the mirror of rough/ (placement: in-tree ${MIRROR}),
 RoughIteration.swift (an iteration is a View named for its key, home/hero/iteration-01 is
 HomeHeroIteration01, made by init(fixture: [String: String]) throws), the generated RoughRegistry.swift,
+the generated RoughSamples.swift (each component's sample data, from its first fixture, which every
+iteration's closing #Preview("<direction>") shows in Xcode's canvas),
 a copy of ${WRAPPER}, and RoughSnapshotTests.swift, the snapshot command (swift test --filter ${TARGET}),
 which renders each key at every shot in light and dark and writes the PNGs and result.txt. A release
 build never compiles a test target (gate: build, swift build -c release into ${RELEASE_PATH}). Start from
@@ -185,7 +208,11 @@ app in Xcode as a local package. Designs live in rough/.
 export const swiftui: Recipe = {
   id: 'swiftui',
   name: 'SwiftUI',
-  version: 1,
+  // 2: every iteration ends with a #Preview named for its direction, over the shared sample data in
+  // the generated RoughSamples.swift (A13 of the Apple plan).
+  version: 2,
+  // init and setup offer Xcode's MCP bridge, a package or an Xcode app project alike.
+  xcodeBridge: true,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -237,7 +264,8 @@ export const swiftui: Recipe = {
     };
   },
   planPreview,
-  setupFiles: () => [ITERATION_FILE, REGISTRY_FILE, WRAPPER_COPY, TEST_FILE],
+  discover: discoverSwift,
+  setupFiles: () => [ITERATION_FILE, REGISTRY_FILE, SAMPLES_FILE, WRAPPER_COPY, TEST_FILE],
   snippets: repo => {
     const snippet = snippetFor(repo);
     return snippet ? [{ file: MANIFEST, text: snippet }] : [];
@@ -247,13 +275,25 @@ export const swiftui: Recipe = {
   \`struct HomeHeroIteration01: RoughIteration\`, with \`init(fixture: [String: String])\` taking the
   values of \`${FIXTURE}\`. Every other type of the iteration is nested inside it, since all iterations
   share one module. Import the app's module (\`@testable import\` for its internal views).
+- End the file with one preview named for the run's direction, the words after \`Direction:\` in
+  your prompt, over the sample data every direction of the component shares:
+  \`#Preview("<direction>") { HomeHeroIteration01(fixture: RoughSamples.home_hero) }\`, where
+  \`RoughSamples.<page>_<component>\` (camel case within each: \`order-history/line-item\` is
+  \`orderHistory_lineItem\`) is generated from the component's fixture. A fork or refinement keeps
+  its parent's preview name; with no direction, the preview is named by the iteration's key. Write
+  \`try!\` before the type if its init throws, and keep this the file's only preview.
 - Take colours from the app's assets or the semantic colours, and type from text styles, so Dark Mode
   and Dynamic Type follow.
 `,
   roughTsconfig: () => null,
-  placeholder: (_entry, key) => `import SwiftUI
+  // `direction` is the run's, as its prompt names it, when the caller has it (A13).
+  placeholder: (
+    _entry: string,
+    key = 'home/hero/iteration-01',
+    direction?: string
+  ) => `import SwiftUI
 
-struct ${typeName(key ?? 'home/hero/iteration-01')}: RoughIteration {
+struct ${typeName(key)}: RoughIteration {
     init(fixture: [String: String]) {}
 
     var body: some View {
@@ -263,10 +303,14 @@ struct ${typeName(key ?? 'home/hero/iteration-01')}: RoughIteration {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-`,
+
+${previewBlock(key, direction?.trim() || key)}`,
   // A fork's type is named by the parent's key: the new key's, so the two never clash in one module.
+  // A preview named by the parent's key follows it; one named for a direction keeps its name.
   retarget: (_file, text, from, to) =>
-    text.replace(new RegExp(`\\b${typeName(from)}\\b`, 'g'), typeName(to)),
+    text
+      .replace(new RegExp(`\\b${typeName(from)}\\b`, 'g'), typeName(to))
+      .replaceAll(keyPreview(from), keyPreview(to)),
   generatedFiles: [],
   importAllowed: () => [TARGET_DIR],
   syncPreview: syncSwiftPreview,

@@ -181,6 +181,11 @@ export type Recipe = {
    * shows a composition's sections one under another, each in its own frame.
    */
   composes?: boolean;
+  /**
+   * Whether `init` and `setup` offer Xcode's MCP bridge (`xcrun mcpbridge`, A13 of the Apple plan)
+   * to a repo this recipe fits, or whose family it is named for, on a Mac whose Xcode has it.
+   */
+  xcodeBridge?: true;
   /** Every file the preview setup writes outside rough/, repo-relative, for doctor and uninstall. */
   setupFiles(repo: string, link: RepoLink): string[];
   /**
@@ -196,9 +201,10 @@ export type Recipe = {
   roughTsconfig(repo: string): string | null;
   /**
    * What a new slot shows until its agent has written it; `key` is the slot's, for a stack whose
-   * files name their own package or type (`rough.home.hero.iteration_01`).
+   * files name their own package or type (`rough.home.hero.iteration_01`); `direction` is the
+   * run's direction label, for a stack that names its preview after it (SwiftUI's `#Preview`).
    */
-  placeholder(entry: string, key?: string): string;
+  placeholder(entry: string, key?: string, direction?: string): string;
   /**
    * A forked iteration's file as it must read at its new key, for a stack whose files name their
    * own package or type by the key; the text unchanged where nothing names it.

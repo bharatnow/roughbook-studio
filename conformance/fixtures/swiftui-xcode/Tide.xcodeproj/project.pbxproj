@@ -1,0 +1,386 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* TideApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* TideApp.swift */; };
+		A10000000000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* RootView.swift */; };
+		A10000000000000000000003 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* TodayView.swift */; };
+		A10000000000000000000004 /* TodayHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* TodayHeader.swift */; };
+		A10000000000000000000005 /* SessionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* SessionRow.swift */; };
+		A10000000000000000000006 /* StreakCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* StreakCard.swift */; };
+		A10000000000000000000007 /* NewSessionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* NewSessionSheet.swift */; };
+		A10000000000000000000008 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* LibraryView.swift */; };
+		A10000000000000000000009 /* LibraryHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* LibraryHeader.swift */; };
+		A1000000000000000000000A /* TrackRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* TrackRow.swift */; };
+		A1000000000000000000000B /* TrackDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* TrackDetailView.swift */; };
+		A1000000000000000000000C /* Artwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* Artwork.swift */; };
+		A1000000000000000000000D /* TrackCredits.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* TrackCredits.swift */; };
+		A1000000000000000000000E /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* ProfileView.swift */; };
+		A1000000000000000000000F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* SettingsView.swift */; };
+		A10000000000000000000010 /* AccountSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* AccountSection.swift */; };
+		A10000000000000000000011 /* NotificationsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* NotificationsSection.swift */; };
+		A10000000000000000000012 /* NowPlayingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* NowPlayingBar.swift */; };
+		A10000000000000000000013 /* Card.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* Card.swift */; };
+		A10000000000000000000014 /* PillButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* PillButton.swift */; };
+		A10000000000000000000015 /* LegacyBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* LegacyBanner.swift */; };
+		A10000000000000000000016 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000016 /* Track.swift */; };
+		A10000000000000000000020 /* TideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000020 /* TideTests.swift */; };
+		A10000000000000000000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000030 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A20000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E00000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E10000000000000000000001;
+			remoteInfo = Tide;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* TideApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TideApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* TodayHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayHeader.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* SessionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRow.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* StreakCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCard.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* NewSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSheet.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* LibraryHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryHeader.swift; sourceTree = "<group>"; };
+		B1000000000000000000000A /* TrackRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackRow.swift; sourceTree = "<group>"; };
+		B1000000000000000000000B /* TrackDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackDetailView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000C /* Artwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork.swift; sourceTree = "<group>"; };
+		B1000000000000000000000D /* TrackCredits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCredits.swift; sourceTree = "<group>"; };
+		B1000000000000000000000E /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B10000000000000000000010 /* AccountSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSection.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* NotificationsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSection.swift; sourceTree = "<group>"; };
+		B10000000000000000000012 /* NowPlayingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/NowPlayingBar.swift"; sourceTree = "<group>"; };
+		B10000000000000000000013 /* Card.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/Card.swift"; sourceTree = "<group>"; };
+		B10000000000000000000014 /* PillButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PillButton.swift; sourceTree = "<group>"; };
+		B10000000000000000000015 /* LegacyBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyBanner.swift; sourceTree = "<group>"; };
+		B10000000000000000000016 /* Track.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Track.swift; sourceTree = "<group>"; };
+		B10000000000000000000020 /* TideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TideTests.swift; sourceTree = "<group>"; };
+		B10000000000000000000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B100000000000000000000F0 /* Tide.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tide.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B100000000000000000000F1 /* TideTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TideTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D10000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C10000000000000000000000 = {
+			isa = PBXGroup;
+			children = (
+				C10000000000000000000001 /* Tide */,
+				C1000000000000000000000A /* TideTests */,
+				C1000000000000000000000B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C10000000000000000000001 /* Tide */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000001 /* TideApp.swift */,
+				B10000000000000000000002 /* RootView.swift */,
+				C10000000000000000000002 /* Today */,
+				C10000000000000000000003 /* Library */,
+				C10000000000000000000004 /* Profile */,
+				C10000000000000000000005 /* Settings */,
+				C10000000000000000000006 /* Shared */,
+				C10000000000000000000007 /* UI */,
+				C10000000000000000000008 /* Old */,
+				C10000000000000000000009 /* Models */,
+				B10000000000000000000030 /* Assets.xcassets */,
+			);
+			path = Tide;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000002 /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000003 /* TodayView.swift */,
+				B10000000000000000000004 /* TodayHeader.swift */,
+				B10000000000000000000005 /* SessionRow.swift */,
+				B10000000000000000000006 /* StreakCard.swift */,
+				B10000000000000000000007 /* NewSessionSheet.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000003 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000008 /* LibraryView.swift */,
+				B10000000000000000000009 /* LibraryHeader.swift */,
+				B1000000000000000000000A /* TrackRow.swift */,
+				B1000000000000000000000B /* TrackDetailView.swift */,
+				B1000000000000000000000C /* Artwork.swift */,
+				B1000000000000000000000D /* TrackCredits.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000004 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000E /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000005 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				B1000000000000000000000F /* SettingsView.swift */,
+				B10000000000000000000010 /* AccountSection.swift */,
+				B10000000000000000000011 /* NotificationsSection.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000006 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000012 /* NowPlayingBar.swift */,
+				B10000000000000000000013 /* Card.swift */,
+			);
+			name = Shared;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000007 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000014 /* PillButton.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000008 /* Old */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000015 /* LegacyBanner.swift */,
+			);
+			path = Old;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000009 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000016 /* Track.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000A /* TideTests */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000020 /* TideTests.swift */,
+			);
+			path = TideTests;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B100000000000000000000F0 /* Tide.app */,
+				B100000000000000000000F1 /* TideTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E10000000000000000000001 /* Tide */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000000000000000000001 /* Build configuration list for PBXNativeTarget "Tide" */;
+			buildPhases = (
+				D10000000000000000000001 /* Sources */,
+				D10000000000000000000003 /* Frameworks */,
+				D10000000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Tide;
+			productName = Tide;
+			productReference = B100000000000000000000F0 /* Tide.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E10000000000000000000002 /* TideTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000000000000000000002 /* Build configuration list for PBXNativeTarget "TideTests" */;
+			buildPhases = (
+				D10000000000000000000004 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A30000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = TideTests;
+			productName = TideTests;
+			productReference = B100000000000000000000F1 /* TideTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E00000000000000000000000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = F10000000000000000000000 /* Build configuration list for PBXProject "Tide" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C10000000000000000000000;
+			productRefGroup = C1000000000000000000000B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E10000000000000000000001 /* Tide */,
+				E10000000000000000000002 /* TideTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D10000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000030 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* TideApp.swift in Sources */,
+				A10000000000000000000002 /* RootView.swift in Sources */,
+				A10000000000000000000003 /* TodayView.swift in Sources */,
+				A10000000000000000000004 /* TodayHeader.swift in Sources */,
+				A10000000000000000000005 /* SessionRow.swift in Sources */,
+				A10000000000000000000006 /* StreakCard.swift in Sources */,
+				A10000000000000000000007 /* NewSessionSheet.swift in Sources */,
+				A10000000000000000000008 /* LibraryView.swift in Sources */,
+				A10000000000000000000009 /* LibraryHeader.swift in Sources */,
+				A1000000000000000000000A /* TrackRow.swift in Sources */,
+				A1000000000000000000000B /* TrackDetailView.swift in Sources */,
+				A1000000000000000000000C /* Artwork.swift in Sources */,
+				A1000000000000000000000D /* TrackCredits.swift in Sources */,
+				A1000000000000000000000E /* ProfileView.swift in Sources */,
+				A1000000000000000000000F /* SettingsView.swift in Sources */,
+				A10000000000000000000010 /* AccountSection.swift in Sources */,
+				A10000000000000000000011 /* NotificationsSection.swift in Sources */,
+				A10000000000000000000012 /* NowPlayingBar.swift in Sources */,
+				A10000000000000000000013 /* Card.swift in Sources */,
+				A10000000000000000000014 /* PillButton.swift in Sources */,
+				A10000000000000000000015 /* LegacyBanner.swift in Sources */,
+				A10000000000000000000016 /* Track.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D10000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000020 /* TideTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A30000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E10000000000000000000001 /* Tide */;
+			targetProxy = A20000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		F20000000000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		F20000000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.example.tide";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		F20000000000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Tide.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Tide";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F10000000000000000000000 /* Build configuration list for PBXProject "Tide" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20000000000000000000010 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F10000000000000000000001 /* Build configuration list for PBXNativeTarget "Tide" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20000000000000000000011 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F10000000000000000000002 /* Build configuration list for PBXNativeTarget "TideTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20000000000000000000012 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E00000000000000000000000 /* Project object */;
+}

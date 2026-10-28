@@ -17,6 +17,7 @@ import { mapRepo } from '../map/run.js';
 import { openApi, type Command, type CommandContext } from './context.js';
 import { runDoctorHere } from './doctor.js';
 import { sayMap } from './map.js';
+import { offerXcodeBridge } from './mcp.js';
 import { applyTemplates, approveEnvironment, startSetupRun } from './setup.js';
 
 type Choice = { orgId: string; orgName: string; slug: string; name: string };
@@ -330,6 +331,8 @@ export const init: Command = {
         `Applied ${plan.changes.length} change${plan.changes.length === 1 ? '' : 's'}; review them with git diff.`
       );
     }
+    // A repo whose recipe takes Xcode's bridge, on a Mac that has it: asked, never under --yes.
+    if (!values.yes) await offerXcodeBridge(context, { recipe: recipe?.id, family });
 
     const link = (await readRepoLink(repo))!;
     const repoContext = { ...context, repoRoot: repo };

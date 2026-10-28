@@ -264,6 +264,9 @@ export function environmentFromHeader(
   if (device && !device.includes('{key}')) {
     refuse('device', 'is the command that opens one iteration, with {key} where its key goes.');
   }
+  // The accessibility audit's command (A13 of the Apple plan), optional in every mode.
+  const auditText = forOs(fields, 'audit', os);
+  const audit = auditText === undefined ? undefined : auditText === 'none' ? null : auditText;
   const startText = forOs(fields, 'start', os);
   const start = startText === undefined ? undefined : commandAt('start', startText, true);
   if (start === null) refuse('start', 'names where the app answers; it cannot be none.');
@@ -482,6 +485,7 @@ export function environmentFromHeader(
     preview: shownBy === 'standalone' ? STANDALONE_PREVIEW : (preview ?? base.preview),
     snapshot: snapshot === undefined ? base.snapshot : snapshot,
     device: device === undefined ? base.device : device,
+    audit: audit === undefined ? (base.audit ?? null) : audit,
     viewports: viewports ?? base.viewports,
     variants: variants ?? base.variants,
     reload:

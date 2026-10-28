@@ -211,7 +211,10 @@ export async function startRuns(
         content: recipe
           ? recipe.placeholder(
               environment.entry,
-              `${request.page}/${request.component}/${run.iteration}`
+              `${request.page}/${request.component}/${run.iteration}`,
+              request.kind === 'generate'
+                ? request.directions[started.indexOf(run)]?.direction
+                : undefined
             )
           : genericPlaceholder(),
         ...(recipe?.retarget ? { retarget: recipe.retarget.bind(recipe) } : {})
@@ -335,6 +338,11 @@ export type FinishOptions = {
    * to change them, by repository path (decision 32). Those it copied without a word are found too.
    */
   copied?: string[];
+  /**
+   * What the repo's accessibility audit found (A13 of the Apple plan), run by the caller: warnings
+   * added to the checks', never a failure.
+   */
+  audit?: Finding[];
   now?: Date;
 };
 
@@ -358,6 +366,7 @@ export async function finishRun(
     now,
     options.mine ?? []
   );
+  warnings.push(...(options.audit ?? []));
   const outcome: RunOutcome =
     options.outcome ??
     (failure ? 'failed' : warnings.length ? 'completed_with_warnings' : 'completed');
