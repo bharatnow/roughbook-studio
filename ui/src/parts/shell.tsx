@@ -1,9 +1,13 @@
 import { ChevronLeft } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { post } from '../api';
 import { useStudio } from '../data';
 import { useChrome } from './chrome';
 import { Dock } from './dock';
 import { StudioPalette } from './palette';
+import { PicturesSheet } from './pictures-sheet';
+import { PrivacySheet } from './privacy-sheet';
+import { nextSheet, type SheetsState } from './sheets';
 import { StatusButton } from './status';
 
 /** What the studio has to say, in the corner of every screen until dismissed. */
@@ -26,6 +30,64 @@ function Notice() {
         Dismiss
       </button>
     </div>
+  );
+}
+
+const LATER_KEY = 'roughbook.picturesLater';
+
+/** "Ask me later" holds for this tab's session, across screens and reloads. */
+function readLater(): boolean {
+  try {
+    return window.sessionStorage.getItem(LATER_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+let laterThisSession = false;
+let privacyClosedHere = false;
+
+/**
+ * The two one-time sheets (A4 of ROUGHBOOK-APPLE-PLAN.md): the project's pictures question while
+ * nobody has answered it, then the privacy sheet once per install. One at a time.
+ */
+function OneTimeSheets() {
+  const { state, refreshState } = useStudio();
+  const [later, setLater] = useState(() => laterThisSession || readLater());
+  const [privacyClosed, setPrivacyClosed] = useState(privacyClosedHere);
+  const sheets = state as (SheetsState & { webUrl: string | null }) | null;
+  const showing = nextSheet(sheets, { later, privacyClosed });
+
+  function askLater() {
+    laterThisSession = true;
+    try {
+      window.sessionStorage.setItem(LATER_KEY, '1');
+    } catch {
+      // Held for this page only.
+    }
+    setLater(true);
+  }
+
+  function closePrivacy() {
+    privacyClosedHere = true;
+    setPrivacyClosed(true);
+    void post('/api/privacy-sheet/seen')
+      .then(refreshState)
+      .catch(() => {
+        // Shown again next time, which is better than never.
+      });
+  }
+
+  return (
+    <>
+      <PicturesSheet open={showing === 'pictures'} onLater={askLater} />
+      <PrivacySheet
+        open={showing === 'privacy'}
+        lines={sheets?.privacySheet ?? []}
+        webUrl={sheets?.webUrl ?? null}
+        onClose={closePrivacy}
+      />
+    </>
   );
 }
 
@@ -124,6 +186,7 @@ export function Shell({
       <>
         {children}
         <Notice />
+        <OneTimeSheets />
       </>
     );
   }
@@ -134,6 +197,7 @@ export function Shell({
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         <Dock />
         <Notice />
+        <OneTimeSheets />
       </div>
     );
   }
@@ -142,6 +206,7 @@ export function Shell({
       <Bar />
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
       <Notice />
+      <OneTimeSheets />
     </div>
   );
 }

@@ -58,6 +58,28 @@ export type RequestOptions = {
   idempotencyKey?: string;
 };
 
+/** What the readings call sends: the typed words, and for Swap the readings kept and the one to replace. */
+export type ReadingsBody = {
+  text: string;
+  replace?: number;
+  keep?: { label: string; hypothesis: string }[];
+};
+
+/** One reading of the words: a name, the idea it tests, and its plan for the prompt. */
+export type Reading = { label: string; hypothesis: string; plan: Record<string, unknown> };
+
+/** The one question the brief still asks, or null. */
+export type ReadingQuestion = {
+  key: string;
+  stepId?: string;
+  field?: string;
+  question: string;
+  why: string;
+};
+
+/** What the readings call answers. */
+export type ReadingsReply = { readings: Reading[]; question: ReadingQuestion | null };
+
 /** An image the studio uploads as it is: a picture of a studio iteration or an adopted page. */
 export type ImageBody = { bytes: Buffer; type: 'image/png' | 'image/webp' };
 
@@ -303,6 +325,21 @@ export class StudioApi {
   /** The map run's prompt for this project (B1 of the brownfield plan), with its stand-ins. */
   mapPrompt(orgId: string, project: string): Promise<MapPrompt> {
     return this.request('GET', `${projectPath(orgId, project)}/map-prompt`);
+  }
+
+  /**
+   * A round's readings (A6 of the Apple plan): the words the designer typed go up, with the
+   * readings on screen for Swap; three readings and the one question come down. Nothing from the
+   * repo goes with them, and nothing is stored.
+   */
+  readings(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string,
+    body: ReadingsBody
+  ): Promise<ReadingsReply> {
+    return this.request('POST', `${componentPath(orgId, project, page, component)}/readings`, body);
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */

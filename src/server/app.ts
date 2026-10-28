@@ -17,6 +17,7 @@ import {
   originAllowed,
   sameToken
 } from './security.js';
+import { planReadings } from './readings.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
 
 export type LocalServerOptions = {
@@ -232,6 +233,12 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('POST', '/api/pictures/answer', async request =>
       studio.answerPictures(await readBody(request))
     ),
+    // A component's readings (A6 of the Apple plan): the typed words go, nothing from the repo.
+    route('POST', '/api/readings', async request =>
+      planReadings(studio.readingsSource, await readBody(request))
+    ),
+    // The local UI's privacy sheet, shown once per install apart from the CLI's.
+    route('POST', '/api/privacy-sheet/seen', () => studio.privacySheetSeen()),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
       return studio.promote({

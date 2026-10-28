@@ -67,6 +67,8 @@ export type StudioState = {
   devUrl: string;
   port: number;
   webUrl: string | null;
+  /** Whether the prompt opens on readings, from the account's /me (A6). */
+  readingsDefault?: boolean;
   terminal: { builtin: true } | { builtin: false; reason: string };
   agents: AgentView[];
   defaultAgent: string | null;

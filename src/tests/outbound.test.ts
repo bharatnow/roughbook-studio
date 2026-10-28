@@ -325,3 +325,76 @@ describe('outbound requests (ground rule 2)', () => {
     });
   });
 });
+
+describe('outbound requests: the readings call (A6 of the Apple plan)', () => {
+  it('sends only the typed text, the readings kept and the one to replace', async () => {
+    const { StudioApi } = await import('../api/client.js');
+    const { planReadings } = await import('../server/readings.js');
+    const root = await tempDir('roughbook-outbound-readings-');
+    const repo = path.join(root, 'client-app');
+    fs.mkdirSync(path.join(repo, 'rough', 'home', 'hero', 'iteration-01'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'rough', 'home', 'hero', 'iteration-01', 'index.tsx'),
+      ITERATION_SOURCE
+    );
+    fs.writeFileSync(path.join(repo, 'src-stray.ts'), STRAY_EDIT);
+
+    const reply = {
+      readings: [
+        { label: 'Hushed', hypothesis: 'Quiet type lets the offer lead.', plan: { a: 1 } },
+        { label: 'Ledger', hypothesis: 'A ruled grid reads as trust.', plan: { b: 2 } },
+        { label: 'Tide', hypothesis: 'Slow motion reads as calm.', plan: {} }
+      ],
+      question: null
+    };
+    const backend = fakeFetch(() => ok(reply));
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+    const source = { api, link: { orgId: ORG, project: 'site' } };
+
+    // A page that sent more than it should: the repo's path, its code, the plans.
+    const extra = {
+      repoRoot: repo,
+      source: ITERATION_SOURCE,
+      file: path.join(repo, 'src-stray.ts'),
+      stray: STRAY_EDIT
+    };
+    await planReadings(source, { ...extra, page: 'home', component: 'hero', text: 'calm' });
+    await planReadings(source, {
+      ...extra,
+      page: 'home',
+      component: 'hero',
+      text: 'calm',
+      replace: 2,
+      keep: reply.readings.map(reading => ({ ...reading, ...extra }))
+    });
+
+    assert.deepEqual(
+      backend.requests.map(request => request.body),
+      [
+        { text: 'calm' },
+        {
+          text: 'calm',
+          replace: 2,
+          keep: reply.readings.map(({ label, hypothesis }) => ({ label, hypothesis }))
+        }
+      ]
+    );
+    for (const request of backend.requests) {
+      assert.equal(
+        new URL(request.url).pathname,
+        `/v1/api/studio${PROJECT}/pages/home/components/hero/readings`
+      );
+    }
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 5
+    });
+  });
+});

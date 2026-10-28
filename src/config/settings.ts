@@ -24,13 +24,16 @@ export type Settings = {
    * once, at `roughbook login` or the first `roughbook init` (A4 of the Apple plan).
    */
   privacySheetShown: boolean;
+  /** Whether the local UI has shown its own copy of the privacy sheet, once per install too. */
+  uiPrivacySheetShown: boolean;
 };
 
 const DEFAULTS: Settings = {
   defaultAgent: null,
   localPort: null,
   analyticsConsent: null,
-  privacySheetShown: false
+  privacySheetShown: false,
+  uiPrivacySheetShown: false
 };
 
 /** The local server's address, which prompts give agents for the asset files. */

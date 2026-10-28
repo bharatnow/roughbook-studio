@@ -25,6 +25,8 @@ import {
   sendHeartbeat,
   type EditorLaunched
 } from '../commands/shared.js';
+import { PRIVACY_SHEET } from '../config/privacySheet.js';
+import type { ReadingsSource } from './readings.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
 import {
   ENVIRONMENT_FILE,
@@ -923,10 +925,23 @@ export class LocalStudio {
       this.outbox.dropped()
     ]);
     let webUrl: string | null = null;
+    let readingsDefault = false;
     try {
-      webUrl = (await api.me()).webUrl ?? null;
+      const me = await api.me();
+      webUrl = me.webUrl ?? null;
+      readingsDefault = me.readingsDefault ?? false;
     } catch {
       // Offline: the UI works without the link to the web.
+    }
+    // The pictures question's answer before the page reads the project: through the same cache,
+    // so the page's own read that follows costs nothing more.
+    if (this.picturesAnswer === undefined) {
+      try {
+        const tree = await this.cache.project(() => api.project(link.orgId, link.project));
+        this.picturesAnswer ??= tree.pictures === undefined ? true : tree.pictures;
+      } catch {
+        // Offline: asked again with the next state.
+      }
     }
     return {
       version: STUDIO_VERSION,
@@ -934,6 +949,8 @@ export class LocalStudio {
       devUrl,
       port,
       webUrl,
+      // Whether the prompt opens on readings (A6), as the account's /me says.
+      readingsDefault,
       terminal: pty.ok ? { builtin: true } : { builtin: false, reason: pty.reason },
       agents: agents.map((item): AgentView => ({
         id: item.id,
@@ -951,9 +968,22 @@ export class LocalStudio {
       environment: await this.environmentView(),
       environmentProblem: this.environmentProblem,
       app: this.appView(),
-      // The pictures question, for the local UI's one-time sheet: absent until the project is read.
-      pictures: this.picturesAnswer
+      // The pictures question, for the local UI's one-time sheet: absent while it cannot be read.
+      pictures: this.picturesAnswer,
+      // The privacy sheet's lines (the CLI's words), until the local UI has shown them once.
+      privacySheet: settings.uiPrivacySheetShown ? null : [...PRIVACY_SHEET]
     };
+  }
+
+  /** The client and the linked project, for the readings route (src/server/readings.ts). */
+  get readingsSource(): ReadingsSource {
+    return { api: this.options.api, link: this.options.link };
+  }
+
+  /** The local UI showed its privacy sheet: kept beside the CLI's flag, and never shown again. */
+  async privacySheetSeen(): Promise<{ privacySheet: null }> {
+    await saveSettings(this.options.context.configDir, { uiPrivacySheetShown: true });
+    return { privacySheet: null };
   }
 
   /**

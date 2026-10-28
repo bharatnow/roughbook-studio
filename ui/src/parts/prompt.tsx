@@ -1,12 +1,20 @@
-import { HelpTip, PromptBar } from '@roughbook/ui';
+import {
+  HelpTip,
+  PromptBar,
+  type Reading,
+  type ReadingsInput,
+  type ReadingsOutcome,
+  type ReadingsReply
+} from '@roughbook/ui';
 import { focusForKey } from '@roughbook/ui/canvas';
 import { Eraser, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { canvasEntry } from '../canvas-actions';
 import type { StudioCanvas } from '../canvas-input';
-import { useStudio } from '../data';
+import { post } from '../api';
+import { describe, useStudio } from '../data';
 import { forkPrompt } from '../fork-prompt';
-import type { Launched, RunView } from '../types';
+import type { Launched, RunView, StudioState } from '../types';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 /** A run's directions at most, as the run panel allowed. */
@@ -33,6 +41,10 @@ export function partsOf(key: string | null) {
  * iteration per line in the selected component; Fork copies the selected iteration for the agent
  * to take somewhere new; Refine asks for a new iteration that changes it as the words say. A
  * refusal is said beside the field and puts the words back.
+ *
+ * With the session's readingsDefault on (A6 of ROUGHBOOK-APPLE-PLAN.md), New shows three readings
+ * of the words first, from `POST /api/readings`, which sends the backend only the words; "Make
+ * these" starts one run per reading, its label as the direction and its idea as the hypothesis.
  */
 export function StudioPrompt({
   canvas,
@@ -153,13 +165,21 @@ export function StudioPrompt({
         intent: text.trim()
       };
     }
-    setAnswer(null);
-    const started = await start(body, choice);
-    if (!started) {
+    if (!(await launch(body))) {
       // The notice says why; the words wait for another try.
       setField(value => ({ key: value.key + 1, value: text, refused: true }));
-      return;
     }
+  }
+
+  /** Starts the runs; false when they did not start (the notice says why). */
+  async function launch(body: Record<string, unknown>): Promise<boolean> {
+    if (!choice.agent) {
+      setAnswer({ message: 'No coding agent or editor was found.', tone: 'error' });
+      return false;
+    }
+    setAnswer(null);
+    const started = await start(body, choice);
+    if (!started) return false;
     setField(value => ({ key: value.key + 1, value: '', refused: false }));
     setCleanStart(false);
     onModeChange('new');
@@ -167,11 +187,50 @@ export function StudioPrompt({
     if (started.launched.kind === 'manual' || started.launched.kind === 'editor') {
       onLaunched(started.launched);
     }
+    return true;
+  }
+
+  /** The readings of the words for the selected component, or the refusal in words. */
+  async function planReadings(input: ReadingsInput): Promise<ReadingsOutcome> {
+    if (!at.page || !at.component) return { error: 'Select a component first.' };
+    try {
+      return await post<ReadingsReply>('/api/readings', {
+        page: at.page,
+        component: at.component,
+        ...input
+      });
+    } catch (error) {
+      return { error: describe(error) };
+    }
+  }
+
+  /** "Make these": one generate run per reading, as New starts them. */
+  function makeReadings(text: string, readings: Reading[]) {
+    if (!at.page || !at.component) {
+      setAnswer({ message: 'Select a component first.', tone: 'error' });
+      return;
+    }
+    const directions = readings.slice(0, MAX_DIRECTIONS).map(reading => ({
+      direction: reading.label,
+      hypothesis: reading.hypothesis
+    }));
+    if (!directions.length) return;
+    void launch({ page: at.page, component: at.component, kind: 'generate', directions }).then(
+      started => {
+        // The words wait for another try.
+        if (!started) setField(value => ({ key: value.key + 1, value: text, refused: true }));
+      }
+    );
   }
 
   if (!state) return null;
+  // The session's choice, read from /me; an older backend leaves it off.
+  const readingsDefault = (state as StudioState & { readingsDefault?: boolean }).readingsDefault;
   return (
     <PromptBar
+      readingsDefault={readingsDefault === true}
+      planReadings={planReadings}
+      makeReadings={makeReadings}
       key={field.key}
       action={send}
       modes={modes}
