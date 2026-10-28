@@ -116,7 +116,7 @@ export function RefineForm({
                       checked ? current.filter(id => id !== item.id) : [...current, item.id]
                     )
                   }
-                  className="mt-1 size-4 accent-[#5e4cff]"
+                  className="mt-1 size-4"
                 />
                 <span>
                   {item.text}

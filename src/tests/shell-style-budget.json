@@ -1,0 +1,63 @@
+{
+  "ui/src/parts/brief.tsx": {
+    "small-text": 1,
+    "uppercase": 1,
+    "tracking": 1,
+    "violet": 1
+  },
+  "ui/src/parts/composition-promote.tsx": {
+    "violet": 2,
+    "text-white": 1
+  },
+  "ui/src/parts/dock.tsx": {
+    "title": 2,
+    "violet": 3
+  },
+  "ui/src/parts/missing.tsx": {
+    "violet": 1
+  },
+  "ui/src/parts/prompt.tsx": {
+    "violet": 2
+  },
+  "ui/src/parts/refine.tsx": {
+    "small-text": 1,
+    "violet": 4,
+    "text-white": 1
+  },
+  "ui/src/parts/run-card.tsx": {
+    "small-text": 3,
+    "title": 2,
+    "violet": 9,
+    "text-white": 2
+  },
+  "ui/src/parts/run-options.tsx": {
+    "violet": 2
+  },
+  "ui/src/parts/shell.tsx": {
+    "small-text": 1,
+    "raw-color": 1,
+    "shadow": 1,
+    "violet": 2
+  },
+  "ui/src/parts/status.tsx": {
+    "small-text": 1,
+    "uppercase": 1,
+    "tracking": 1,
+    "raw-color": 1,
+    "shadow": 1,
+    "violet": 4
+  },
+  "ui/src/parts/terminal-view.tsx": {
+    "violet": 1
+  },
+  "ui/src/screens/canvas.tsx": {
+    "title": 1,
+    "violet": 5,
+    "text-white": 1
+  },
+  "ui/src/screens/iteration.tsx": {
+    "raw-color": 1,
+    "shadow": 1,
+    "title": 1
+  }
+}

@@ -7,6 +7,9 @@ import { budgetProblems, countQuietHints, quietCounts } from './quiet.js';
 
 // The quiet budget (ROUGHBOOK-QUIET-UI-PLAN.md, U1 step 5): the local UI's always-on hint
 // paragraphs, per file, may only go down. The web counts its own the same way.
+// ROUGHBOOK-APPLE-PLAN.md, A1: the total may not fall below this floor (today's is 2), so a token
+// rename that the hint pattern misses fails here instead of passing with nothing counted.
+const QUIET_FLOOR = 1;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -16,6 +19,12 @@ describe('the quiet budget', () => {
     assert.equal(countQuietHints(`<p className="font-mono text-xs text-steel">Kicker</p>`), 1);
     assert.equal(countQuietHints(`<p className="text-sm text-graphite">Body</p>`), 0);
     assert.equal(countQuietHints(`<p>Plain</p>`), 0);
+  });
+
+  it('counts the new names for the same tokens, text-label-secondary and text-label-meta', () => {
+    assert.equal(countQuietHints(`<p className="text-sm text-label-secondary">Hint</p>`), 1);
+    assert.equal(countQuietHints(`<p className="text-xs text-label-meta">Kicker</p>`), 1);
+    assert.equal(countQuietHints(`<p className="text-sm text-label">Body</p>`), 0);
   });
 
   it('counts only <p>, not <pre>, <path> or a span', () => {
@@ -63,6 +72,14 @@ describe('the quiet budget', () => {
       budgetProblems(counts, budget),
       [],
       'Move the explanation into a HelpTip, or remove it; run `npm run quiet-budget` only to record a lower count.'
+    );
+  });
+
+  it('still finds hint paragraphs, so a renamed class cannot empty the count', () => {
+    const total = Object.values(quietCounts(root)).reduce((sum, count) => sum + count, 0);
+    assert.ok(
+      total >= QUIET_FLOOR,
+      `The walk found ${total} hint paragraphs, below the floor of ${QUIET_FLOOR}: a class was renamed and HINT_CLASS in quiet.ts no longer matches it.`
     );
   });
 });

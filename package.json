@@ -23,6 +23,7 @@
     "pre-commit": "lint-staged",
     "build:ui": "vite build --config ui/vite.config.ts",
     "quiet-budget": "tsx src/tests/quiet-budget.ts",
+    "shell-style-budget": "tsx src/tests/shell-style-budget.ts",
     "scale-budget": "tsx src/tests/scale-budget.ts",
     "fixtures": "node scripts/fixtures.mjs",
     "conformance": "node conformance/run.mjs",

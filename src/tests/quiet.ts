@@ -1,15 +1,16 @@
 // The quiet budget (DESIGN.md in the roughbook repo, "Quiet"): how many always-on hint paragraphs
 // each file of the local UI may hold. A hint paragraph is a <p> whose class holds text-slate or
-// text-steel. quiet.test.ts counts them in every .tsx under ui/src, and `npm run quiet-budget`
+// text-steel, or their new names (ROUGHBOOK-APPLE-PLAN.md, A1) text-label-secondary and
+// text-label-meta. quiet.test.ts counts them in every .tsx under ui/src, and `npm run quiet-budget`
 // records the counts in quiet-budget.json. A budget only goes down.
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 export const QUIET_ROOTS = ['ui/src'] as const;
 
-const HINT_CLASS = /\btext-(?:slate|steel)\b/;
+const HINT_CLASS = /\btext-(?:slate|steel|label-secondary|label-meta)\b/;
 
-/** Counts the <p> elements whose opening tag names text-slate or text-steel. */
+/** Counts the <p> elements whose opening tag names one of the hint classes. */
 export function countQuietHints(source: string): number {
   let count = 0;
   for (const match of source.matchAll(/<p(?=[\s>])/g)) {
@@ -19,7 +20,7 @@ export function countQuietHints(source: string): number {
 }
 
 /** The attributes of an opening tag, up to its ">", skipping any inside strings or braces. */
-function openingTag(source: string, from: number): string {
+export function openingTag(source: string, from: number): string {
   let depth = 0;
   let quote: string | null = null;
   for (let index = from; index < source.length; index += 1) {
