@@ -17,7 +17,10 @@ export type DeviceLogin = {
 export type IssuedInstall = { token: string; installId: string };
 
 export type Me = {
-  user: { id: string; email: string; name: string | null };
+  /** `completeFeatures` is missing from an older backend (Apple plan, decision 12). */
+  user: { id: string; email: string; name: string | null; completeFeatures?: boolean };
+  /** Whether a new round starts from three readings; missing from an older backend. */
+  readingsDefault?: boolean;
   /** The web's address, for links to where the brief is edited. */
   webUrl?: string;
   /** The API's own address (the backend's API_URL), which the studio keeps as its server. */
