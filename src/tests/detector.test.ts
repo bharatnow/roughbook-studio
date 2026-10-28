@@ -114,7 +114,7 @@ describe('the detector', () => {
     assert.deepEqual(detectorFindings(files(clean, cleanCss), everyTell), []);
   });
 
-  it('skips the tells a studio switched off, and a font the Design System chose', () => {
+  it('looks only for the tells the check names, and skips a font the Design System chose', () => {
     const codes = (tells: string[], fonts: string[]) =>
       detectorFindings(files(sloppy, sloppyCss), { tells, fonts }).map(finding => finding.code);
     assert.deepEqual(

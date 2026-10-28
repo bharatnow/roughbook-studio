@@ -17,7 +17,7 @@ export const DETECTED_TELLS = [
 ];
 
 export type DetectorOptions = {
-  /** The tells to look for: the detected ones a studio has not switched off. */
+  /** The tells to look for, as the run's check names them; Roughbook always watches for every one. */
   tells: string[];
   /** Fonts the project's Design System chose, which are never a default. */
   fonts: string[];
