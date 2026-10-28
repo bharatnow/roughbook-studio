@@ -1,9 +1,10 @@
 import { HelpTip, InteractiveResultPanel } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { post } from '../api';
-import { describe, useStudio } from '../data';
+import { useStudio } from '../data';
 import { navigate } from '../router';
 import type { AgentView, Launched, RunView, StudioState } from '../types';
+import { useLine } from './output-line';
 
 export type RunChoice = {
   agent: string;
@@ -204,17 +205,20 @@ function openedIn(launched: EditorLaunched): string {
 
 /** Starts runs, opens the built-in terminal for the first, and says what happened. */
 export function useStartRuns() {
-  const { refresh, say } = useStudio();
+  const { refresh } = useStudio();
   const [busy, setBusy] = useState(false);
   const [launched, setLaunched] = useState<Launched | null>(null);
+  /** What starting said, for the line beside the control that started them. */
+  const said = useLine();
 
-  /** The runs and their launch, or null when they could not start (the notice says why). */
+  /** The runs and their launch, or null when they could not start (its line says why). */
   async function start(
     body: Record<string, unknown>,
     choice: RunChoice
   ): Promise<{ runs: RunView[]; launched: Launched } | null> {
     setBusy(true);
     setLaunched(null);
+    said.clear();
     try {
       const width = document.documentElement.clientWidth;
       const result = await post<{ runs: RunView[]; launched: Launched }>('/api/runs', {
@@ -233,22 +237,22 @@ export function useStartRuns() {
         // The canvas, with the session in its dock and the run's card selected.
         navigate(`/terminals/${result.launched.terminals[0].id}`);
       } else if (result.launched.kind === 'external') {
-        say({ tone: 'info', text: `Started ${names} in ${result.launched.terminal}.` });
+        said.info(`Started ${names} in ${result.launched.terminal}.`);
       } else if (result.launched.kind === 'headless') {
-        say({ tone: 'info', text: `Started ${names} unattended.` });
+        said.info(`Started ${names} unattended.`);
       } else if (result.launched.kind === 'editor') {
-        say({ tone: 'info', text: `Started ${names}. ${openedIn(result.launched)}` });
+        said.info(`Started ${names}. ${openedIn(result.launched)}`);
       }
       return result;
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
       return null;
     } finally {
       setBusy(false);
     }
   }
 
-  return { start, busy, launched };
+  return { start, busy, launched, line: said.line };
 }
 
 /** For an editor: each instruction to paste into a new chat with its agent, with a Copy button. */

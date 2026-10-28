@@ -12,8 +12,11 @@ import { compareBaseline } from '../canvas-actions';
 import { compareCommands } from '../commands';
 import { findComponent, localIterations, useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
+import { useHostLine } from '../host';
+import { newest } from '../output';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
+import { OutputLine } from '../parts/output-line';
 import { useAppCommands } from '../parts/palette';
 import { useRatings } from '../parts/ratings';
 import { useRunVerb } from '../parts/verb-run';
@@ -55,6 +58,9 @@ export function CompareScreen({
   const { previewSrc, actions } = useUiHost();
   const verbs = useRunVerb();
   const runApp = useAppCommands();
+  // The candidates' verbs and their notes and ratings (the host's), said above the columns.
+  const hostLine = useHostLine();
+  const [since] = useState(() => Date.now());
   const summaries = useSummaries(page, component, ids);
   const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
@@ -86,7 +92,11 @@ export function CompareScreen({
             selected: item.number === found.component.selectedIteration
           })),
           actions.runVerb ? (actions.verbs ?? []) : [],
-          { complete: completeFeaturesOf(state) }
+          {
+            complete: completeFeaturesOf(state),
+            project: state?.project.slug,
+            webUrl: state?.webUrl ?? null
+          }
         ),
       run: command => {
         if (runApp(command)) return;
@@ -119,51 +129,57 @@ export function CompareScreen({
   const reloadSeq = environment.reload === 'studio' ? changes.seq : 0;
 
   return (
-    <CompareView
-      project={project.tree.slug}
-      page={page}
-      component={component}
-      base={`/${page}/${component}`}
-      candidates={candidates}
-      baseline={compareBaseline(
-        ids,
-        found.component,
-        candidates.map(item => item.id)
-      )}
-      reviewSummaries={summaries}
-      ratings={ratings}
-      viewports={environment.viewports.map(viewport => ({
-        id: viewport.name,
-        label: viewport.name,
-        width: viewport.width
-      }))}
-      frame={(iteration, width) => {
-        const key = `${page}/${component}/${iteration.id}`;
-        const viewport =
-          environment.viewports.find(item => item.width === width) ?? environment.viewports[0];
-        if (!viewport) return null;
-        return (
-          <PreviewSurface
-            mode={environment.mode}
-            previewKey={key}
-            src={previewSrc({
-              project: project.tree.slug,
-              page,
-              component,
-              iteration: iteration.id
-            })}
-            viewport={viewport}
-            variant={variant}
-            app={state.app.status}
-            devUrl={state.devUrl}
-            timeoutMs={environment.timeouts.preview * 1000}
-            reloadToken={changes.keys.includes(key) ? reloadSeq : 0}
-            lazy
-            title={iteration.name}
-            className="w-full"
-          />
-        );
-      }}
-    />
+    <>
+      <OutputLine
+        line={newest(verbs.line, hostLine && hostLine.at >= since ? hostLine : null)}
+        className="px-4 pt-3"
+      />
+      <CompareView
+        project={project.tree.slug}
+        page={page}
+        component={component}
+        base={`/${page}/${component}`}
+        candidates={candidates}
+        baseline={compareBaseline(
+          ids,
+          found.component,
+          candidates.map(item => item.id)
+        )}
+        reviewSummaries={summaries}
+        ratings={ratings}
+        viewports={environment.viewports.map(viewport => ({
+          id: viewport.name,
+          label: viewport.name,
+          width: viewport.width
+        }))}
+        frame={(iteration, width) => {
+          const key = `${page}/${component}/${iteration.id}`;
+          const viewport =
+            environment.viewports.find(item => item.width === width) ?? environment.viewports[0];
+          if (!viewport) return null;
+          return (
+            <PreviewSurface
+              mode={environment.mode}
+              previewKey={key}
+              src={previewSrc({
+                project: project.tree.slug,
+                page,
+                component,
+                iteration: iteration.id
+              })}
+              viewport={viewport}
+              variant={variant}
+              app={state.app.status}
+              devUrl={state.devUrl}
+              timeoutMs={environment.timeouts.preview * 1000}
+              reloadToken={changes.keys.includes(key) ? reloadSeq : 0}
+              lazy
+              title={iteration.name}
+              className="w-full"
+            />
+          );
+        }}
+      />
+    </>
   );
 }

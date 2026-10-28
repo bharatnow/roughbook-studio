@@ -1,10 +1,13 @@
-import { Drawer } from '@roughbook/ui';
+import { Sheet } from '@roughbook/ui';
 import type { Component } from '../types';
 
 const term = 'font-mono text-[11px] tracking-[0.08em] text-steel uppercase';
 
-/** A component's brief, read-only: it is edited on the web. A frame's Brief on the canvas opens it. */
-export function BriefDrawer({
+/**
+ * A component's brief, read-only, in a full-height sheet: it is edited on the web. A frame's Brief
+ * on the canvas opens it.
+ */
+export function BriefSheet({
   component,
   webHref,
   onClose
@@ -15,10 +18,11 @@ export function BriefDrawer({
 }) {
   const approved = component?.copy.versions.find(item => item.number === component.copy.approved);
   return (
-    <Drawer
+    <Sheet
       open={component !== null}
       onClose={onClose}
       title={component ? `${component.name} brief` : 'Brief'}
+      size="full"
     >
       {component ? (
         <div className="flex flex-col gap-4 text-sm">
@@ -71,6 +75,6 @@ export function BriefDrawer({
           ) : null}
         </div>
       ) : null}
-    </Drawer>
+    </Sheet>
   );
 }

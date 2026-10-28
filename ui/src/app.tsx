@@ -1,9 +1,9 @@
-import { StudioDataProvider } from './data';
+import { StudioDataProvider, useStudio } from './data';
 import { StudioUiHost } from './host';
 import { ChromeProvider } from './parts/chrome';
 import { Missing } from './parts/missing';
 import { Shell } from './parts/shell';
-import { useRoute } from './router';
+import { useDocumentTitle, useRoute } from './router';
 import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
 import { ComposeScreen } from './screens/compose';
@@ -13,6 +13,8 @@ import { PageScreen } from './screens/page';
 
 function Screen() {
   const route = useRoute();
+  // The tab names the document (A8), from the project as last read.
+  useDocumentTitle(route, useStudio().project?.tree);
   switch (route.screen) {
     case 'canvas':
       // One element for every canvas address, so the canvas keeps its state as the address moves.

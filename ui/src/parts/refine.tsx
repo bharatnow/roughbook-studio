@@ -1,9 +1,9 @@
 import {
-  Drawer,
   Field,
   HelpTip,
   MAX_REFINE_OBSERVATIONS,
   REFINEMENT_PRESETS,
+  Sheet,
   buildObservationOptions,
   type Review
 } from '@roughbook/ui';
@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
 import { useStudio } from '../data';
 import type { Feedback } from '../types';
+import { OutputLine } from './output-line';
 import { LaunchResult, RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 const areaClass =
@@ -50,7 +51,7 @@ export function RefineForm({
 }) {
   const { state } = useStudio();
   const [choice, setChoice] = useRunChoice(state);
-  const { start, busy, launched } = useStartRuns();
+  const { start, busy, launched, line } = useStartRuns();
   const reviews = useReviews(page, component, parent);
   const observations = buildObservationOptions(reviews, feedback);
   const [preset, setPreset] = useState('simplify');
@@ -158,12 +159,13 @@ export function RefineForm({
           A refinement is always a new iteration. {parent} stays exactly as it is.
         </HelpTip>
       </div>
+      <OutputLine line={line} />
       <LaunchResult launched={launched} />
     </form>
   );
 }
 
-export function RefineDrawer({
+export function RefineSheet({
   open,
   onClose,
   page,
@@ -181,7 +183,7 @@ export function RefineDrawer({
   feedback: Feedback | null;
 }) {
   return (
-    <Drawer open={open} onClose={onClose} title={`Refine ${parent}`}>
+    <Sheet open={open} onClose={onClose} title={`Refine ${parent}`} size="large">
       <p className="mb-4 font-mono text-sm text-graphite">
         {parent} — {parentName}
       </p>
@@ -194,6 +196,6 @@ export function RefineDrawer({
           onStarted={onClose}
         />
       ) : null}
-    </Drawer>
+    </Sheet>
   );
 }

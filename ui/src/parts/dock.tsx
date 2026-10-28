@@ -2,9 +2,10 @@ import { StatusDot, cn } from '@roughbook/ui';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { post } from '../api';
-import { describe, useStudio } from '../data';
+import { useStudio } from '../data';
 import { endedLabel } from '../types';
 import { useChrome } from './chrome';
+import { OutputLine, useLine } from './output-line';
 import { RunCard } from './run-card';
 import { TerminalView } from './terminal-view';
 
@@ -18,9 +19,10 @@ const control =
  * a narrow window it covers the canvas below the bar.
  */
 export function Dock() {
-  const { terminals, runs, refreshRuns, say } = useStudio();
+  const { terminals, runs, refreshRuns } = useStudio();
   const { dock, showSession, focusTaken, closeDock } = useChrome();
   const [busy, setBusy] = useState(false);
+  const said = useLine();
   const tabs = useRef<HTMLDivElement>(null);
   /** The tab the arrow keys moved to, for the keyboard to follow once it is drawn selected. */
   const moved = useRef<string | null>(null);
@@ -39,11 +41,12 @@ export function Dock() {
 
   async function act(path: string) {
     setBusy(true);
+    said.clear();
     try {
       await post(path);
       await refreshRuns();
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     } finally {
       setBusy(false);
     }
@@ -102,6 +105,7 @@ export function Dock() {
             );
           })}
         </div>
+        <OutputLine line={said.line} className="min-w-0 shrink truncate" />
         {active.status === 'running' ? (
           <button
             type="button"

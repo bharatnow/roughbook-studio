@@ -195,12 +195,22 @@ describe("the studio's palette", () => {
   });
 
   it('makes another agent the default, shows the status, and turns Complete features on or off', () => {
+    const WEB = 'https://roughbook.example/projects/site';
     const studio = studioCommands(null, CONTEXT).filter(item => item.group === 'Studio');
     assert.deepEqual(
       studio.map(item => [item.label, item.run]),
       [
         ['Studio status', { kind: 'status' }],
         ['Turn off Complete features', { kind: 'complete-features', on: false }],
+        // The toolbar's buttons and its document menu (A8), the switch on.
+        ['Home', { kind: 'href', href: '/' }],
+        ['Generate', { kind: 'generate' }],
+        ['Your look', { kind: 'href', href: `${WEB}/design-system`, external: true }],
+        ['Project settings', { kind: 'href', href: `${WEB}/settings`, external: true }],
+        ['Strategy', { kind: 'href', href: `${WEB}/strategy`, external: true }],
+        ['Art direction', { kind: 'href', href: `${WEB}/art-direction`, external: true }],
+        ['Library', { kind: 'href', href: 'https://roughbook.example/library', external: true }],
+        ['Copy link', { kind: 'copy', text: WEB, done: 'Copied the link to this project.' }],
         ['Make Codex the default agent', { kind: 'default-agent', agent: 'codex' }],
         [
           'Open the project on the web',

@@ -167,6 +167,7 @@ import { ChangeFeed, changedKey } from './changes.js';
 import { ProjectCache } from './projectCache.js';
 import { newToken } from './security.js';
 import { Terminals, type TerminalInfo } from './terminals.js';
+import { activityOf, type Activity } from './activity.js';
 
 export type LocalStudioOptions = {
   context: CommandContext & { repoRoot: string };
@@ -976,11 +977,28 @@ export class LocalStudio {
       environment: await this.environmentView(),
       environmentProblem: this.environmentProblem,
       app: this.appView(),
+      // What the open runs' agents are doing, for the status button (A8 step 5).
+      activity: await this.activity(),
       // The pictures question, for the local UI's one-time sheet: absent while it cannot be read.
       pictures: this.picturesAnswer,
       // The privacy sheet's lines (the CLI's words), until the local UI has shown them once.
       privacySheet: settings.uiPrivacySheetShown ? null : [...PRIVACY_SHEET]
     };
+  }
+
+  /** Idle, working, waiting or attention: the open runs read with their sessions' output. */
+  private async activity(): Promise<Activity> {
+    const runs = await listRuns(this.repoRoot).catch(() => []);
+    return activityOf(
+      runs.map(run => ({
+        runId: run.runId,
+        status: run.status,
+        mode: run.mode,
+        headless: this.jobs.get(run.runId) ?? null
+      })),
+      this.terminals?.activity() ?? [],
+      { now: Date.now() }
+    );
   }
 
   /** The client and the linked project, for the readings route (src/server/readings.ts). */

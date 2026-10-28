@@ -17,6 +17,7 @@ import {
 import { useStudio } from '../data';
 import { CompositionPromote } from '../parts/composition-promote';
 import { Missing } from '../parts/missing';
+import { OutputLine } from '../parts/output-line';
 import { usePromotePlan } from '../parts/promote-plan';
 import { useApp } from './iteration';
 
@@ -69,6 +70,7 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
           Edit as new
         </Link>
       </div>
+      <OutputLine line={app.trouble} />
       {view.address ? (
         <PreviewFrame
           mode="live"

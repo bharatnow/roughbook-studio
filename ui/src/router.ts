@@ -81,3 +81,110 @@ export function useRoute(): Route {
   }, []);
   return route;
 }
+
+/** The names a tab's title is made from: the project's tree, as the server reads it. */
+export type TitleNames = {
+  name: string;
+  pages: {
+    slug: string;
+    name: string;
+    components: { slug: string; name: string; iterations: { id: string; name: string }[] }[];
+  }[];
+};
+
+const PRODUCT = 'Roughbook studio';
+const SEPARATOR = ' · ';
+
+/** "iteration-03" as "Iteration 03", "composition-02" as "Composition 02"; anything else as it is. */
+function numbered(id: string): string {
+  const match = /^(iteration|composition)-(\d+)$/.exec(id);
+  return match ? `${match[1] === 'iteration' ? 'Iteration' : 'Composition'} ${match[2]}` : id;
+}
+
+function named(name: string | undefined, fallback: string): string {
+  return (name ?? '').trim() || fallback;
+}
+
+/** Which document a route shows, as the web's `TitledPlace` names it. */
+type Place =
+  | { kind: 'project' }
+  | { kind: 'page'; page: string }
+  | { kind: 'component' | 'iterations' | 'compare'; page: string; component: string }
+  | { kind: 'iteration'; page: string; component: string; iteration: string }
+  | { kind: 'composer'; page: string }
+  | { kind: 'composition'; page: string; composition: string };
+
+/** A card on the canvas is its component's iterations, as on the web, whose server cannot see it. */
+function placeOf(route: Route): Place | null {
+  switch (route.screen) {
+    case 'canvas':
+      return route.focus.kind === 'iteration'
+        ? { kind: 'iterations', page: route.focus.page, component: route.focus.component }
+        : route.focus;
+    case 'compare':
+      return { kind: 'compare', page: route.page, component: route.component };
+    case 'iteration':
+      return {
+        kind: 'iteration',
+        page: route.page,
+        component: route.component,
+        iteration: route.iteration
+      };
+    case 'page':
+      return { kind: 'page', page: route.page };
+    case 'compose':
+      return { kind: 'composer', page: route.page };
+    case 'composition':
+      return { kind: 'composition', page: route.page, composition: route.id };
+    default:
+      return null;
+  }
+}
+
+/** The document's name, then what holds it, without the project. */
+function documentParts(names: TitleNames | null, place: Place): string[] {
+  if (place.kind === 'project') return [];
+  const page = names?.pages.find(item => item.slug === place.page);
+  const pageName = named(page?.name, place.page);
+  switch (place.kind) {
+    case 'page':
+      return [pageName];
+    case 'composer':
+      return ['Composition', pageName];
+    case 'composition':
+      return [numbered(place.composition), pageName];
+  }
+  const component = page?.components.find(item => item.slug === place.component);
+  const componentName = named(component?.name, place.component);
+  switch (place.kind) {
+    case 'component':
+      return [componentName, pageName];
+    case 'iterations':
+      return [`${componentName} iterations`, pageName];
+    case 'compare':
+      return [`Compare ${componentName}`, pageName];
+  }
+  const iteration = component?.iterations.find(item => item.id === place.iteration);
+  return [named(iteration?.name, numbered(place.iteration)), componentName];
+}
+
+/**
+ * What the tab says for a route (ROUGHBOOK-APPLE-PLAN.md, A8 step 4), as the web's
+ * `documentTitle()` has it: the document's own name first, then what holds it, then the project,
+ * then " / Roughbook studio". Before the project is read, slugs stand for the names and the
+ * project is left out.
+ */
+export function titleFor(route: Route, names?: TitleNames | null): string {
+  const place = placeOf(route);
+  const parts = place ? documentParts(names ?? null, place) : ['Nothing here'];
+  if (names) parts.push(named(names.name, 'Untitled project'));
+  return parts.length ? `${parts.join(SEPARATOR)} / ${PRODUCT}` : PRODUCT;
+}
+
+/** Keeps the tab's title on the route's document as the address and the names change. */
+export function useDocumentTitle(route: Route, names?: TitleNames | null): void {
+  const title = titleFor(route, names);
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
+}

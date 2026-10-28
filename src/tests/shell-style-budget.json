@@ -23,10 +23,6 @@
     "title": 2,
     "violet": 9
   },
-  "ui/src/parts/shell.tsx": {
-    "small-text": 1,
-    "violet": 2
-  },
   "ui/src/parts/status.tsx": {
     "small-text": 1,
     "uppercase": 1,

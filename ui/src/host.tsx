@@ -10,11 +10,12 @@ import {
   type PromoteResult,
   type UiHost
 } from '@roughbook/ui';
-import { useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
 import { completeFeaturesOf, switchCompleteFeatures } from './features';
 import { pickedAddress } from './in-page';
+import { decidedText, errorLine, infoLine, type Line } from './output';
 import { navigate } from './router';
 import { verbHostActions } from './verbs-host';
 
@@ -57,12 +58,24 @@ function targetOf(form: FormData) {
 }
 
 /**
+ * What the host's own actions last said: a decision saved or queued, an adoption, a new section.
+ * The screen that holds those controls (the stage, Compare, the canvas, the composition) shows it
+ * in an <output> beside them (A8 step 5), since a form action from @roughbook/ui answers nothing.
+ */
+const HostLine = createContext<Line | null>(null);
+
+export function useHostLine(): Line | null {
+  return useContext(HostLine);
+}
+
+/**
  * What @roughbook/ui's components may do here: the same decisions as on the web, sent to the
  * local server, which queues them in the outbox. Forks start from the run panel instead, since a
  * local fork is a run with an agent.
  */
 export function StudioUiHost({ children }: { children: ReactNode }) {
-  const { state, project, refresh, refreshState, say } = useStudio();
+  const { state, project, refresh, refreshState } = useStudio();
+  const [line, setLine] = useState<Line | null>(null);
   // The verbs read the project as last read (the pick before Pick this one) without remaking the host.
   const projectRef = useRef(project);
   projectRef.current = project;
@@ -82,15 +95,9 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
           `${iterationPath(target.page, target.component, target.iteration)}/decisions`,
           decision
         );
-        say({
-          tone: 'info',
-          text:
-            status === 'queued'
-              ? `${done} It waits in the outbox until the server can be reached.`
-              : done
-        });
+        setLine(infoLine(decidedText(done, status)));
       } catch (error) {
-        say({ tone: 'error', text: describe(error) });
+        setLine(errorLine(error));
       }
       await refresh();
     };
@@ -103,7 +110,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
       } catch (error) {
         throw new Error(describe(error));
       }
-      say({ tone: 'info', text: answer.lines.join(' ') });
+      setLine(infoLine(answer.lines.join(' ')));
       await refresh();
     };
 
@@ -231,10 +238,11 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
           } catch (error) {
             throw new Error(describe(error));
           }
-          say({
-            tone: 'info',
-            text: `Made ${made.name}, a new section. Its first iteration is a run: start one on the canvas.`
-          });
+          setLine(
+            infoLine(
+              `Made ${made.name}, a new section. Its first iteration is a run: start one on the canvas.`
+            )
+          );
           await refresh();
           return made;
         },
@@ -257,14 +265,16 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         ...verbHostActions({ post, project: () => projectRef.current, refresh })
       }
     };
-  }, [completeFeatures, devUrl, previewTemplate, refresh, refreshState, say]);
+  }, [completeFeatures, devUrl, previewTemplate, refresh, refreshState]);
 
   return (
     <UiHostProvider host={host}>
-      <UndoProvider>
-        {children}
-        <UndoBar />
-      </UndoProvider>
+      <HostLine.Provider value={line}>
+        <UndoProvider>
+          {children}
+          <UndoBar />
+        </UndoProvider>
+      </HostLine.Provider>
     </UiHostProvider>
   );
 }

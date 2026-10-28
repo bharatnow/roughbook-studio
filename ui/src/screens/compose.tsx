@@ -1,4 +1,5 @@
 import { CompositionEditor, termLabel } from '@roughbook/ui';
+import { useState } from 'react';
 import {
   appSections,
   canCompose,
@@ -8,7 +9,10 @@ import {
   findComposition
 } from '../composition';
 import { useStudio } from '../data';
+import { useHostLine } from '../host';
+import { newest } from '../output';
 import { Missing } from '../parts/missing';
+import { OutputLine } from '../parts/output-line';
 import { navigate } from '../router';
 import { useApp } from './iteration';
 
@@ -21,6 +25,9 @@ import { useApp } from './iteration';
 export function ComposeScreen({ page, from }: { page: string; from: string | null }) {
   const { state, project } = useStudio();
   const app = useApp(state?.app ?? null);
+  // A new section's words, from the editor's own field (the host's addPageSection).
+  const hostLine = useHostLine();
+  const [since] = useState(() => Date.now());
   if (!project || !state) return <Missing>Loading…</Missing>;
   const record = project.tree.pages.find(item => item.slug === page);
   if (!record || !canCompose(project, page)) {
@@ -36,6 +43,7 @@ export function ComposeScreen({ page, from }: { page: string; from: string | nul
   return (
     <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-4 overflow-y-auto p-4">
       <h1 className="font-display text-lg tracking-tight text-graphite">Compose {record.name}</h1>
+      <OutputLine line={newest(app.trouble, hostLine && hostLine.at >= since ? hostLine : null)} />
       <CompositionEditor
         key={`${page}/${from ?? ''}`}
         project={project.tree.slug}

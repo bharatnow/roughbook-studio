@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -9,6 +10,7 @@ import {
   type ReactNode
 } from 'react';
 import type { StudioCommand } from '../commands';
+import type { Line } from '../output';
 
 /** One step of the bar's breadcrumb: where it goes, and its name. */
 export type Crumb = { href: string; label: string };
@@ -38,6 +40,12 @@ type Chrome = {
   /** The terminal took the keyboard: a dock drawn again later leaves it where it is. */
   focusTaken: () => void;
   closeDock: () => void;
+  /**
+   * What the bar's own controls and the palette's studio commands last said (Copy link, a default
+   * agent refused), in the <output> under the toolbar.
+   */
+  barLine: Line | null;
+  setBarLine: (line: Line | null) => void;
 };
 
 const Context = createContext<Chrome | null>(null);
@@ -53,6 +61,13 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
   const palette = useRef<PaletteSource | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [barLine, setBarLine] = useState<Line | null>(null);
+  // "Copied the link" has done its work after a moment; a refusal stays until the next command.
+  useEffect(() => {
+    if (barLine?.tone !== 'info') return;
+    const timer = window.setTimeout(() => setBarLine(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [barLine]);
   const [dock, setDock] = useState<Chrome['dock']>({ open: false, session: null, focus: false });
   const showSession = useCallback(
     (id: string | null, focus = true) =>
@@ -71,9 +86,11 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       dock,
       showSession,
       focusTaken,
-      closeDock
+      closeDock,
+      barLine,
+      setBarLine
     }),
-    [crumbs, statusOpen, dock, showSession, focusTaken, closeDock]
+    [crumbs, statusOpen, dock, showSession, focusTaken, closeDock, barLine]
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

@@ -20,8 +20,6 @@ import type {
   TerminalInfo
 } from './types';
 
-type Notice = { tone: 'error' | 'info'; text: string } | null;
-
 type StudioData = {
   state: StudioState | null;
   project: ProjectView | null;
@@ -33,8 +31,6 @@ type StudioData = {
   changes: Changes;
   /** Why the project could not be read, such as the server being out of reach. */
   problem: string | null;
-  notice: Notice;
-  say(notice: Notice): void;
   refresh(): Promise<void>;
   refreshRuns(): Promise<void>;
   refreshState(): Promise<void>;
@@ -48,7 +44,7 @@ export function useStudio(): StudioData {
   return data;
 }
 
-/** Turns a failed call into words for the notice bar. */
+/** Turns a failed call into words, for the line beside the control that made it. */
 export function describe(error: unknown): string {
   if (error instanceof Failure) return error.message;
   return error instanceof Error ? error.message : String(error);
@@ -73,7 +69,6 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
   const [runsReady, setRunsReady] = useState(false);
   const [changes, setChanges] = useState<Changes>({ seq: 0, keys: [] });
   const [problem, setProblem] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice>(null);
 
   const refreshState = useCallback(async () => {
     try {
@@ -189,8 +184,6 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       runsReady,
       changes,
       problem,
-      notice,
-      say: setNotice,
       refresh,
       refreshRuns,
       refreshState
@@ -203,7 +196,6 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
       runsReady,
       changes,
       problem,
-      notice,
       refresh,
       refreshRuns,
       refreshState

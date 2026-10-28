@@ -1,36 +1,23 @@
-import { ChevronLeft } from 'lucide-react';
+import { Button, MenuButton, Toolbar } from '@roughbook/ui';
+import { ChevronLeft, House } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { post } from '../api';
+import type { StudioCommand } from '../commands';
 import { useStudio } from '../data';
+import { completeFeaturesOf } from '../features';
+import { TOOLBAR_ITEMS, documentItems, type DocumentItem } from '../toolbar';
 import { useChrome } from './chrome';
 import { Dock } from './dock';
-import { StudioPalette } from './palette';
+import { OutputLine } from './output-line';
+import { StudioPalette, useAppCommands } from './palette';
 import { PicturesSheet } from './pictures-sheet';
 import { PrivacySheet } from './privacy-sheet';
 import { nextSheet, type SheetsState } from './sheets';
 import { StatusButton } from './status';
 
-/** What the studio has to say, in the corner of every screen until dismissed. */
-function Notice() {
-  const { notice, say } = useStudio();
-  if (!notice) return null;
-  return (
-    <div
-      role={notice.tone === 'error' ? 'alert' : 'status'}
-      className={`fixed right-4 bottom-4 z-50 flex max-w-md items-start gap-3 rounded-card border bg-canvas px-4 py-3 text-sm shadow-elevation-1 ${
-        notice.tone === 'error' ? 'border-danger text-danger' : 'border-ash text-graphite'
-      }`}
-    >
-      <span className="min-w-0 flex-1">{notice.text}</span>
-      <button
-        type="button"
-        onClick={() => say(null)}
-        className="-my-1 inline-flex min-h-6 items-center text-xs text-steel hover:text-graphite"
-      >
-        Dismiss
-      </button>
-    </div>
-  );
+/** A toolbar or menu item as the command it also is, for the palette's runner. */
+function asCommand(item: DocumentItem): StudioCommand {
+  return { id: item.id, label: item.label, group: 'Studio', run: item.run };
 }
 
 const LATER_KEY = 'roughbook.picturesLater';
@@ -91,66 +78,111 @@ function OneTimeSheets() {
   );
 }
 
+const iconButton =
+  'inline-flex size-8 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:size-11';
+
 /**
- * The one bar (ROUGHBOOK-QUIET-UI-PLAN.md, U5): the logo, the breadcrumb the canvas moves with its
- * selection, the palette, and one status dot whose popover holds the dev server, the outbox and
- * the version. A narrow window shows the breadcrumb's last item with the way back.
+ * The one bar, as a toolbar of three groups (A8 step 3 of ROUGHBOOK-APPLE-PLAN.md): home and the
+ * project's title, whose document menu holds what the studio can open or copy, then the breadcrumb
+ * the canvas moves with its selection; search (the palette) in the centre; the status and one
+ * Generate trailing. A narrow window shows the breadcrumb's last item with the way back. What the
+ * bar's controls say goes in the <output> under it.
  */
 function Bar() {
   const { state, project, problem } = useStudio();
-  const { crumbs } = useChrome();
-  const trail = [
-    { href: '#/', label: project?.tree.name ?? state?.project.slug ?? 'Project' },
-    ...crumbs
-  ];
+  const { crumbs, barLine } = useChrome();
+  const runApp = useAppCommands();
+  const name = project?.tree.name ?? state?.project.slug ?? 'Project';
+  const trail = [{ href: '#/', label: name }, ...crumbs];
   const last = trail[trail.length - 1]!;
   const back = trail[trail.length - 2];
+  const menu = state
+    ? documentItems({
+        project: state.project.slug,
+        webUrl: state.webUrl,
+        complete: completeFeaturesOf(state)
+      })
+    : [];
+  const generate = TOOLBAR_ITEMS.find(item => item.id === 'generate')!;
+  const title = menu.length ? (
+    <MenuButton
+      label={`${name}, project menu`}
+      align="start"
+      items={menu.map(item => ({ label: item.label, onSelect: () => runApp(asCommand(item)) }))}
+    >
+      <span className="truncate font-medium text-graphite">{name}</span>
+    </MenuButton>
+  ) : (
+    <span className="truncate px-1 font-medium text-graphite">{name}</span>
+  );
+
   return (
     <header className="sticky top-0 z-30 border-b border-ash bg-cloud/95 backdrop-blur">
-      <div className="flex h-12 items-center gap-3 px-4">
-        <a href="#/" className="flex shrink-0 items-center gap-2 max-md:hidden">
-          <span className="font-display text-base tracking-tight text-graphite">Roughbook</span>
-          <span className="rounded-full bg-violet/10 px-2 py-0.5 font-mono text-[11px] text-violet">
-            studio
-          </span>
-        </a>
-        <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
-          <ol className="flex min-w-0 items-center gap-1.5 text-sm max-md:hidden">
-            {trail.map((crumb, index) => (
-              <li key={crumb.href} className="flex min-w-0 items-center gap-1.5">
-                {index ? (
-                  <span aria-hidden className="text-fog">
-                    /
-                  </span>
-                ) : null}
-                {index === trail.length - 1 ? (
-                  <h1 aria-current="page" className="truncate text-graphite">
-                    {crumb.label}
-                  </h1>
-                ) : (
-                  <a href={crumb.href} className="truncate text-slate hover:text-graphite">
-                    {crumb.label}
-                  </a>
-                )}
-              </li>
-            ))}
-          </ol>
-          <div className="flex min-w-0 items-center gap-1 text-sm md:hidden">
-            {back ? (
-              <a
-                href={back.href}
-                aria-label={`Back to ${back.label}`}
-                className="-ml-2 inline-flex size-9 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite"
-              >
-                <ChevronLeft className="size-4" strokeWidth={1.5} />
-              </a>
-            ) : null}
-            <h1 className="truncate text-graphite">{last.label}</h1>
-          </div>
-        </nav>
-        <div className="flex shrink-0 items-center gap-1">
-          <StudioPalette />
-          <StatusButton />
+      <div className="flex h-12 items-center px-4 max-md:px-2">
+        <div className="min-w-0 flex-1">
+          <Toolbar
+            label="Studio"
+            leading={
+              <>
+                <a href="#/" aria-label="Home" className={`${iconButton} max-md:hidden`}>
+                  <House className="size-4" strokeWidth={1.5} aria-hidden />
+                </a>
+                <nav aria-label="Breadcrumb" className="min-w-0">
+                  <ol className="flex min-w-0 items-center gap-1.5 text-sm max-md:hidden">
+                    <li className="flex min-w-0 items-center">
+                      {trail.length === 1 ? <h1 className="min-w-0">{title}</h1> : title}
+                    </li>
+                    {crumbs.map((crumb, index) => (
+                      <li key={crumb.href} className="flex min-w-0 items-center gap-1.5">
+                        <span aria-hidden className="text-fog">
+                          /
+                        </span>
+                        {index === crumbs.length - 1 ? (
+                          <h1 aria-current="page" className="truncate text-graphite">
+                            {crumb.label}
+                          </h1>
+                        ) : (
+                          <a href={crumb.href} className="truncate text-slate hover:text-graphite">
+                            {crumb.label}
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="flex min-w-0 items-center gap-1 text-sm md:hidden">
+                    {back ? (
+                      <a
+                        href={back.href}
+                        aria-label={`Back to ${back.label}`}
+                        className={iconButton}
+                      >
+                        <ChevronLeft className="size-4" strokeWidth={1.5} aria-hidden />
+                      </a>
+                    ) : null}
+                    {back ? (
+                      <h1 className="truncate text-graphite">{last.label}</h1>
+                    ) : (
+                      <h1 className="min-w-0">{title}</h1>
+                    )}
+                  </div>
+                </nav>
+              </>
+            }
+            center={<StudioPalette />}
+            trailing={
+              <>
+                <StatusButton />
+                <Button
+                  type="button"
+                  kind="primary"
+                  tier="compact"
+                  onClick={() => runApp(asCommand(generate))}
+                >
+                  {generate.label}
+                </Button>
+              </>
+            }
+          />
         </div>
       </div>
       {problem ? (
@@ -161,6 +193,7 @@ function Bar() {
           {problem}
         </p>
       ) : null}
+      <OutputLine line={barLine} className="border-t border-ash bg-canvas px-4 py-2 text-center" />
     </header>
   );
 }
@@ -185,7 +218,6 @@ export function Shell({
     return (
       <>
         {children}
-        <Notice />
         <OneTimeSheets />
       </>
     );
@@ -196,7 +228,6 @@ export function Shell({
         <Bar />
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
         <Dock />
-        <Notice />
         <OneTimeSheets />
       </div>
     );
@@ -205,7 +236,6 @@ export function Shell({
     <div className="min-h-[100dvh]">
       <Bar />
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-      <Notice />
       <OneTimeSheets />
     </div>
   );

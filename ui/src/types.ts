@@ -82,6 +82,8 @@ export type StudioState = {
   /** Why rough/environment.md cannot be read now, or null. */
   environmentProblem: string | null;
   app: AppView;
+  /** What the open runs' agents are doing (A8 step 5); missing from an older studio server. */
+  activity?: import('./activity').Activity;
   /** What a card's <img> puts in a screenshot's address, since it cannot send the token. */
   shotKey?: string;
 };

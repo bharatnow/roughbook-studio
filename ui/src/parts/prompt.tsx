@@ -72,7 +72,7 @@ export function StudioPrompt({
 }) {
   const { state } = useStudio();
   const [choice, setChoice] = useRunChoice(state);
-  const { start } = useStartRuns();
+  const { start, line: started } = useStartRuns();
   const [answer, setAnswer] = useState<{ message: string; tone: 'status' | 'error' } | null>(null);
   // Each send draws the form anew: React resets a form after its action, which would leave the
   // mode's radios at the ones first drawn. A refusal puts the words and the keyboard back.
@@ -151,12 +151,12 @@ export function StudioPrompt({
       };
     }
     if (!(await launch(body))) {
-      // The notice says why; the words wait for another try.
+      // The line beside the prompt says why; the words wait for another try.
       setField(value => ({ key: value.key + 1, value: text, refused: true }));
     }
   }
 
-  /** Starts the runs; false when they did not start (the notice says why). */
+  /** Starts the runs; false when they did not start (the line beside the prompt says why). */
   async function launch(body: Record<string, unknown>): Promise<boolean> {
     if (!choice.agent) {
       setAnswer({ message: 'No coding agent or editor was found.', tone: 'error' });
@@ -263,8 +263,8 @@ export function StudioPrompt({
       fieldKey={field.key}
       defaultValue={field.value}
       label="Prompt"
-      message={answer?.message ?? null}
-      tone={answer?.tone ?? 'status'}
+      message={answer?.message ?? started?.text ?? null}
+      tone={answer?.tone ?? (started?.tone === 'error' ? 'error' : 'status')}
       disabled={modes.find(item => item.id === current)?.disabled ?? true}
     />
   );

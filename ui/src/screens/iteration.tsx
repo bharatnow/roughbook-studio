@@ -30,11 +30,14 @@ import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
+import { useHostLine } from '../host';
 import { inPageNote, inPageSrc, lazyImportNotice } from '../in-page';
+import { lineOf, newest, shotsLine, verbLine, type Line } from '../output';
 import { navigate } from '../router';
 import { Missing } from '../parts/missing';
+import { OutputLine, useLine } from '../parts/output-line';
 import { useRatings } from '../parts/ratings';
-import { RefineDrawer, useReviews } from '../parts/refine';
+import { RefineSheet, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
 import { HowFarMenu, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import type { AppView, SnapshotView } from '../types';
@@ -150,24 +153,25 @@ function withReason(
   return reason ? <HelpTag text={reason}>{control}</HelpTag> : control;
 }
 
-export function useApp(initial: AppView | null): AppView {
-  const { state, refreshState, say } = useStudio();
+/**
+ * The app's state, and `trouble`: Turbopack's lost lazy import (B7b), from the app's log or from a
+ * preview's own error message, for the screen to say beside its frame.
+ */
+export function useApp(initial: AppView | null): AppView & { trouble: Line | null } {
+  const { state, refreshState } = useStudio();
   const [app, setApp] = useState<AppView | null>(initial);
+  const [lazy, setLazy] = useState<Line | null>(null);
   const current = app ?? state?.app ?? null;
   const status = current?.status ?? 'unknown';
-  // Turbopack's lost lazy import (B7b): from the app's log, or from a preview's own error message.
   const fault = current?.fault ?? null;
-  useEffect(() => {
-    if (fault) say({ tone: 'error', text: fault });
-  }, [fault, say]);
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const text = lazyImportNotice(event.data);
-      if (text) say({ tone: 'error', text });
+      if (text) setLazy(lineOf('error', text));
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [say]);
+  }, []);
   useEffect(() => {
     let live = true;
     const timer = window.setInterval(
@@ -187,7 +191,15 @@ export function useApp(initial: AppView | null): AppView {
       window.clearInterval(timer);
     };
   }, [status, refreshState]);
-  return current ?? { status: 'unknown', terminal: null, since: null, lastLine: null, fault: null };
+  const view: AppView = current ?? {
+    status: 'unknown',
+    terminal: null,
+    since: null,
+    lastLine: null,
+    fault: null
+  };
+  // The log's fault stands while the app reports it; a preview's message, until the next one.
+  return { ...view, trouble: newest(fault ? lineOf('error', fault, 0) : null, lazy) };
 }
 
 function presetLabel(preset: string): string {
@@ -205,8 +217,14 @@ export function IterationScreen({
   iteration: string;
   refine: boolean;
 }) {
-  const { state, project, runs, changes, refresh, refreshState, say } = useStudio();
+  const { state, project, runs, changes, refresh, refreshState } = useStudio();
   const { previewSrc } = useUiHost();
+  /** What the stage's own controls said (the app, the device, a render), beside its actions. */
+  const said = useLine();
+  /** Take screenshots' answer, beside its button in the inspector. */
+  const shotSaid = useLine();
+  const hostLine = useHostLine();
+  const [since] = useState(() => Date.now());
   const [selectOpen, setSelectOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [refineOpen, setRefineOpen] = useState(refine);
@@ -282,20 +300,16 @@ export function IterationScreen({
 
   async function takeScreenshots() {
     setShooting(true);
+    shotSaid.clear();
     try {
       const shots = await post<{ files: Record<string, string>; warning: string | null }>(
         `${iterationPath(page, component, id)}/screenshots`,
         { force: true }
       );
-      const count = Object.keys(shots.files).length;
-      say(
-        shots.warning
-          ? { tone: 'error', text: shots.warning }
-          : { tone: 'info', text: `Took ${count} screenshot${count === 1 ? '' : 's'}.` }
-      );
+      shotSaid.show(shotsLine(shots));
       setShotVersion(version => version + 1);
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      shotSaid.fail(error);
     } finally {
       setShooting(false);
       await refresh();
@@ -309,36 +323,37 @@ export function IterationScreen({
         force: true
       });
       setSnapshot(next);
-      if (next.status === 'failed' && next.message) say({ tone: 'error', text: next.message });
+      if (next.status === 'failed' && next.message) said.fail(next.message);
       setShotVersion(version => version + 1);
     } catch (error) {
       setSnapshot({ status: 'failed', message: describe(error), at: null });
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     }
   }
 
   async function openOnDevice() {
+    said.clear();
     try {
       const result = await post<{ ok: boolean; message: string }>(
         `${iterationPath(page, component, id)}/device`
       );
-      say({ tone: result.ok ? 'info' : 'error', text: result.message });
+      said.show(verbLine(result));
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     }
   }
 
   async function startApp() {
+    said.clear();
     try {
       const result = await post<{ started: boolean; reason: string | null }>('/api/app/start');
-      say({
-        tone: 'info',
-        text: result.started
+      said.info(
+        result.started
           ? `Starting the app with ${environment.start.command}; its session is in the terminals.`
           : (result.reason ?? 'The app was not started.')
-      });
+      );
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     }
     await refreshState();
   }
@@ -449,6 +464,15 @@ export function IterationScreen({
               critiquePrompt=""
               refineHref={`${base}/${id}?refine=1`}
             />
+            <OutputLine
+              line={newest(
+                said.line,
+                verbs.line,
+                app.trouble,
+                hostLine && hostLine.at >= since ? hostLine : null
+              )}
+              className="basis-full"
+            />
           </>
         }
         inspector={
@@ -507,6 +531,7 @@ export function IterationScreen({
                     are taken when a run finishes and again when the files change; the frame shows
                     the first when the app is not answering.
                   </HelpTip>
+                  <OutputLine line={shotSaid.line} />
                 </span>
               )
             }}
@@ -611,7 +636,7 @@ export function IterationScreen({
         iterationId={id}
         rating={rating?.mine ?? null}
       />
-      <RefineDrawer
+      <RefineSheet
         open={refineOpen}
         onClose={() => setRefineOpen(false)}
         page={page}

@@ -1,10 +1,11 @@
 import {
   Canvas,
-  Drawer,
   Button,
   MapList,
   PromotePanel,
   SelectionToolbar,
+  Sheet,
+  SheetFooter,
   cn,
   selectionToolbarItem,
   useCanvasNarrow,
@@ -51,23 +52,24 @@ import { studioCanvasInput, type StudioCanvas } from '../canvas-input';
 import { picturesChanged, useShownCards } from '../shown-cards';
 import { studioCommands, type StudioCommand } from '../commands';
 import { completeFeaturesOf } from '../features';
-import { describe, findComponent, useStudio } from '../data';
+import { findComponent, useStudio } from '../data';
+import { useHostLine } from '../host';
 import { pagesWithView } from '../in-page';
-import { BriefDrawer } from '../parts/brief';
+import { newest, verbLine, type Line } from '../output';
+import { BriefSheet } from '../parts/brief';
+import { OutputLine, useLine } from '../parts/output-line';
 import { useChrome } from '../parts/chrome';
 import { canCompose } from '../composition';
 import { usePromotePlan } from '../parts/promote-plan';
 import { Missing } from '../parts/missing';
-import { useAppCommands } from '../parts/palette';
+import { PROMPT_FIELD, useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
-import { RefineDrawer } from '../parts/refine';
+import { RefineSheet } from '../parts/refine';
 import { HowFarMenu, NOT_THIS_REASONS, NotThisMenu, useRunVerb } from '../parts/verb-run';
-import { WhoseChangesDrawer, useRunOps, type RunOps } from '../parts/run-card';
+import { WhoseChangesSheet, useRunOps, type RunOps } from '../parts/run-card';
 import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
 import { addressFor, navigate } from '../router';
 import type { Launched, ProjectView, RunView, StudioState } from '../types';
-
-const PROMPT_FIELD = 'canvas-prompt';
 
 /** What the canvas keeps while the app runs, so it comes back the same from the stage or Compare. */
 const kept: {
@@ -101,7 +103,8 @@ function defaultFile(componentsDir: string, name: string): string {
 
 /**
  * A making card's Done, Stop and Copy prompt in its toolbar, with Done's question about files
- * changed outside the iteration in a drawer. Its operations are lent to the palette while shown.
+ * changed outside the iteration in a sheet, and what they said on a line after them. Its operations
+ * are lent to the palette while shown.
  */
 function RunButtons({
   run,
@@ -139,7 +142,8 @@ function RunButtons({
           {action.id === 'done' && ops.busy === 'done' ? 'Checking' : action.label}
         </button>
       ))}
-      <WhoseChangesDrawer run={run} ops={ops} />
+      <OutputLine line={ops.line} className="max-w-xs truncate px-2" />
+      <WhoseChangesSheet run={run} ops={ops} />
     </>
   );
 }
@@ -168,7 +172,13 @@ function StudioCanvasView({
   focus: CanvasFocus;
   session?: string;
 }) {
-  const { runs, terminals, runsReady, refresh, say, changes } = useStudio();
+  const { runs, terminals, runsReady, refresh, changes } = useStudio();
+  /** What the canvas's own actions said, beside its controls. */
+  const said = useLine();
+  const hostLine = useHostLine();
+  /** The host's line says what was done here, not on the stage before the canvas opened. */
+  const [since] = useState(() => Date.now());
+  const fresh = (line: Line | null) => (line && line.at >= since ? line : null);
   const { setCrumbs, palette, dock, showSession } = useChrome();
   const { Link, actions: hostActions } = useUiHost();
   const verbRunner = useRunVerb();
@@ -360,7 +370,12 @@ function StudioCanvasView({
   }
 
   const [runChoice] = useRunChoice(state);
-  const { start: startRuns } = useStartRuns();
+  const { start: startRuns, line: startLine } = useStartRuns();
+  /** Adopt all's question past 50 components, asked in a sheet before anything is adopted. */
+  const [adoptAsk, setAdoptAsk] = useState<{
+    question: string;
+    body: { page?: string; component?: string; all?: true };
+  } | null>(null);
   /** A pull that only packages the app does not list keep from being a copy: the designer's call. */
   const [pullChoice, setPullChoice] = useState<PullChoice | null>(null);
 
@@ -372,16 +387,16 @@ function StudioCanvasView({
   async function pull(page: string, component: string, sketch: string, how?: 'add' | 'port') {
     setPullChoice(null);
     setPulling(sketch);
+    said.clear();
     try {
       const answer = await post<PullAnswer>(
         `/api/sketches/${encodeURIComponent(page)}/${encodeURIComponent(component)}/${encodeURIComponent(sketch)}/pull`,
         how ? { how } : {}
       );
       if (answer.kind === 'copied') {
-        say({
-          tone: 'info',
-          text: [`Pulled ${sketch} into rough/ as ${answer.iteration}.`, ...answer.advice].join(' ')
-        });
+        said.info(
+          [`Pulled ${sketch} into rough/ as ${answer.iteration}.`, ...answer.advice].join(' ')
+        );
         await refresh();
         selectWhenThere(`iteration:${page}/${component}/${answer.iteration}`, true);
         return;
@@ -397,15 +412,12 @@ function StudioCanvasView({
         });
         return;
       }
-      say({
-        tone: 'info',
-        text: [`Porting ${sketch} into this repo's stack.`, ...answer.why].join(' ')
-      });
+      said.info([`Porting ${sketch} into this repo's stack.`, ...answer.why].join(' '));
       const started = await startRuns({ page, component, kind: 'pull', sketch }, runChoice);
       const iteration = started?.runs[0]?.iteration;
       if (iteration) selectWhenThere(`iteration:${page}/${component}/${iteration}`, true);
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     } finally {
       setPulling(null);
     }
@@ -413,19 +425,22 @@ function StudioCanvasView({
 
   /**
    * Adopts the app's own page, component, or all of them (B2 of the brownfield plan): only names
-   * reach the server. Past 50 components the server asks first, and the designer answers here.
+   * reach the server. Past 50 components the server asks first, and the designer answers in a
+   * sheet.
    */
   async function adopt(body: { page?: string; component?: string; all?: true }, yes = false) {
+    setAdoptAsk(null);
+    said.clear();
     try {
       const answer = await post<AdoptAnswer>('/api/adopt', yes ? { ...body, yes: true } : body);
       if ('ask' in answer) {
-        if (window.confirm(answer.ask.question)) await adopt(body, true);
+        setAdoptAsk({ question: answer.ask.question, body });
         return;
       }
-      say({ tone: 'info', text: answer.lines.join(' ') });
+      said.info(answer.lines.join(' '));
       await refresh();
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     }
   }
 
@@ -452,7 +467,7 @@ function StudioCanvasView({
 
   async function switchComplete(on: boolean) {
     const answer = await hostActions.setCompleteFeatures?.(on);
-    if (answer) say({ tone: answer.ok ? 'info' : 'error', text: answer.message });
+    if (answer) said.show(verbLine(answer));
   }
 
   // --- what each action does ---------------------------------------------------------------------
@@ -464,7 +479,7 @@ function StudioCanvasView({
       ? selectionActions(canvas, key, selState).find(action => action.id === id)
       : undefined;
     if (found?.disabled) {
-      say({ tone: 'info', text: found.disabled });
+      said.info(found.disabled);
       return;
     }
     switch (id) {
@@ -722,6 +737,9 @@ function StudioCanvasView({
       state.agents.find(agent => agent.found)
     )?.name ?? 'your agent';
 
+  // What the canvas's controls, verbs, pulls and host actions said, newest first, beside them.
+  const line = newest(said.line, verbRunner.line, startLine, fresh(hostLine));
+
   const prompt = (
     <StudioPrompt
       canvas={canvas}
@@ -820,11 +838,15 @@ function StudioCanvasView({
                 <span className="font-mono text-xs text-steel">{terminals.length}</span>
               </button>
             ) : null}
+            <OutputLine
+              line={line}
+              className="max-w-sm rounded-control border border-ash bg-canvas px-3 py-2"
+            />
           </>
         }
       />
 
-      <Drawer open={mapOpen} onClose={() => setMapOpen(false)} title="The app's pages" size="lg">
+      <Sheet open={mapOpen} onClose={() => setMapOpen(false)} title="The app's pages" size="large">
         {canvas.inApp?.problem ? (
           <p className="text-sm text-graphite">{canvas.inApp.problem}</p>
         ) : null}
@@ -834,17 +856,18 @@ function StudioCanvasView({
           filter={filter}
           onFilterChange={setFilter}
         />
-      </Drawer>
-      <BriefDrawer
+        <OutputLine line={fresh(hostLine)} className="mt-3" />
+      </Sheet>
+      <BriefSheet
         component={briefOf?.component ?? null}
         webHref={briefOf && webBase ? `${webBase}/${brief!.page}/${brief!.component}/brief` : null}
         onClose={() => setBrief(null)}
       />
-      <Drawer
+      <Sheet
         open={promoteOf !== null}
         onClose={() => setPromote(null)}
         title={promoteOf ? `Promote ${promoteOf.component.name}` : 'Promote'}
-        size="lg"
+        size="large"
       >
         {promoteOf ? (
           <PromotePanel
@@ -868,9 +891,9 @@ function StudioCanvasView({
             componentName={promoteOf.component.name}
           />
         ) : null}
-      </Drawer>
+      </Sheet>
       {refine && refineIteration ? (
-        <RefineDrawer
+        <RefineSheet
           open
           onClose={() => setRefine(null)}
           page={refine.page}
@@ -880,7 +903,7 @@ function StudioCanvasView({
           feedback={refineIteration.feedback}
         />
       ) : null}
-      <NotThisDrawer
+      <NotThisSheet
         card={notThis}
         busy={notThis !== null && verbBusy === partsOf(notThis).iteration}
         onClose={() => setNotThis(null)}
@@ -889,10 +912,10 @@ function StudioCanvasView({
           void runVerbOn('not-this', key, fields);
         }}
       />
-      <Drawer open={launched !== null} onClose={() => setLaunched(null)} title="Started">
+      <Sheet open={launched !== null} onClose={() => setLaunched(null)} title="Started">
         <LaunchResult launched={launched} />
-      </Drawer>
-      <Drawer
+      </Sheet>
+      <Sheet
         open={pullChoice !== null}
         onClose={() => setPullChoice(null)}
         title={pullChoice ? `Pull ${pullChoice.sketch}` : 'Pull'}
@@ -906,13 +929,34 @@ function StudioCanvasView({
             }
           />
         ) : null}
-      </Drawer>
+      </Sheet>
+      <Sheet
+        open={adoptAsk !== null}
+        onClose={() => setAdoptAsk(null)}
+        title="Adopt them all?"
+        footer={
+          <SheetFooter
+            onCancel={() => setAdoptAsk(null)}
+            action={
+              <Button
+                type="button"
+                kind="primary"
+                onClick={() => adoptAsk && void adopt(adoptAsk.body, true)}
+              >
+                Adopt all
+              </Button>
+            }
+          />
+        }
+      >
+        <p className="text-sm text-graphite">{adoptAsk?.question}</p>
+      </Sheet>
     </div>
   );
 }
 
 /** Not this from the palette, or its "Other…": a reason at once, or the designer's own words. */
-function NotThisDrawer({
+function NotThisSheet({
   card,
   busy,
   onClose,
@@ -926,9 +970,29 @@ function NotThisDrawer({
   const [words, setWords] = useState('');
   useEffect(() => setWords(''), [card]);
   return (
-    <Drawer open={card !== null} onClose={onClose} title="Not this">
+    <Sheet
+      open={card !== null}
+      onClose={onClose}
+      title="Not this"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          action={
+            <Button
+              type="submit"
+              form="not-this-form"
+              kind="primary"
+              disabled={busy || !words.trim()}
+            >
+              Not this
+            </Button>
+          }
+        />
+      }
+    >
       {card ? (
         <form
+          id="not-this-form"
           className="flex flex-col gap-3 text-sm text-graphite"
           onSubmit={event => {
             event.preventDefault();
@@ -959,14 +1023,9 @@ function NotThisDrawer({
               className="rounded-control border border-ash bg-canvas px-3 py-2 text-base text-graphite outline-none focus:border-focus md:text-sm"
             />
           </label>
-          <div>
-            <Button type="submit" kind="primary" tier="compact" disabled={busy || !words.trim()}>
-              Not this
-            </Button>
-          </div>
         </form>
       ) : null}
-    </Drawer>
+    </Sheet>
   );
 }
 

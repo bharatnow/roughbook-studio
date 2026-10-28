@@ -4,6 +4,7 @@
 // exit ends it.
 import { randomUUID } from 'node:crypto';
 import type { PtyModule, PtyProcess } from '../launch/pty.js';
+import type { TerminalActivity } from './activity.js';
 
 export type TerminalInfo = {
   id: string;
@@ -32,10 +33,52 @@ type Session = TerminalInfo & {
   child: PtyProcess;
   scrollback: string;
   clients: Set<TerminalClient>;
+  /** When it last printed, in ms; null before it first prints. */
+  lastOutputAt: number | null;
+  /** A bell, OSC 9 or OSC 777 since the last keystroke (decision 37). */
+  bell: boolean;
+  /** An OSC sequence cut off at the end of the last print, read with the next. */
+  oscTail: string;
 };
 
 /** Enough for an agent's whole conversation on screen; older output is let go. */
 const SCROLLBACK_LIMIT = 2_000_000;
+
+const ESC = '\u001b';
+const BEL = '\u0007';
+/** String Terminator, the other way an OSC sequence ends. */
+const ST = `${ESC}\\`;
+/** An unterminated OSC sequence longer than this is not one; it is let go. */
+const OSC_TAIL_LIMIT = 4096;
+
+/**
+ * Whether a print rings for the designer: a plain BEL, or a notification by OSC 9 (but not 9;4,
+ * a progress report) or OSC 777;notify. A BEL that ends an OSC sequence, such as a window title,
+ * is not a bell. Returns the unterminated OSC sequence at the end, if any, to read with the next.
+ */
+export function rings(text: string): { bell: boolean; rest: string } {
+  let bell = false;
+  let at = 0;
+  while (at < text.length) {
+    const start = text.indexOf(`${ESC}]`, at);
+    const plain = start === -1 ? text.slice(at) : text.slice(at, start);
+    if (plain.includes(BEL)) bell = true;
+    if (start === -1) {
+      return { bell, rest: text.endsWith(ESC) ? ESC : '' };
+    }
+    const bel = text.indexOf(BEL, start + 2);
+    const st = text.indexOf(ST, start + 2);
+    const end = bel === -1 ? st : st === -1 ? bel : Math.min(bel, st);
+    if (end === -1) {
+      const rest = text.slice(start);
+      return { bell, rest: rest.length > OSC_TAIL_LIMIT ? '' : rest };
+    }
+    const body = text.slice(start + 2, end);
+    if (/^9;(?!4;)/.test(body) || /^777;notify;/.test(body)) bell = true;
+    at = end + (end === bel ? 1 : 2);
+  }
+  return { bell, rest: '' };
+}
 
 function clampSize(value: unknown, fallback: number): number {
   const number = Math.floor(Number(value));
@@ -82,10 +125,17 @@ export class Terminals {
       startedAt: this.now().toISOString(),
       child,
       scrollback: '',
-      clients: new Set()
+      clients: new Set(),
+      lastOutputAt: null,
+      bell: false,
+      oscTail: ''
     };
     this.sessions.set(session.id, session);
     child.onData(data => {
+      session.lastOutputAt = this.now().getTime();
+      const heard = rings(session.oscTail + data);
+      session.oscTail = heard.rest;
+      if (heard.bell) session.bell = true;
       session.scrollback += data;
       if (session.scrollback.length > SCROLLBACK_LIMIT) {
         session.scrollback = session.scrollback.slice(-SCROLLBACK_LIMIT);
@@ -102,6 +152,18 @@ export class Terminals {
 
   list(): TerminalInfo[] {
     return [...this.sessions.values()].map(session => this.info(session));
+  }
+
+  /** When each session last printed and whether it rang since the last keystroke, for activityOf. */
+  activity(): TerminalActivity[] {
+    return [...this.sessions.values()].map(session => ({
+      id: session.id,
+      runId: session.runId,
+      status: session.status,
+      startedAt: Date.parse(session.startedAt),
+      lastOutputAt: session.lastOutputAt,
+      bell: session.bell
+    }));
   }
 
   /** The last line a session printed, without its colours and cursor moves, for progress words. */
@@ -157,6 +219,8 @@ export class Terminals {
       return;
     }
     if (message.type === 'input' && typeof message.data === 'string') {
+      // The designer answered, so whatever rang has been heard.
+      session.bell = false;
       session.child.write(message.data);
     } else if (message.type === 'resize') {
       session.child.resize(clampSize(message.cols, 120), clampSize(message.rows, 32));

@@ -23,6 +23,7 @@ import {
 } from './canvas-actions.ts';
 import type { StudioCanvas } from './canvas-input.ts';
 import { runWord } from './runs.ts';
+import { TOOLBAR_ITEMS, documentItems } from './toolbar.ts';
 import { endedLabel, type AgentView, type TerminalInfo } from './types.ts';
 
 export { matchCommands };
@@ -42,7 +43,11 @@ export type CommandRun =
   /** Show a terminal session in the dock. */
   | { kind: 'session'; id: string }
   /** Open the bar's status: the dev server, the outbox, the version. */
-  | { kind: 'status' };
+  | { kind: 'status' }
+  /** Put `text` on the clipboard, and say `done` beside the bar. */
+  | { kind: 'copy'; text: string; done: string }
+  /** The toolbar's Generate: the canvas's prompt, with the keyboard in it. */
+  | { kind: 'generate' };
 
 export type StudioCommand = PaletteCommand & { run: CommandRun };
 
@@ -237,10 +242,25 @@ function completeCommand(complete: boolean): StudioCommand {
   };
 }
 
-function studioGroup(
-  context: CommandContext | null,
-  studio: { complete?: boolean } = {}
-): StudioCommand[] {
+/** What the palette knows off the canvas: the switch, and where the project is on the web. */
+export type StudioFacts = { complete?: boolean; project?: string; webUrl?: string | null };
+
+/** The toolbar's buttons and its document menu, as commands too (A8 step 3). */
+function toolbarCommands(facts: StudioFacts): StudioCommand[] {
+  const items = [
+    ...TOOLBAR_ITEMS.filter(item => item.id !== 'status'),
+    ...(facts.project
+      ? documentItems({
+          project: facts.project,
+          webUrl: facts.webUrl ?? null,
+          complete: facts.complete !== false
+        })
+      : [])
+  ];
+  return items.map(item => ({ id: item.id, label: item.label, group: 'Studio', run: item.run }));
+}
+
+function studioGroup(context: CommandContext | null, studio: StudioFacts = {}): StudioCommand[] {
   const commands: StudioCommand[] = [
     {
       id: 'status',
@@ -253,6 +273,11 @@ function studioGroup(
   const complete = context ? completeOf(context) : studio.complete;
   // Off the canvas only when the studio says how it is set.
   if (context || complete !== undefined) commands.push(completeCommand(complete !== false));
+  commands.push(
+    ...toolbarCommands(
+      context ? { complete, project: context.state.project, webUrl: context.state.webUrl } : studio
+    )
+  );
   if (!context) return commands;
   for (const agent of context.agents) {
     if (!agent.found || agent.id === context.defaultAgent) continue;
@@ -290,7 +315,7 @@ export function compareCommands(
   at: { page: string; component: string },
   candidates: readonly { id: string; name: string; selected: boolean }[],
   served: readonly VerbId[],
-  studio: { complete?: boolean }
+  studio: StudioFacts
 ): StudioCommand[] {
   const commands: StudioCommand[] = [];
   for (const candidate of candidates) {
@@ -320,7 +345,7 @@ export function compareCommands(
 export function studioCommands(
   selection: string | null,
   context: CommandContext | null,
-  studio: { complete?: boolean } = {}
+  studio: StudioFacts = {}
 ): StudioCommand[] {
   if (!context) return studioGroup(null, studio);
   return [

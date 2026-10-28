@@ -1,9 +1,10 @@
-import { Drawer, formatRelativeTime } from '@roughbook/ui';
+import { Sheet, formatRelativeTime } from '@roughbook/ui';
 import { useState } from 'react';
 import { get, post } from '../api';
-import { describe, useStudio } from '../data';
+import { useStudio } from '../data';
 import { finishedBy, runRunning, runWord } from '../runs';
 import type { RunView } from '../types';
+import { OutputLine, useLine } from './output-line';
 
 const button =
   'inline-flex h-8 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50';
@@ -30,17 +31,20 @@ type WhoseChanges = { files: string[]; mine: string[]; outcome?: 'failed' | 'can
  * card and for a making card's toolbar on the canvas.
  */
 export function useRunOps(run: RunView) {
-  const { refresh, say } = useStudio();
+  const { refresh } = useStudio();
   const [busy, setBusy] = useState<string | null>(null);
   const [review, setReview] = useState<WhoseChanges | null>(null);
+  /** What the last of them said, for the line beside its buttons. */
+  const said = useLine();
 
   async function act(name: string, work: () => Promise<string | null>) {
     setBusy(name);
+    said.clear();
     try {
       const text = await work();
-      if (text) say({ tone: 'info', text });
+      if (text) said.info(text);
     } catch (error) {
-      say({ tone: 'error', text: describe(error) });
+      said.fail(error);
     } finally {
       setBusy(null);
       await refresh();
@@ -49,6 +53,7 @@ export function useRunOps(run: RunView) {
 
   return {
     busy,
+    line: said.line,
     review,
     setReview,
     finish: (outcome?: 'failed' | 'cancelled') =>
@@ -247,19 +252,16 @@ export function RunCard({
           ) : null}
         </ul>
       ) : null}
+      <OutputLine line={ops.line} className="mt-2" />
     </div>
   );
 }
 
-/** Before Done, as a drawer: for a making card's Done on the canvas, which has no card to grow. */
-export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) {
+/** Before Done, as a sheet: for a making card's Done on the canvas, which has no card to grow. */
+export function WhoseChangesSheet({ run, ops }: { run: RunView; ops: RunOps }) {
   const { review, setReview, busy } = ops;
   return (
-    <Drawer
-      open={review !== null}
-      onClose={() => setReview(null)}
-      title={`Finish ${run.iteration}`}
-    >
+    <Sheet open={review !== null} onClose={() => setReview(null)} title={`Finish ${run.iteration}`}>
       {review ? (
         <WhoseChangesPanel
           review={review}
@@ -269,7 +271,8 @@ export function WhoseChangesDrawer({ run, ops }: { run: RunView; ops: RunOps }) 
           onBack={() => setReview(null)}
         />
       ) : null}
-    </Drawer>
+      <OutputLine line={ops.line} className="mt-3" />
+    </Sheet>
   );
 }
 

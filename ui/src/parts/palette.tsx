@@ -2,13 +2,36 @@ import { CommandPalette, useUiHost } from '@roughbook/ui';
 import { studioCommands, type StudioCommand } from '../commands';
 import { useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
+import { errorLine, infoLine } from '../output';
 import { navigate } from '../router';
 import { useChrome } from './chrome';
 import { useMakeDefault } from './status';
 
-/** Runs the commands every screen has: links, the status, the default agent. */
+/** The canvas's prompt field, which the toolbar's Generate puts the keyboard in. */
+export const PROMPT_FIELD = 'canvas-prompt';
+
+/** The canvas's prompt, with the keyboard in it: here, or on the canvas once it is drawn. */
+export function focusPrompt() {
+  const here = document.getElementById(PROMPT_FIELD);
+  if (here) {
+    here.focus();
+    return;
+  }
+  navigate('/');
+  let tries = 0;
+  const wait = window.setInterval(() => {
+    const field = document.getElementById(PROMPT_FIELD);
+    if (field || ++tries > 40) window.clearInterval(wait);
+    field?.focus();
+  }, 50);
+}
+
+/**
+ * Runs the commands every screen has: links, the status, the default agent, Copy link and
+ * Generate. What they say goes on the bar's line, under the toolbar.
+ */
 export function useAppCommands() {
-  const { setStatusOpen } = useChrome();
+  const { setStatusOpen, setBarLine } = useChrome();
   const { makeDefault } = useMakeDefault();
   const host = useUiHost();
   return (command: StudioCommand): boolean => {
@@ -22,10 +45,22 @@ export function useAppCommands() {
         setStatusOpen(true);
         return true;
       case 'default-agent':
-        void makeDefault(run.agent);
+        setBarLine(null);
+        void makeDefault(run.agent).then(refusal => {
+          if (refusal) setBarLine(errorLine(refusal));
+        });
         return true;
       case 'complete-features':
         void host.actions.setCompleteFeatures?.(run.on);
+        return true;
+      case 'copy':
+        void navigator.clipboard.writeText(run.text).then(
+          () => setBarLine(infoLine(run.done)),
+          () => setBarLine(errorLine(`Could not reach the clipboard. The link is ${run.text}`))
+        );
+        return true;
+      case 'generate':
+        focusPrompt();
         return true;
       default:
         return false;
@@ -41,7 +76,14 @@ export function StudioPalette() {
   const complete = completeFeaturesOf(state);
   return (
     <CommandPalette<StudioCommand>
-      commands={() => palette.current?.commands() ?? studioCommands(null, null, { complete })}
+      commands={() =>
+        palette.current?.commands() ??
+        studioCommands(null, null, {
+          complete,
+          project: state?.project.slug,
+          webUrl: state?.webUrl ?? null
+        })
+      }
       onRun={command => {
         if (palette.current) palette.current.run(command);
         else runApp(command);

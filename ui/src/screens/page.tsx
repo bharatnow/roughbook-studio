@@ -2,6 +2,7 @@ import { PreviewFrame, termLabel } from '@roughbook/ui';
 import { useStudio } from '../data';
 import { pageViewSrc } from '../in-page';
 import { Missing } from '../parts/missing';
+import { OutputLine } from '../parts/output-line';
 import { useApp } from './iteration';
 
 /**
@@ -27,6 +28,7 @@ export function PageScreen({ page }: { page: string }) {
   const environment = state.environment;
   return (
     <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-3 p-4">
+      <OutputLine line={app.trouble} />
       <PreviewFrame
         mode="live"
         items={[{ key: page, label: record.name, src: null, inPageSrc: src, exists: true }]}
