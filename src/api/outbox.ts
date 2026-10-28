@@ -56,8 +56,13 @@ export type FlushResult = {
   /** What the backend answered, for each entry sent in this flush. */
   sent: Map<string, unknown>;
   dropped: DroppedEntry[];
-  /** Entries still waiting, because the backend could not be reached or failed. */
+  /**
+   * Entries still waiting, because the backend could not be reached or failed, or because nobody
+   * has answered their project's pictures question yet.
+   */
   left: number;
+  /** Pictures kept waiting in this flush until their project's pictures question is answered. */
+  held: Set<string>;
 };
 
 export type UploadResult =
@@ -65,7 +70,10 @@ export type UploadResult =
   | { status: 'queued' }
   /** The backend already has this picture. */
   | { status: 'unchanged' }
-  /** The project takes no such picture now: pictures are off, or it is not a studio iteration's. */
+  /**
+   * The project takes no such picture now: pictures are off, or it is not a studio iteration's.
+   * `PICTURES_UNASKED` keeps it waiting here, to go after a yes.
+   */
   | { status: 'skipped'; code: string };
 
 const KEEP_DROPPED = 50;
@@ -154,6 +162,7 @@ export class Outbox {
     if (queued !== true) return { status: 'unchanged' };
     const result = await this.flush(api);
     if (result.sent.has(id)) return { status: 'sent', data: result.sent.get(id) };
+    if (result.held.has(id)) return { status: 'skipped', code: 'PICTURES_UNASKED' };
     const refused = result.dropped.find(entry => entry.id === id);
     if (refused) {
       if (NOT_TAKEN.has(refused.code)) return { status: 'skipped', code: refused.code };
@@ -188,6 +197,7 @@ export class Outbox {
       const sent = new Map<string, unknown>();
       const dropped: DroppedEntry[] = [];
       const failed = new Map<string, OutboxEntry>();
+      const held = new Set<string>();
       const marks: UploadMark[] = [];
       // Each project is read once per flush, when a picture is waiting for it.
       const trees = new Map<string, Promise<ProjectTree>>();
@@ -198,6 +208,11 @@ export class Outbox {
         try {
           if (entry.upload) {
             const outcome = await this.sendUpload(api, entry, entry.upload, marks, trees);
+            // Nobody has answered yet: it stays as it is, neither sent nor lost.
+            if (outcome.code === 'PICTURES_UNASKED') {
+              held.add(entry.id);
+              continue;
+            }
             if (outcome.code) {
               dropped.push(this.droppedEntry(entry, outcome.code, 409));
               continue;
@@ -245,13 +260,14 @@ export class Outbox {
         await writeJsonAtomic(this.file, state);
         return state.entries.length;
       });
-      return { sent, dropped, left };
+      return { sent, dropped, left, held };
     });
   }
 
   /**
    * One picture: checked against the project as it is now, then its file's bytes as they are now.
-   * A `code` says the project does not take it, or the file is gone; neither sends anything.
+   * A `code` says the project does not take it, does not yet (`PICTURES_UNASKED`), or the file is
+   * gone; none sends anything.
    */
   private async sendUpload(
     api: StudioApi,

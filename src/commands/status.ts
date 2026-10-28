@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { ApiError, OfflineError } from '../api/errors.js';
 import { outboxFor } from '../api/outbox.js';
 import { readSettings } from '../config/settings.js';
+import { readPicturesAnswer } from '../pictures/answer.js';
 import { telemetryDisabled } from '../telemetry/events.js';
 import { readLocalLink, readRepoLink } from '../repo/link.js';
 import { openApi, type Command } from './context.js';
@@ -62,6 +63,21 @@ export const status: Command = {
         `Project:    ${project ? `${project.name} (${link.project})` : link.project}${org ? ` in ${org.name}` : ''}`
       );
       io.out(`rough/:     ${link.roughCommitted ? 'committed to git' : 'not committed'}`);
+      // The project's pictures answer (decision 25 of the Apple plan), when it can be read.
+      if (projects) {
+        const answer = await readPicturesAnswer(api, link);
+        if (answer !== undefined) {
+          io.out(
+            `Pictures:   ${
+              answer === true
+                ? 'uploaded for the team and reviewers'
+                : answer === false
+                  ? 'kept on this machine'
+                  : 'not answered, so kept on this machine (roughbook pictures on|off)'
+            }`
+          );
+        }
+      }
       if (!(await readLocalLink(context.repoRoot))) {
         io.out('            not linked on this machine yet (run roughbook init)');
       }

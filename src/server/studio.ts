@@ -14,7 +14,7 @@ import {
   type ProjectTree,
   type RatingSummary
 } from '../api/types.js';
-import { describeError } from '../api/errors.js';
+import { ApiError, describeError } from '../api/errors.js';
 import { outboxFor, type Outbox } from '../api/outbox.js';
 import { finishWithScreenshots } from '../commands/done.js';
 import type { CommandContext } from '../commands/context.js';
@@ -50,6 +50,7 @@ import {
   picturesDir,
   sharePagePictures
 } from '../pictures/share.js';
+import { answerPictures, describeAnswerError } from '../pictures/answer.js';
 import { clearMapPictures, MAP_PICTURES_PAGE, takeMapPictures } from '../pictures/mapPictures.js';
 import {
   PictureQueue,
@@ -547,6 +548,12 @@ export class LocalStudio {
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
   private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
   /**
+   * The project's pictures answer as last read or given here (decision 25 of the Apple plan):
+   * null while nobody has answered; undefined until the project has been read. Kept apart from
+   * the cache, so /api/state never reads the project itself.
+   */
+  private picturesAnswer: boolean | null | undefined = undefined;
+  /**
    * The standalone previews' own token: in their addresses, which the iteration's code can read,
    * so never the UI's, and good for nothing but previews.
    */
@@ -943,8 +950,32 @@ export class LocalStudio {
       outbox: { pending: pending.length, dropped },
       environment: await this.environmentView(),
       environmentProblem: this.environmentProblem,
-      app: this.appView()
+      app: this.appView(),
+      // The pictures question, for the local UI's one-time sheet: absent until the project is read.
+      pictures: this.picturesAnswer
     };
+  }
+
+  /**
+   * The local UI's answer to the pictures question: one boolean, sent as it is. After a yes, what
+   * waited in the outbox goes now.
+   */
+  async answerPictures(body: Record<string, unknown>): Promise<{ pictures: boolean }> {
+    if (Object.keys(body).some(key => key !== 'on') || typeof body.on !== 'boolean') {
+      throw new BadRequest('Answer with on: true or on: false.');
+    }
+    const { api, link } = this.options;
+    try {
+      await answerPictures(api, link, body.on, this.outbox);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        throw new ApiError(error.code, error.status, describeAnswerError(error));
+      }
+      throw error;
+    }
+    this.picturesAnswer = body.on;
+    this.projectChanged();
+    return { pictures: body.on };
   }
 
   async setDefaultAgent(agent: unknown): Promise<void> {
@@ -964,6 +995,7 @@ export class LocalStudio {
     const { api, link } = this.options;
     const local = this.local();
     const tree = await this.cache.project(() => api.project(link.orgId, link.project), fresh);
+    this.picturesAnswer = tree.pictures === undefined ? true : tree.pictures;
     return { tree, local };
   }
 

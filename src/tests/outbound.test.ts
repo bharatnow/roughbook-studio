@@ -78,6 +78,8 @@ describe('outbound requests (ground rule 2)', () => {
     // The fake backend: it answers what each route answers, and remembers the selection.
     let next = 1;
     let selected: number | null = null;
+    // The project's pictures question, unanswered until roughbook pictures on (decision 25).
+    let pictures: boolean | null = null;
     const startRuns = (request: RecordedRequest) => {
       const body = request.body as { kind: string; directions?: unknown[]; parent?: string };
       const count = body.kind === 'generate' ? body.directions!.length : 1;
@@ -152,6 +154,7 @@ describe('outbound requests (ground rule 2)', () => {
             slug: 'site',
             name: 'Site',
             delivery: { componentsDir: 'src/components', publicDir: 'public', devUrl: '' },
+            pictures,
             pages: [
               {
                 slug: 'home',
@@ -191,6 +194,14 @@ describe('outbound requests (ground rule 2)', () => {
         'GET',
         new RegExp(`^${PROJECT}/files/project/hero\\.png$`),
         () => ({ status: 200, text: 'PNG' })
+      ],
+      [
+        'PUT',
+        new RegExp(`^${PROJECT}/pictures$`),
+        request => {
+          pictures = (request.body as { on: boolean }).on;
+          return ok({ pictures });
+        }
       ],
       ['POST', /^\/auth\/logout$/, () => ok({ signedOut: true })],
       ['POST', /^\/events$/, () => ok({ accepted: 1, duplicates: 0 })],
@@ -251,6 +262,7 @@ describe('outbound requests (ground rule 2)', () => {
     git('add', '-A');
     git('commit', '--quiet', '-m', 'Prepared');
     await roughbook(['agents']);
+    await roughbook(['pictures', 'on']);
 
     await roughbook(['run', 'home/hero', '--direction', 'Quiet editorial']);
     fs.writeFileSync(path.join(repo, 'rough/home/hero/iteration-01/index.tsx'), ITERATION_SOURCE);
@@ -294,6 +306,14 @@ describe('outbound requests (ground rule 2)', () => {
         `no request to ${route}`
       );
     }
+    // The pictures answer is one boolean, nothing else.
+    const answers = backend.requests.filter(
+      request => request.method === 'PUT' && request.url.endsWith(`${PROJECT}/pictures`)
+    );
+    assert.deepEqual(
+      answers.map(request => request.body),
+      [{ on: true }]
+    );
     assert.ok(fs.existsSync(path.join(repo, 'public/rough/home/hero/hero.png')));
     assert.ok(!fs.existsSync(path.join(repo, 'src/app/stray.ts')));
 

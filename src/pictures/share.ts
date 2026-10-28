@@ -4,7 +4,9 @@
 // sketch's is, and full-length pictures at the environment's desktop and phone viewports. They are
 // taken here as WebP, kept beside the screenshots in rough/.screenshots/, and go up through the
 // outbox, so an offline studio sends them later; each again only when it changed. None while the
-// project's `pictures` setting is off, and never any other screenshot the studio takes.
+// project's `pictures` setting is off; while nobody has answered it (decision 25 of the Apple plan)
+// they are taken and wait in the outbox, to go after a yes. Never any other screenshot the studio
+// takes.
 import fs from 'node:fs';
 import path from 'node:path';
 import { picturePath, type StudioApi } from '../api/client.js';
@@ -133,6 +135,13 @@ async function refused(input: ShareInput, refusal: PictureRefusal): Promise<Pict
   return empty(refusal);
 }
 
+/**
+ * Whether the project's answer stops the pictures being taken: a refusal does, except that nobody
+ * having answered yet keeps them here, waiting in the outbox for a yes.
+ */
+const stops = (refusal: PictureRefusal | null): refusal is PictureRefusal =>
+  refusal !== null && refusal !== 'PICTURES_UNASKED';
+
 /** The project; null offline, when the pictures are taken and queued, and the outbox checks it before sending. */
 async function projectOf(input: ShareInput): Promise<ProjectTree | null | 'refused'> {
   if (input.tree !== undefined) return input.tree;
@@ -210,7 +219,14 @@ async function share(
           picture: { ...input.link, ...subject, kind }
         }
       );
-      if (sent.status === 'skipped') return { ...empty(sent.code), sent: report.sent };
+      if (sent.status === 'skipped') {
+        // Kept waiting for the answer: the others are queued beside it.
+        if (sent.code === 'PICTURES_UNASKED') {
+          report.skipped = sent.code;
+          continue;
+        }
+        return { ...empty(sent.code), sent: report.sent };
+      }
       report[
         sent.status === 'sent' ? 'sent' : sent.status === 'queued' ? 'queued' : 'unchanged'
       ].push(kind);
@@ -237,7 +253,7 @@ export async function shareIterationPictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return refused(input, refusal);
+  if (stops(refusal)) return refused(input, refusal);
   return share(input, target, url, hash);
 }
 
@@ -291,7 +307,7 @@ export async function shareInPagePictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return refused(input, refusal);
+  if (stops(refusal)) return refused(input, refusal);
   return share({ ...input, tree }, target, url, hash, PAGE_WAIT_MS, true);
 }
 
@@ -309,7 +325,7 @@ export async function shareCompositionPictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, target) : null;
-  if (refusal) return refused(input, refusal);
+  if (stops(refusal)) return refused(input, refusal);
   return share({ ...input, tree }, target, url, hash);
 }
 
@@ -348,7 +364,7 @@ export async function sharePagePictures(
   const tree = await projectOf(input);
   if (tree === 'refused') return empty('PROJECT_UNREADABLE');
   const refusal = tree ? pictureRefusal(tree, { page: page.slug }) : null;
-  if (refusal) return refused(input, refusal);
+  if (stops(refusal)) return refused(input, refusal);
   const where = pageAddress(page);
   if ('why' in where) return empty(`not pictured: ${where.why}`);
   const url = new URL(where.address, base.endsWith('/') ? base : `${base}/`).toString();
@@ -407,7 +423,7 @@ export async function picturesAfterShots(
   const lines = [describePictures(label, report), report.warning];
   // In its page too, with the swap, where the recipe has the in-page view (B5).
   const inPage = inPageTarget(input.repoRoot, input.environment, target, new URL(url).origin);
-  if (inPage && report.skipped === null) {
+  if (inPage && (report.skipped === null || report.skipped === 'PICTURES_UNASKED')) {
     const shown = await shareInPagePictures({ ...input, shoot }, target, inPage.url, inPage.hash);
     lines.push(describePictures(`${label} in its page`, shown), shown.warning);
   }
@@ -416,7 +432,8 @@ export async function picturesAfterShots(
 
 /** One line for the terminal: what went up, or why not. Null when there is nothing to say. */
 export function describePictures(label: string, report: PictureReport): string | null {
-  if (report.skipped === 'PICTURES_OFF') return null;
+  // Unanswered, the line that says so is the question's own (pictures/answer.ts).
+  if (report.skipped === 'PICTURES_OFF' || report.skipped === 'PICTURES_UNASKED') return null;
   if (report.skipped?.startsWith('not pictured')) return `${label}: ${report.skipped}.`;
   if (report.skipped) return null;
   const parts = [

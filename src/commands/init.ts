@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { StudioApi } from '../api/client.js';
+import { outboxFor } from '../api/outbox.js';
 import type { OrgProjects } from '../api/types.js';
+import { showPrivacySheetOnce } from '../config/privacySheet.js';
 import { ENVIRONMENT_FILE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import { askYesNo, confirm, type Io } from '../io.js';
 import { describeDetection, detectStack } from '../recipes/detect.js';
@@ -14,6 +16,7 @@ import { applyPrep, checkRepo, planPrep, type PrepPlan } from '../repo/prep.js';
 import { ROUGH_DIR, appRoot } from '../repo/root.js';
 import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
 import { mapRepo } from '../map/run.js';
+import { ensurePicturesAnswer } from '../pictures/answer.js';
 import { openApi, type Command, type CommandContext } from './context.js';
 import { runDoctorHere } from './doctor.js';
 import { sayMap } from './map.js';
@@ -200,6 +203,8 @@ export const init: Command = {
 
     const { api, credentials } = await openApi(context);
     if (!credentials) throw new Error('Not signed in. Run roughbook login first.');
+    // What Roughbook keeps, once per install, when login has not shown it (A4 of the Apple plan).
+    await showPrivacySheetOnce(io, context.configDir);
 
     let repo: string;
     if (values.scratch) {
@@ -326,6 +331,14 @@ export const init: Command = {
       linkedAt: new Date().toISOString()
     });
     io.out(`Linked to ${choice.name} (${choice.slug}) in ${choice.orgName}.`);
+    // The project's pictures question, once, beside the commit question's answer (decision 25 of
+    // the Apple plan): asked of a person, never under --yes, where it stays open and says so.
+    await ensurePicturesAnswer(
+      io,
+      api,
+      { orgId: choice.orgId, project: choice.slug },
+      { ask: !values.yes, outbox: outboxFor(repo) }
+    );
     if (plan.changes.length) {
       io.out(
         `Applied ${plan.changes.length} change${plan.changes.length === 1 ? '' : 's'}; review them with git diff.`

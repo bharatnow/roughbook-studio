@@ -228,6 +228,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       studio.showCards(await readBody(request))
     ),
     route('GET', '/api/pictures', async () => studio.picturesView()),
+    // The project's pictures question, answered in the local UI (decision 25 of the Apple plan).
+    route('POST', '/api/pictures/answer', async request =>
+      studio.answerPictures(await readBody(request))
+    ),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
       return studio.promote({

@@ -31,6 +31,7 @@ import {
   picturesAfterShots,
   sharePagePictures
 } from '../pictures/share.js';
+import { ensurePicturesAnswer } from '../pictures/answer.js';
 import { leaveForStart, SCREENFUL } from '../pictures/queue.js';
 import { recipeOf } from '../recipes/index.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
@@ -241,6 +242,9 @@ export const adopt: Command = {
       );
       return 0;
     }
+    // The adopted pages and baselines are pictured now: the project's pictures question first,
+    // once, of a person (decision 25 of the Apple plan); under --yes it stays open and says so.
+    await ensurePicturesAnswer(io, api, link, { ask: !values.yes, outbox: outboxFor(repoRoot) });
     // The adoption is done: pictures that fail now are taken with the next screenshots.
     const lines = await pictureAdopted(context, api, link, environment, map, outcome, base).catch(
       error => [`Pictures: ${describeError(error)}`]

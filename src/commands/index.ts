@@ -26,6 +26,7 @@ import { login } from './login.js';
 import { logout } from './logout.js';
 import { map } from './map.js';
 import { mcp } from './mcp.js';
+import { pictures } from './pictures.js';
 import { create } from './new.js';
 import { promote } from './promote.js';
 import { pull } from './pull.js';
@@ -62,6 +63,7 @@ export const COMMANDS: Command[] = [
   agents,
   mcp,
   status,
+  pictures,
   telemetry,
   logout
 ];

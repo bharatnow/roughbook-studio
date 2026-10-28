@@ -19,9 +19,19 @@ export type Settings = {
    * the backend so the studio knows whether to keep events. Null until asked.
    */
   analyticsConsent: boolean | null;
+  /**
+   * Whether this install has shown the privacy sheet (what Roughbook keeps, and what it does not),
+   * once, at `roughbook login` or the first `roughbook init` (A4 of the Apple plan).
+   */
+  privacySheetShown: boolean;
 };
 
-const DEFAULTS: Settings = { defaultAgent: null, localPort: null, analyticsConsent: null };
+const DEFAULTS: Settings = {
+  defaultAgent: null,
+  localPort: null,
+  analyticsConsent: null,
+  privacySheetShown: false
+};
 
 /** The local server's address, which prompts give agents for the asset files. */
 export function localOrigin(settings: Pick<Settings, 'localPort'>): string {

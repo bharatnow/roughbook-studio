@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { ApiError, OfflineError } from '../api/errors.js';
 import { saveCredentials } from '../config/credentials.js';
+import { showPrivacySheetOnce } from '../config/privacySheet.js';
 import type { Io } from '../io.js';
 import { saveConsent, telemetryDisabled } from '../telemetry/events.js';
 import { currentOs } from '../launch/platform.js';
@@ -109,6 +110,8 @@ export const login: Command = {
           savedAt: new Date().toISOString()
         });
         io.out(`Signed in to ${server} as ${me.user.email}.`);
+        // What Roughbook keeps, once per install (A4 of the Apple plan).
+        await showPrivacySheetOnce(io, context.configDir, me.webUrl);
         await askAnalytics(io, context, signedIn, me.webUrl);
         io.out('Next, run roughbook init in the repo you want to design in.');
         return 0;

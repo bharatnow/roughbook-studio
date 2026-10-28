@@ -4,6 +4,7 @@ import type { AgentAdapter, Detection } from '../agents/types.js';
 import type { StudioApi } from '../api/client.js';
 import { outboxFor, type Outbox } from '../api/outbox.js';
 import { manualCommand, planTerminal } from '../launch/terminal.js';
+import { ensurePicturesAnswer } from '../pictures/answer.js';
 import { localOrigin, readSettings } from '../config/settings.js';
 import { requireRepoLink, type RepoLink } from '../repo/link.js';
 import { startRuns } from '../runs/lifecycle.js';
@@ -105,15 +106,14 @@ export const run: Command = {
 
     const api = await requireApi(context);
     const outbox = outboxFor(repoRoot);
+    const mode =
+      adapter.kind === 'editor' ? 'editor' : values.headless ? 'headless' : 'interactive';
+    // The project's pictures question (decision 25 of the Apple plan): asked once at a terminal,
+    // and only said in an unattended or editor run, whose finish nobody answers questions at.
+    await ensurePicturesAnswer(context.io, api, link, { ask: mode === 'interactive', outbox });
     // Decisions waiting in the outbox reach the server first, so this prompt remembers them.
     await outbox.flush(api);
-    const request = {
-      page,
-      component,
-      agent: adapter.id,
-      mode: adapter.kind === 'editor' ? 'editor' : values.headless ? 'headless' : 'interactive',
-      ...kind
-    } as StartRunRequest;
+    const request = { page, component, agent: adapter.id, mode, ...kind } as StartRunRequest;
     const runs = await startRuns(repoRoot, api, link, request, {
       assetOrigin: localOrigin(await readSettings(context.configDir)),
       devUrl: dev

@@ -280,6 +280,14 @@ export class StudioApi {
     return this.request('POST', `${projectPath(orgId, project)}/adopt`, body);
   }
 
+  /**
+   * Answers the project's pictures question (decision 25 of the Apple plan): one boolean, nothing
+   * else. Owners and editors only; turning them off deletes the pictures the backend has.
+   */
+  setPictures(orgId: string, project: string, on: boolean): Promise<unknown> {
+    return this.request('PUT', `${projectPath(orgId, project)}/pictures`, { on });
+  }
+
   /** Uploads one picture, to a path from `picturePath`; the backend re-encodes what it keeps. */
   async putPicture(
     path: string,

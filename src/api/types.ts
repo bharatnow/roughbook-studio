@@ -128,10 +128,11 @@ export type ProjectTree = {
   delivery: { componentsDir: string; publicDir: string; devUrl: string };
   pages: PageRecord[];
   /**
-   * Whether the studio uploads its pictures (decisions 21, 23 and 28 of the brownfield plan): on
-   * unless the project's setting turned it off; absent from a backend older than B2.
+   * Whether the studio uploads its pictures (decision 25 of the Apple plan, replacing decision 28
+   * of the brownfield plan): true after a yes, false after a no, null while nobody has answered,
+   * when nothing goes up. Absent from a backend older than the question, where it means on.
    */
-  pictures?: boolean;
+  pictures?: boolean | null;
 };
 
 /**
