@@ -10,6 +10,7 @@ import {
   ReviewButton,
   SelectConfirmDrawer,
   Stage,
+  buttonClasses,
   decisionOf,
   describeIterationState,
   describeRating,
@@ -364,7 +365,6 @@ export function IterationScreen({
         backHref={`${base}/iterations#${id}`}
         backLabel="Back to canvas"
         backOnEscape
-        kicker={`${record.name} / ${id}`}
         title={iteration.name}
         note={[iteration.direction, describeIterationState(iteration)].filter(Boolean).join(' · ')}
         relativePath={`rough/${page}/${component}/${id}`}
@@ -431,21 +431,6 @@ export function IterationScreen({
                 {VERB_LABELS['not-this']}
               </button>
             )}
-            {/* Pick this one at once; the pick itself opens its reason and rating, or Unpick. */}
-            {selected || !verbs.served('pick-this') ? (
-              <button type="button" className={action} onClick={() => setSelectOpen(true)}>
-                {selected ? 'Picked' : VERB_LABELS['pick-this']}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={action}
-                disabled={Boolean(waiting)}
-                onClick={() => void verbs.run('pick-this', verbTarget)}
-              >
-                {VERB_LABELS['pick-this']}
-              </button>
-            )}
             {withReason(
               refineOff,
               <button
@@ -474,6 +459,28 @@ export function IterationScreen({
               className="basis-full"
             />
           </>
+        }
+        // The one prominent action (A9), at once; the pick itself opens its reason and rating, or
+        // Unpick, and stays plain.
+        primary={
+          selected || !verbs.served('pick-this') ? (
+            <button
+              type="button"
+              className={selected ? action : buttonClasses({ kind: 'primary' })}
+              onClick={() => setSelectOpen(true)}
+            >
+              {selected ? 'Picked' : VERB_LABELS['pick-this']}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={buttonClasses({ kind: 'primary' })}
+              disabled={Boolean(waiting)}
+              onClick={() => void verbs.run('pick-this', verbTarget)}
+            >
+              {VERB_LABELS['pick-this']}
+            </button>
+          )
         }
         inspector={
           <IterationInspector

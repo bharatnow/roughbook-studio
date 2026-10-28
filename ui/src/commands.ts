@@ -162,7 +162,8 @@ function projectCommands(selection: string | null, context: CommandContext): Stu
     mode: context.mode,
     sessions: context.sessions.length,
     map: Boolean(canvas.inApp?.pages.length),
-    toAdopt: canvas.inApp?.toAdopt ?? 0
+    toAdopt: canvas.inApp?.toAdopt ?? 0,
+    pages: canvas.input.sections.length
   }).map(action => actionCommand('canvas', name, action, selection));
 
   for (const section of canvas.input.sections) {

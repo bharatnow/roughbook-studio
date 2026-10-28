@@ -129,7 +129,7 @@ describe("the studio's palette", () => {
       href: 'https://roughbook.example/projects/site/home/hero/iteration-01',
       external: true
     });
-    assert.equal(commands.find(item => item.label === 'Fit everything')!.hint, 'Shift 1');
+    assert.equal(commands.find(item => item.label === 'Zoom to Fit')!.hint, 'Shift 1');
   });
 
   it("offers a making card's terminal and its run's Done, and every session", () => {

@@ -559,6 +559,9 @@ function StudioCanvasView({
       case 'fit-selection':
         view?.fitSelection();
         return;
+      case 'present':
+        view?.present();
+        return;
       case 'list':
         view?.setList(mode !== 'list');
         return;

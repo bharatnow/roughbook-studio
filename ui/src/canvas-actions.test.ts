@@ -214,19 +214,25 @@ describe("the studio canvas's actions", () => {
     assert.deepEqual(ids('component:home/nothing'), []);
   });
 
-  it("offers the canvas's own controls: zoom and fit on the canvas, the view's switch, the terminals", () => {
+  it("offers the canvas's own controls: the zoom cluster and Present pages on the canvas, the view's switch, the terminals", () => {
     const wide = (selection: string | null, mode: CanvasMode, sessions: number) =>
       canvasActions(selection, { mode, sessions }).map(item => [item.id, item.label]);
-    assert.deepEqual(wide(null, 'canvas', 0), [
-      ['prompt', 'Write a prompt'],
+    const ZOOM = [
       ['zoom-in', 'Zoom in'],
       ['zoom-out', 'Zoom out'],
       ['zoom-reset', 'Zoom to 100%'],
-      ['fit-all', 'Fit everything'],
+      ['fit-all', 'Zoom to Fit'],
+      ['fit-selection', 'Zoom to Selection'],
+      ['present', 'Present pages']
+    ];
+    assert.deepEqual(wide(null, 'canvas', 0), [
+      ['prompt', 'Write a prompt'],
+      ...ZOOM,
       ['list', 'List view']
     ]);
-    assert.deepEqual(wide('component:home/hero', 'canvas', 2).slice(-3), [
-      ['fit-selection', 'Fit the selection'],
+    assert.deepEqual(wide('component:home/hero', 'canvas', 2), [
+      ['prompt', 'Write a prompt'],
+      ...ZOOM,
       ['list', 'List view'],
       ['dock', 'Terminals']
     ]);
@@ -239,5 +245,19 @@ describe("the studio canvas's actions", () => {
       ['prompt', 'Write a prompt'],
       ['dock', 'Terminals']
     ]);
+  });
+
+  it('dims Zoom to Selection with nothing selected, and Present pages with no pages, saying why', () => {
+    const find = (selection: string | null, id: string, pages?: number) =>
+      canvasActions(selection, { mode: 'canvas', sessions: 0, pages }).find(item => item.id === id);
+    assert.equal(find(null, 'fit-selection')?.disabled, 'Select something first.');
+    assert.equal(find('page:home', 'fit-selection')?.disabled, undefined);
+    assert.equal(find('page:home', 'fit-selection')?.keys, 'Shift 2');
+    assert.equal(find(null, 'fit-all')?.keys, 'Shift 1');
+    assert.equal(find(null, 'present')?.disabled, undefined);
+    assert.equal(find(null, 'present', 3)?.disabled, undefined);
+    assert.equal(find(null, 'present', 0)?.disabled, 'There are no pages to present.');
+    // Neither is the toolbar's: the cluster draws them.
+    assert.ok(canvasActions(null, { mode: 'canvas', sessions: 0 }).every(item => !item.toolbar));
   });
 });

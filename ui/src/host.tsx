@@ -4,13 +4,23 @@ import {
   UiHostProvider,
   UndoBar,
   UndoProvider,
+  parseBackdrop,
+  type Backdrop,
   type LinkProps,
   type PromoteCommitResult,
   type PromoteFinish,
   type PromoteResult,
   type UiHost
 } from '@roughbook/ui';
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react';
 import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
 import { completeFeaturesOf, switchCompleteFeatures } from './features';
@@ -57,6 +67,31 @@ function targetOf(form: FormData) {
   };
 }
 
+const BACKDROP_KEY = 'roughbook.backdrop';
+
+/**
+ * The stage's ground (Apple plan, A9), kept per browser in localStorage. Storage that throws (a
+ * private window, blocked site data) reads as the default and keeps nothing.
+ */
+function useStoredBackdrop(): NonNullable<UiHost['backdrop']> {
+  const [value, setValue] = useState<Backdrop>(() => {
+    try {
+      return parseBackdrop(window.localStorage.getItem(BACKDROP_KEY));
+    } catch {
+      return parseBackdrop(null);
+    }
+  });
+  const set = useCallback((next: Backdrop) => {
+    setValue(next);
+    try {
+      window.localStorage.setItem(BACKDROP_KEY, next);
+    } catch {
+      // Kept for this visit only.
+    }
+  }, []);
+  return useMemo(() => ({ value, set }), [value, set]);
+}
+
 /**
  * What the host's own actions last said: a decision saved or queued, an adoption, a new section.
  * The screen that holds those controls (the stage, Compare, the canvas, the composition) shows it
@@ -83,6 +118,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
   // The preview's path comes from the repo's environment, whatever the stack.
   const previewTemplate = state?.environment.preview ?? '/rough-preview/{key}';
   const completeFeatures = completeFeaturesOf(state);
+  const backdrop = useStoredBackdrop();
 
   const host = useMemo<UiHost>(() => {
     const decide = async (
@@ -118,6 +154,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
       Link: Anchor,
       navigate,
       completeFeatures,
+      backdrop,
       previewSrc: ({ page, component, iteration }) =>
         `${devUrl}${previewTemplate.replaceAll('{key}', `${page}/${component}/${iteration}`)}`,
       actions: {
@@ -265,7 +302,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         ...verbHostActions({ post, project: () => projectRef.current, refresh })
       }
     };
-  }, [completeFeatures, devUrl, previewTemplate, refresh, refreshState]);
+  }, [backdrop, completeFeatures, devUrl, previewTemplate, refresh, refreshState]);
 
   return (
     <UiHostProvider host={host}>

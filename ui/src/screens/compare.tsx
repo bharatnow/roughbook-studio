@@ -147,6 +147,15 @@ export function CompareScreen({
         )}
         reviewSummaries={summaries}
         ratings={ratings}
+        // Each pane's Pick this one (A9) through the studio's verbs: its line above, its Undo on the bar.
+        onPick={iteration =>
+          void verbs.run(
+            'pick-this',
+            { project: project.tree.slug, page, component, iteration: iteration.id },
+            { name: iteration.name }
+          )
+        }
+        picking={verbs.busy}
         viewports={environment.viewports.map(viewport => ({
           id: viewport.name,
           label: viewport.name,

@@ -63,6 +63,7 @@ export type CanvasWideActionId =
   | 'zoom-reset'
   | 'fit-all'
   | 'fit-selection'
+  | 'present'
   | 'list'
   | 'dock'
   | 'in-app'
@@ -413,17 +414,29 @@ export function selectionActions(
   return actions;
 }
 
-/** The canvas's own controls, as `mode` shows them, and the terminals once there are any. */
+/** Why Zoom to Selection is dimmed: nothing is selected. */
+export const NOTHING_SELECTED = 'Select something first.';
+/** Why Present pages is dimmed: the canvas has no pages. */
+export const NO_PAGES = 'There are no pages to present.';
+
+/**
+ * The canvas's own controls, as `mode` shows them: on the canvas, the zoom cluster (Zoom in, Zoom
+ * out, 100%, Zoom to Fit, Zoom to Selection, dimmed with nothing selected) and Present pages, which
+ * steps through the pages full-screen; the view's switch; and the terminals once there are any.
+ */
 export function canvasActions(
   selection: string | null,
   {
     mode,
     sessions,
+    pages,
     map = false,
     toAdopt = 0
   }: {
     mode: CanvasMode;
     sessions: number;
+    /** The canvas's pages: with none, Present pages is dimmed. Left out, it is offered. */
+    pages?: number;
     /** The repo has a map of the app's pages, which a list shows. */
     map?: boolean;
     /** The map's components not adopted yet: Adopt all adopts them. */
@@ -440,16 +453,21 @@ export function canvasActions(
       { id: 'zoom-in', label: 'Zoom in', toolbar: false, keys: '+' },
       { id: 'zoom-out', label: 'Zoom out', toolbar: false, keys: '-' },
       { id: 'zoom-reset', label: 'Zoom to 100%', toolbar: false, keys: 'Shift 0' },
-      { id: 'fit-all', label: 'Fit everything', toolbar: false, keys: 'Shift 1' }
-    );
-    if (selection) {
-      actions.push({
+      { id: 'fit-all', label: 'Zoom to Fit', toolbar: false, keys: 'Shift 1' },
+      {
         id: 'fit-selection',
-        label: 'Fit the selection',
+        label: 'Zoom to Selection',
         toolbar: false,
-        keys: 'Shift 2'
-      });
-    }
+        keys: 'Shift 2',
+        ...(selection ? {} : { disabled: NOTHING_SELECTED })
+      },
+      {
+        id: 'present',
+        label: 'Present pages',
+        toolbar: false,
+        ...(pages === 0 ? { disabled: NO_PAGES } : {})
+      }
+    );
   }
   if (mode !== 'phone') {
     actions.push({
