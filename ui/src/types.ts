@@ -69,6 +69,11 @@ export type StudioState = {
   webUrl: string | null;
   /** Whether the prompt opens on readings, from the account's /me (A6). */
   readingsDefault?: boolean;
+  /**
+   * The account's Complete features switch (A7), from /studio/me or as last kept offline. Missing
+   * from an older studio server, which reads as on.
+   */
+  completeFeatures?: boolean;
   terminal: { builtin: true } | { builtin: false; reason: string };
   agents: AgentView[];
   defaultAgent: string | null;

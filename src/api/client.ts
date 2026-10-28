@@ -129,6 +129,11 @@ export class StudioApi {
     return this.request('GET', '/me');
   }
 
+  /** The Complete features switch, for this person everywhere (decision 12 of the Apple plan). */
+  setCompleteFeatures(on: boolean): Promise<{ completeFeatures: boolean }> {
+    return this.request('PUT', '/me/features', { on });
+  }
+
   logout(): Promise<unknown> {
     return this.request('POST', '/auth/logout', {});
   }

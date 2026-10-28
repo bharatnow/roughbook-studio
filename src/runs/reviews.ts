@@ -31,7 +31,11 @@ export type Decision =
   /** Compare's likes and dislikes and the designer's notes; each replaces its own part. */
   | { kind: 'notes'; likes?: string[]; dislikes?: string[]; designerNotes?: string }
   /** Promising or archived, or back to exploring. Select and reject have their own kinds. */
-  | { kind: 'status'; status: 'draft' | 'exploring' | 'promising' | 'archived' };
+  | { kind: 'status'; status: 'draft' | 'exploring' | 'promising' | 'archived' }
+  /** Undo of Not this (A7): back to the status it had, or the one given. */
+  | { kind: 'unreject'; status?: string }
+  /** Undo of a verb that made it (A7, decision 33): archived; a local run is the studio's to stop. */
+  | { kind: 'discard' };
 
 function rated(rating: number | null | undefined): RequestBody {
   return rating === undefined ? {} : { rating };
@@ -65,6 +69,10 @@ function request(decision: Decision): { route: string; body: RequestBody } {
     }
     case 'status':
       return { route: 'status', body: { status: decision.status } };
+    case 'unreject':
+      return { route: 'unreject', body: decision.status ? { status: decision.status } : {} };
+    case 'discard':
+      return { route: 'discard', body: {} };
   }
 }
 

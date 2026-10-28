@@ -926,10 +926,16 @@ export class LocalStudio {
     ]);
     let webUrl: string | null = null;
     let readingsDefault = false;
+    // Offline, the switch as last read; never read, on, as an older host reads it (decision 12).
+    let completeFeatures = settings.completeFeatures ?? true;
     try {
       const me = await api.me();
       webUrl = me.webUrl ?? null;
       readingsDefault = me.readingsDefault ?? false;
+      completeFeatures = me.user.completeFeatures ?? true;
+      if (settings.completeFeatures !== completeFeatures) {
+        await saveSettings(this.options.context.configDir, { completeFeatures });
+      }
     } catch {
       // Offline: the UI works without the link to the web.
     }
@@ -951,6 +957,8 @@ export class LocalStudio {
       webUrl,
       // Whether the prompt opens on readings (A6), as the account's /me says.
       readingsDefault,
+      // The Complete features switch (A7), for the local UI's host.
+      completeFeatures,
       terminal: pty.ok ? { builtin: true } : { builtin: false, reason: pty.reason },
       agents: agents.map((item): AgentView => ({
         id: item.id,
@@ -1006,6 +1014,19 @@ export class LocalStudio {
     this.picturesAnswer = body.on;
     this.projectChanged();
     return { pictures: body.on };
+  }
+
+  /**
+   * The Complete features switch, set from the local UI: one boolean to PUT /studio/me/features,
+   * then kept for offline use. Not queued: while offline the switch stays as it was, in words.
+   */
+  async setCompleteFeatures(body: Record<string, unknown>): Promise<{ completeFeatures: boolean }> {
+    if (Object.keys(body).some(key => key !== 'on') || typeof body.on !== 'boolean') {
+      throw new BadRequest('Send on: true or on: false.');
+    }
+    const { completeFeatures } = await this.options.api.setCompleteFeatures(body.on);
+    await saveSettings(this.options.context.configDir, { completeFeatures });
+    return { completeFeatures };
   }
 
   async setDefaultAgent(agent: unknown): Promise<void> {

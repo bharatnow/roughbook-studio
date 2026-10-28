@@ -1,6 +1,7 @@
 import {
   Canvas,
   Drawer,
+  Button,
   MapList,
   PromotePanel,
   SelectionToolbar,
@@ -9,7 +10,8 @@ import {
   useCanvasNarrow,
   useUiHost,
   type CanvasControls,
-  type CanvasView
+  type CanvasView,
+  type VerbId
 } from '@roughbook/ui';
 import {
   DEFAULT_CARD_VIEW,
@@ -24,24 +26,7 @@ import {
   isDefaultInAppFilter,
   type InAppFilter
 } from '@roughbook/ui/map-list';
-import {
-  Check,
-  CloudDownload,
-  Columns2,
-  Copy,
-  ExternalLink,
-  FileText,
-  GitFork,
-  Layers,
-  LayoutList,
-  ListFilter,
-  PackageCheck,
-  PackagePlus,
-  Square,
-  SquareTerminal,
-  Wand2,
-  X
-} from 'lucide-react';
+import { ListFilter, SquareTerminal, X } from 'lucide-react';
 import {
   useDeferredValue,
   useEffect,
@@ -54,6 +39,7 @@ import {
 import { post } from '../api';
 import {
   MAX_COMPARE,
+  STUDIO_VERBS,
   canvasEntry,
   selectionActions,
   type CanvasMode,
@@ -64,6 +50,7 @@ import {
 import { studioCanvasInput, type StudioCanvas } from '../canvas-input';
 import { picturesChanged, useShownCards } from '../shown-cards';
 import { studioCommands, type StudioCommand } from '../commands';
+import { completeFeaturesOf } from '../features';
 import { describe, findComponent, useStudio } from '../data';
 import { pagesWithView } from '../in-page';
 import { BriefDrawer } from '../parts/brief';
@@ -74,6 +61,7 @@ import { Missing } from '../parts/missing';
 import { useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
 import { RefineDrawer } from '../parts/refine';
+import { HowFarMenu, NOT_THIS_REASONS, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import { WhoseChangesDrawer, useRunOps, type RunOps } from '../parts/run-card';
 import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
 import { addressFor, navigate } from '../router';
@@ -93,23 +81,8 @@ const kept: {
   filter?: InAppFilter;
 } = {};
 
-const ICONS: Partial<Record<StudioActionId, typeof GitFork>> = {
-  fork: GitFork,
-  refine: Wand2,
-  pick: Layers,
-  compare: Columns2,
-  'compare-app': Columns2,
-  promote: PackageCheck,
-  done: Check,
-  stop: Square,
-  'copy-prompt': Copy,
-  terminal: SquareTerminal,
-  pull: CloudDownload,
-  web: ExternalLink,
-  brief: FileText,
-  adopt: PackagePlus,
-  compose: LayoutList
-};
+/** The verbs the canvas runs through the host (A7); Use in my code is its Promote. */
+const RUN_VERBS = new Set<StudioActionId>(['more', 'different', 'polish', 'not-this', 'pick-this']);
 
 /** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
 type AdoptAnswer = { ask: { question: string; count: number } } | { lines: string[] };
@@ -124,11 +97,6 @@ function defaultFile(componentsDir: string, name: string): string {
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
   return `${componentsDir.replace(/\/+$/, '')}/${pascal || 'Component'}.tsx`;
-}
-
-function Icon({ id }: { id: StudioActionId }) {
-  const Glyph = ICONS[id];
-  return Glyph ? <Glyph className="size-4" strokeWidth={1.5} /> : null;
 }
 
 /**
@@ -168,7 +136,6 @@ function RunButtons({
           }
           className={selectionToolbarItem}
         >
-          <Icon id={action.id} />
           {action.id === 'done' && ops.busy === 'done' ? 'Checking' : action.label}
         </button>
       ))}
@@ -203,7 +170,8 @@ function StudioCanvasView({
 }) {
   const { runs, terminals, runsReady, refresh, say, changes } = useStudio();
   const { setCrumbs, palette, dock, showSession } = useChrome();
-  const { Link } = useUiHost();
+  const { Link, actions: hostActions } = useUiHost();
+  const verbRunner = useRunVerb();
   const runApp = useAppCommands();
   const controls = useRef<CanvasControls | null>(null);
   const runOps = useRef<{ runId: string; ops: RunOps } | null>(null);
@@ -332,7 +300,14 @@ function StudioCanvasView({
   const [cardView, setCardView] = useState<CardView>(() => kept.cardView ?? DEFAULT_CARD_VIEW);
   const narrow = useCanvasNarrow();
   const mode: CanvasMode = narrow ? 'phone' : list ? 'list' : 'canvas';
+  const complete = completeFeaturesOf(state);
+  // The verbs the host runs, and Use in my code, which is the canvas's Promote.
+  const served = hostActions.runVerb
+    ? STUDIO_VERBS.filter(verb => verb === 'use' || (hostActions.verbs ?? []).includes(verb))
+    : (['use'] as const);
   const selState: SelectionState = {
+    complete,
+    verbs: served,
     project: project.tree.slug,
     webUrl: state.webUrl,
     compare,
@@ -376,6 +351,8 @@ function StudioCanvasView({
   const [launched, setLaunched] = useState<Launched | null>(null);
   const [promptMode, setPromptMode] = useState('new');
   const [pulling, setPulling] = useState<string | null>(null);
+  /** Not this's "Other…" and the palette's Not this: the card. */
+  const [notThis, setNotThis] = useState<string | null>(null);
 
   function promptFor(next: string) {
     setPromptMode(next);
@@ -452,6 +429,32 @@ function StudioCanvasView({
     }
   }
 
+  /** The card a verb is running on, so its buttons wait. */
+  const verbBusy = verbRunner.busy;
+
+  /** A plain verb on a card (A7): what it made is selected once the canvas has it. */
+  async function runVerbOn(verb: VerbId, key: string, fields: Record<string, string> = {}) {
+    const at = partsOf(key);
+    if (!at.page || !at.component || !at.iteration) return;
+    const result = await verbRunner.run(
+      verb,
+      {
+        project: project.tree.slug,
+        page: at.page,
+        component: at.component,
+        iteration: at.iteration
+      },
+      fields
+    );
+    const first = result?.ok ? result.made?.[0] : undefined;
+    if (first) selectWhenThere(`iteration:${at.page}/${at.component}/${first}`, false);
+  }
+
+  async function switchComplete(on: boolean) {
+    const answer = await hostActions.setCompleteFeatures?.(on);
+    if (answer) say({ tone: answer.ok ? 'info' : 'error', text: answer.message });
+  }
+
   // --- what each action does ---------------------------------------------------------------------
 
   function act(id: StudioActionId, key: string | null, session?: string) {
@@ -460,7 +463,25 @@ function StudioCanvasView({
     const found = key
       ? selectionActions(canvas, key, selState).find(action => action.id === id)
       : undefined;
+    if (found?.disabled) {
+      say({ tone: 'info', text: found.disabled });
+      return;
+    }
     switch (id) {
+      case 'more':
+      case 'different':
+      case 'polish':
+      case 'pick-this':
+        if (key) void runVerbOn(id, key);
+        return;
+      case 'not-this':
+        // From the palette: the reasons and the designer's own words.
+        if (key) setNotThis(key);
+        return;
+      case 'use':
+        // Use in my code is Promote here: the component's pick, back into the app's files.
+        if (at.page && at.component) setPromote({ page: at.page, component: at.component });
+        return;
       case 'fork':
       case 'refine':
         if (key && key !== selection) view?.select(key);
@@ -552,6 +573,12 @@ function StudioCanvasView({
       case 'pull':
         void pull(what.page, what.component, what.sketch);
         return;
+      case 'verb':
+        void runVerbOn(what.verb, what.key, what.fields);
+        return;
+      case 'complete-features':
+        void switchComplete(what.on);
+        return;
       case 'session':
         showSession(what.id);
         return;
@@ -571,7 +598,8 @@ function StudioCanvasView({
           mode,
           sessions: terminals,
           agents: state.agents,
-          defaultAgent: state.defaultAgent
+          defaultAgent: state.defaultAgent,
+          complete
         }),
       run
     };
@@ -582,8 +610,29 @@ function StudioCanvasView({
 
   // --- the selection's toolbar --------------------------------------------------------------------
 
+  // The toolbar shows words, not icons (A7), and only what can run now.
   function toolbarItem(action: StudioAction, item: CanvasItem): ReactNode {
-    const icon = <Icon id={action.id} />;
+    const busy = verbBusy === partsOf(item.key).iteration;
+    const wait = busy ? 'Wait for the last one to start.' : undefined;
+    if (action.id === 'different') {
+      return (
+        <HowFarMenu
+          key={action.id}
+          disabled={wait}
+          onChoose={howFar => void runVerbOn('different', item.key, { howFar })}
+        />
+      );
+    }
+    if (action.id === 'not-this') {
+      return (
+        <NotThisMenu
+          key={action.id}
+          disabled={wait}
+          onReason={reason => void runVerbOn('not-this', item.key, { reasonPreset: reason })}
+          onOther={() => setNotThis(item.key)}
+        />
+      );
+    }
     if (action.href) {
       return action.external ? (
         <a
@@ -593,12 +642,10 @@ function StudioCanvasView({
           rel="noreferrer"
           className={selectionToolbarItem}
         >
-          {icon}
           {action.label}
         </a>
       ) : (
         <Link key={action.id} href={action.href} className={selectionToolbarItem}>
-          {icon}
           {action.label}
         </Link>
       );
@@ -609,19 +656,20 @@ function StudioCanvasView({
         key={action.id}
         type="button"
         aria-pressed={pressed}
-        disabled={action.id === 'pull' && pulling !== null}
+        disabled={(action.id === 'pull' && pulling !== null) || (RUN_VERBS.has(action.id) && busy)}
         title={action.keys ? `${action.label} (${action.keys})` : undefined}
         onClick={() => act(action.id, item.key, action.session)}
         className={cn(selectionToolbarItem, pressed && 'bg-frost')}
       >
-        {icon}
         {action.id === 'pull' && pulling === item.id ? 'Pulling' : action.label}
       </button>
     );
   }
 
   function actions(item: CanvasItem): ReactNode {
-    const all = selectionActions(canvas, item.key, selState).filter(action => action.toolbar);
+    const all = selectionActions(canvas, item.key, selState).filter(
+      action => action.toolbar && !action.disabled
+    );
     if (!all.length) return null;
     const run = canvas.cards[item.key]?.run ?? null;
     const runActions = all.filter(action => RUN_ACTIONS.has(action.id));
@@ -832,6 +880,15 @@ function StudioCanvasView({
           feedback={refineIteration.feedback}
         />
       ) : null}
+      <NotThisDrawer
+        card={notThis}
+        busy={notThis !== null && verbBusy === partsOf(notThis).iteration}
+        onClose={() => setNotThis(null)}
+        onSend={(key, fields) => {
+          setNotThis(null);
+          void runVerbOn('not-this', key, fields);
+        }}
+      />
       <Drawer open={launched !== null} onClose={() => setLaunched(null)} title="Started">
         <LaunchResult launched={launched} />
       </Drawer>
@@ -851,6 +908,65 @@ function StudioCanvasView({
         ) : null}
       </Drawer>
     </div>
+  );
+}
+
+/** Not this from the palette, or its "Other…": a reason at once, or the designer's own words. */
+function NotThisDrawer({
+  card,
+  busy,
+  onClose,
+  onSend
+}: {
+  card: string | null;
+  busy: boolean;
+  onClose: () => void;
+  onSend: (key: string, fields: Record<string, string>) => void;
+}) {
+  const [words, setWords] = useState('');
+  useEffect(() => setWords(''), [card]);
+  return (
+    <Drawer open={card !== null} onClose={onClose} title="Not this">
+      {card ? (
+        <form
+          className="flex flex-col gap-3 text-sm text-graphite"
+          onSubmit={event => {
+            event.preventDefault();
+            if (words.trim()) onSend(card, { reasonPreset: 'Custom', reasonCustom: words.trim() });
+          }}
+        >
+          <p>Why not? The next prompt for this project remembers.</p>
+          <div className="flex flex-wrap gap-2">
+            {NOT_THIS_REASONS.map(reason => (
+              <button
+                key={reason}
+                type="button"
+                disabled={busy}
+                onClick={() => onSend(card, { reasonPreset: reason })}
+                className="inline-flex min-h-8 items-center rounded-control border border-ash bg-canvas px-3 text-graphite hover:border-mist hover:bg-frost disabled:opacity-50"
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          <label className="flex flex-col gap-1">
+            <span>In your own words</span>
+            <textarea
+              value={words}
+              onChange={event => setWords(event.target.value)}
+              maxLength={500}
+              rows={3}
+              className="rounded-control border border-ash bg-canvas px-3 py-2 text-base text-graphite outline-none focus:border-focus md:text-sm"
+            />
+          </label>
+          <div>
+            <Button type="submit" kind="primary" tier="compact" disabled={busy || !words.trim()}>
+              Not this
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </Drawer>
   );
 }
 

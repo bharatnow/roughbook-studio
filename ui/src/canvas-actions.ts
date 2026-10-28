@@ -2,6 +2,11 @@
 // actions, which its toolbar draws, and the canvas's own controls. The palette offers each as a
 // command (commands.ts), so the toolbar, the controls and ⌘K never disagree. An action with
 // `toolbar: false` is the palette's alone (rule 7: new and rare things go there).
+//
+// The plain verbs (ROUGHBOOK-APPLE-PLAN.md, A7): More like this, Something different, Polish, Not
+// this, Pick this one and Use in my code, in words. Fork and Refine stay, complete-only, found by
+// their words; a verb or command that cannot run now stays too, saying why (`disabled`).
+import { COMPLETE_FEATURES_REASON, VERB_LABELS, type VerbId } from '@roughbook/ui/commands';
 import type {
   CanvasCardInput,
   CanvasCompositionInput,
@@ -13,7 +18,23 @@ import { BASELINE, type StudioCanvas } from './canvas-input.ts';
 import { pageViewAddress } from './in-page.ts';
 import { runRunning } from './runs.ts';
 
+/**
+ * The verbs the studio serves, in the toolbar's order: every one but What's wrong?, which is for
+ * web sketches (decision 41); a local iteration keeps the studio's own review flow.
+ */
+export const STUDIO_VERBS = [
+  'more',
+  'different',
+  'polish',
+  'not-this',
+  'pick-this',
+  'use'
+] as const satisfies readonly VerbId[];
+
+export type StudioVerb = (typeof STUDIO_VERBS)[number];
+
 export type SelectionActionId =
+  | StudioVerb
   | 'open'
   | 'fork'
   | 'refine'
@@ -62,6 +83,12 @@ export type StudioAction = {
   keys?: string;
   /** The terminal session it shows. */
   session?: string;
+  /** Why it cannot run now, in words: left out of the toolbar, dimmed in the palette. */
+  disabled?: string;
+  /** Complete features only (A7): dimmed while the switch is off. */
+  completeOnly?: true;
+  /** More words the palette finds it by: the words a verb replaced. */
+  keywords?: readonly string[];
 };
 
 /** What the canvas shows: the canvas itself, the list a desktop can switch to, or a narrow window's list. */
@@ -80,7 +107,77 @@ export type SelectionState = {
   inPage?: readonly string[];
   /** Adopted pages of the map, which a composition can be made of (B6). */
   composable?: readonly string[];
+  /** The Complete features switch (A7); unknown, as from an older studio server, reads as on. */
+  complete?: boolean;
+  /** The verbs the host serves; all of the studio's when left out. */
+  verbs?: readonly VerbId[];
 };
+
+const NOT_MADE = "It isn't made yet.";
+
+/** The words a verb replaced, so a query for the old word still finds it. */
+const VERB_KEYWORDS: Record<StudioVerb | 'fork' | 'refine', readonly string[]> = {
+  more: ['fork', 'similar', 'variation'],
+  different: ['fork', 'radical', 'clean start', 'how far'],
+  polish: ['refine', 'finish', 'craft'],
+  'not-this': ['reject', 'set aside', 'discard'],
+  'pick-this': ['select', 'choose', 'keep'],
+  use: ['promote', 'code', 'ship'],
+  fork: ['branch', 'copy', 'keep'],
+  refine: ['improve', 'preset', 'refinement']
+};
+
+/**
+ * A local card's verbs, then Fork and Refine. `made`: its files exist and no agent is making it.
+ * Each says why it cannot run now rather than vanishing.
+ */
+function verbActions(
+  card: CanvasCardInput,
+  facts: { baseline?: true },
+  made: boolean,
+  state: SelectionState
+): StudioAction[] {
+  const served = state.verbs ?? STUDIO_VERBS;
+  const why = (verb: StudioVerb): string | undefined => {
+    switch (verb) {
+      case 'more':
+      case 'different':
+      case 'polish':
+        return made ? undefined : NOT_MADE;
+      case 'not-this':
+        return card.decision === 'rejected' ? 'It is set aside already.' : undefined;
+      case 'pick-this':
+        return card.selected ? 'It is the pick already.' : undefined;
+      case 'use':
+        if (!made) return NOT_MADE;
+        if (facts.baseline) return "It is the app's own code already.";
+        return card.selected ? undefined : 'Pick it first: Use in my code promotes the pick.';
+    }
+  };
+  const verbs = STUDIO_VERBS.filter(verb => served.includes(verb)).map(verb => {
+    const disabled = why(verb);
+    return {
+      id: verb,
+      label: VERB_LABELS[verb],
+      toolbar: true,
+      keywords: VERB_KEYWORDS[verb],
+      ...(disabled ? { disabled } : {})
+    };
+  });
+  const switchOff = state.complete === false ? COMPLETE_FEATURES_REASON : undefined;
+  const completeOnly = (id: 'fork' | 'refine', label: string): StudioAction => {
+    const disabled = made ? switchOff : NOT_MADE;
+    return {
+      id,
+      label,
+      toolbar: false,
+      completeOnly: true,
+      keywords: VERB_KEYWORDS[id],
+      ...(disabled ? { disabled } : {})
+    };
+  };
+  return [...verbs, completeOnly('fork', 'Fork'), completeOnly('refine', 'Refine')];
+}
 
 /** Compare shows up to four iterations side by side. */
 export const MAX_COMPARE = 4;
@@ -278,7 +375,12 @@ export function selectionActions(
         { id: 'cancel', label: 'Cancel it', toolbar: false }
       );
     }
-  } else if (facts.generated) {
+  }
+  // A run the project read has not caught up with is nothing to decide about yet.
+  if (facts.kind !== 'local') return actions;
+  const made = facts.generated && !run;
+  actions.push(...verbActions(card, facts, made, state));
+  if (made) {
     const picked = state.compare.includes(key);
     // A baseline is forked and refined like any card, from a copy of the app's files (B3), but is
     // never promoted: it is the app. Its forks are, back into the app's files (B4). Any other
@@ -287,9 +389,13 @@ export function selectionActions(
     const withApp =
       !facts.baseline && baseline?.kind === 'local' && baseline.baseline && baseline.generated;
     actions.push(
-      { id: 'fork' as const, label: 'Fork', toolbar: true },
-      { id: 'refine' as const, label: 'Refine', toolbar: true },
-      { id: 'pick', label: picked ? 'Unpick' : 'Pick', toolbar: true, keys: 'Shift-click' },
+      // Decision 32: Compare's pick is Add to Compare, so Pick this one is the only pick.
+      {
+        id: 'pick',
+        label: picked ? 'Remove from Compare' : 'Add to Compare',
+        toolbar: true,
+        keys: 'Shift-click'
+      },
       ...compareAction(page, component, picks),
       ...(withApp
         ? [
@@ -300,15 +406,10 @@ export function selectionActions(
               href: `/${page}/${component}/iterations/compare?ids=${BASELINE},${card.id}`
             }
           ]
-        : []),
-      ...(card.selected && !facts.baseline
-        ? [{ id: 'promote' as const, label: 'Promote', toolbar: true }]
         : [])
     );
   }
-  if (facts.kind === 'local') {
-    actions.push(...webAction(state, `${page}/${component}/${card.id}`, 'Open on the web'));
-  }
+  actions.push(...webAction(state, `${page}/${component}/${card.id}`, 'Open on the web'));
   return actions;
 }
 

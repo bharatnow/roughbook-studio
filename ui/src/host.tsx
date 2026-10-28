@@ -2,17 +2,21 @@ import {
   REVIEW_CHECKS,
   REVIEW_FIELDS,
   UiHostProvider,
+  UndoBar,
+  UndoProvider,
   type LinkProps,
   type PromoteCommitResult,
   type PromoteFinish,
   type PromoteResult,
   type UiHost
 } from '@roughbook/ui';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
+import { completeFeaturesOf, switchCompleteFeatures } from './features';
 import { pickedAddress } from './in-page';
 import { navigate } from './router';
+import { verbHostActions } from './verbs-host';
 
 /** The screens are in the fragment. `prefetch` is for hosts that load pages ahead; an anchor drops it. */
 function Anchor({ href, prefetch, ...rest }: LinkProps) {
@@ -58,10 +62,14 @@ function targetOf(form: FormData) {
  * local fork is a run with an agent.
  */
 export function StudioUiHost({ children }: { children: ReactNode }) {
-  const { state, refresh, say } = useStudio();
+  const { state, project, refresh, refreshState, say } = useStudio();
+  // The verbs read the project as last read (the pick before Pick this one) without remaking the host.
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const devUrl = state?.devUrl ?? 'http://localhost:3000';
   // The preview's path comes from the repo's environment, whatever the stack.
   const previewTemplate = state?.environment.preview ?? '/rough-preview/{key}';
+  const completeFeatures = completeFeaturesOf(state);
 
   const host = useMemo<UiHost>(() => {
     const decide = async (
@@ -102,6 +110,7 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
     return {
       Link: Anchor,
       navigate,
+      completeFeatures,
       previewSrc: ({ page, component, iteration }) =>
         `${devUrl}${previewTemplate.replaceAll('{key}', `${page}/${component}/${iteration}`)}`,
       actions: {
@@ -240,10 +249,22 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
           } catch (error) {
             return { ok: false, message: describe(error) };
           }
-        }
+        },
+        // The Complete features switch (A7), for this person everywhere: the local server sends it.
+        setCompleteFeatures: (on: boolean) =>
+          switchCompleteFeatures(on, { post, refresh: refreshState }),
+        // The plain verbs (A7) and their Undo, through the local server.
+        ...verbHostActions({ post, project: () => projectRef.current, refresh })
       }
     };
-  }, [devUrl, previewTemplate, refresh, say]);
+  }, [completeFeatures, devUrl, previewTemplate, refresh, refreshState, say]);
 
-  return <UiHostProvider host={host}>{children}</UiHostProvider>;
+  return (
+    <UiHostProvider host={host}>
+      <UndoProvider>
+        {children}
+        <UndoBar />
+      </UndoProvider>
+    </UiHostProvider>
+  );
 }

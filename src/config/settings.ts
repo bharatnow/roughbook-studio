@@ -26,6 +26,11 @@ export type Settings = {
   privacySheetShown: boolean;
   /** Whether the local UI has shown its own copy of the privacy sheet, once per install too. */
   uiPrivacySheetShown: boolean;
+  /**
+   * The account's Complete features switch as /studio/me last said it, for the local UI while the
+   * server cannot be reached (A7 of the Apple plan). Null until read; the backend decides.
+   */
+  completeFeatures: boolean | null;
 };
 
 const DEFAULTS: Settings = {
@@ -33,7 +38,8 @@ const DEFAULTS: Settings = {
   localPort: null,
   analyticsConsent: null,
   privacySheetShown: false,
-  uiPrivacySheetShown: false
+  uiPrivacySheetShown: false,
+  completeFeatures: null
 };
 
 /** The local server's address, which prompts give agents for the asset files. */

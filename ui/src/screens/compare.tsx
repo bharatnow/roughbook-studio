@@ -9,10 +9,14 @@ import {
 import { useEffect, useState } from 'react';
 import { get, iterationPath } from '../api';
 import { compareBaseline } from '../canvas-actions';
+import { compareCommands } from '../commands';
 import { findComponent, localIterations, useStudio } from '../data';
+import { completeFeaturesOf } from '../features';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
+import { useAppCommands } from '../parts/palette';
 import { useRatings } from '../parts/ratings';
+import { useRunVerb } from '../parts/verb-run';
 
 /** Each candidate's latest review in one line, as the web's Compare shows it. */
 function useSummaries(page: string, component: string, ids: string[]) {
@@ -48,11 +52,13 @@ export function CompareScreen({
   ids: string[];
 }) {
   const { project, state, changes } = useStudio();
-  const { previewSrc } = useUiHost();
+  const { previewSrc, actions } = useUiHost();
+  const verbs = useRunVerb();
+  const runApp = useAppCommands();
   const summaries = useSummaries(page, component, ids);
   const ratings = useRatings(page, component);
   const found = findComponent(project, page, component);
-  const { setCrumbs } = useChrome();
+  const { setCrumbs, palette } = useChrome();
   const pageName = found?.page.name;
   const componentName = found?.component.name;
   useEffect(() => {
@@ -64,6 +70,43 @@ export function CompareScreen({
     ]);
     return () => setCrumbs([]);
   }, [page, component, pageName, componentName, setCrumbs]);
+  // The palette runs the candidates' verbs (A7) while Compare is open; Not this asks why on the stage.
+  useEffect(() => {
+    if (!project || !found) return;
+    const shown = localIterations(project, page, found.component).filter(item =>
+      ids.includes(item.id)
+    );
+    palette.current = {
+      commands: () =>
+        compareCommands(
+          { page, component },
+          shown.map(item => ({
+            id: item.id,
+            name: item.name,
+            selected: item.number === found.component.selectedIteration
+          })),
+          actions.runVerb ? (actions.verbs ?? []) : [],
+          { complete: completeFeaturesOf(state) }
+        ),
+      run: command => {
+        if (runApp(command)) return;
+        const what = command.run;
+        if (what.kind === 'verb') {
+          const iteration = what.key.slice(what.key.lastIndexOf('/') + 1);
+          void verbs.run(
+            what.verb,
+            { project: project.tree.slug, page, component, iteration },
+            what.fields
+          );
+        } else if (what.kind === 'complete-features') {
+          void actions.setCompleteFeatures?.(what.on);
+        }
+      }
+    };
+    return () => {
+      palette.current = null;
+    };
+  });
   if (!project || !state) return <Missing>Loading…</Missing>;
   if (!found) return <Missing back>There is no {`${page}/${component}`} in this project.</Missing>;
   const here = localIterations(project, page, found.component);

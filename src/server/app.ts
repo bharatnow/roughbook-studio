@@ -18,6 +18,7 @@ import {
   sameToken
 } from './security.js';
 import { planReadings } from './readings.js';
+import { verbRoutes } from './verbs.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
 
 export type LocalServerOptions = {
@@ -239,6 +240,16 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     ),
     // The local UI's privacy sheet, shown once per install apart from the CLI's.
     route('POST', '/api/privacy-sheet/seen', () => studio.privacySheetSeen()),
+    // The Complete features switch (A7 of the Apple plan), sent on to PUT /studio/me/features.
+    route('POST', '/api/features', async request =>
+      studio.setCompleteFeatures(await readBody(request))
+    ),
+    // The plain verbs (A7 of the Apple plan) and their Undo.
+    ...verbRoutes(studio).map(item =>
+      route(item.method, item.path, async (request, params) =>
+        item.handle(params, await readBody(request))
+      )
+    ),
     route('POST', '/api/promote', async request => {
       const body = await readBody(request);
       return studio.promote({

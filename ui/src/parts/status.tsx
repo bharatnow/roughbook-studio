@@ -1,7 +1,8 @@
-import { StatusDot } from '@roughbook/ui';
+import { StatusDot, Switch } from '@roughbook/ui';
 import { useEffect, useId, useRef, useState } from 'react';
 import { post } from '../api';
 import { describe, useStudio } from '../data';
+import { completeFeaturesOf, switchCompleteFeatures } from '../features';
 import { useChrome } from './chrome';
 
 const row = 'border-t border-ash py-2 first:border-t-0 first:pt-0';
@@ -23,6 +24,41 @@ export function useMakeDefault() {
     }
   }
   return { makeDefault, busy };
+}
+
+/**
+ * The Complete features switch (A7 of ROUGHBOOK-APPLE-PLAN.md), the studio's settings: for this
+ * person everywhere, so the web shows the same. A refusal stays beside it in words.
+ */
+function CompleteFeaturesSwitch() {
+  const { state, refreshState } = useStudio();
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  async function toggle(on: boolean) {
+    setBusy(true);
+    const result = await switchCompleteFeatures(on, { post, refresh: refreshState });
+    setRefusal(result.ok ? null : result.message);
+    setBusy(false);
+  }
+  return (
+    <>
+      <Switch
+        label="Complete features"
+        checked={completeFeaturesOf(state)}
+        disabled={busy || !state}
+        onChange={event => void toggle(event.target.checked)}
+        className="w-full text-graphite"
+      />
+      <span className="block text-xs text-slate">
+        Every tool, as on the web. Off keeps the everyday ones.
+      </span>
+      {refusal ? (
+        <span role="alert" className="block text-xs text-danger">
+          {refusal}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 /** The app's state in a word, for the status popover. */
@@ -209,6 +245,12 @@ export function StatusButton() {
                 </dd>
               </div>
             ) : null}
+            <div className={row}>
+              <dt className={term}>Settings</dt>
+              <dd className="mt-1">
+                <CompleteFeaturesSwitch />
+              </dd>
+            </div>
             <div className={row}>
               <dt className={term}>Version</dt>
               <dd className="mt-1 font-mono text-xs text-graphite">

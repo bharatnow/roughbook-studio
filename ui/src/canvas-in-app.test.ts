@@ -242,7 +242,7 @@ describe('adopting from the canvas', () => {
     );
   });
 
-  it('opens, forks, refines and picks a baseline, which is not promoted yet (B3)', () => {
+  it('opens a baseline, makes more from it and adds it to Compare, but does not promote it (B3)', () => {
     const project = adoptedHero();
     project.tree.pages[0]!.components[0]!.selectedIteration = 0;
     const adopted = studioCanvasInput(project.tree, RUNS, { ...project.local, map: MAP });
@@ -253,12 +253,26 @@ describe('adopting from the canvas', () => {
       ]),
       [
         ['open', true],
-        ['fork', true],
-        ['refine', true],
+        ['more', true],
+        ['different', true],
+        ['polish', true],
+        ['not-this', true],
+        ['pick-this', true],
+        ['use', true],
+        ['fork', false],
+        ['refine', false],
         ['pick', true],
         ['web', false]
       ]
     );
+    // It is the app's code already, and the pick already.
+    const said = (id: string) =>
+      selectionActions(adopted, 'iteration:home/hero/iteration-00', STATE).find(
+        action => action.id === id
+      )?.disabled;
+    assert.equal(said('use'), "It is the app's own code already.");
+    assert.equal(said('pick-this'), 'It is the pick already.');
+    assert.equal(said('more'), undefined);
   });
 
   it('compares every iteration of an adopted component with the app, and none of another', () => {

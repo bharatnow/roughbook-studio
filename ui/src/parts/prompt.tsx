@@ -13,7 +13,9 @@ import { canvasEntry } from '../canvas-actions';
 import type { StudioCanvas } from '../canvas-input';
 import { post } from '../api';
 import { describe, useStudio } from '../data';
+import { completeFeaturesOf } from '../features';
 import { forkPrompt } from '../fork-prompt';
+import { currentMode, promptModes } from '../prompt-modes';
 import type { Launched, RunView, StudioState } from '../types';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
 
@@ -88,31 +90,14 @@ export function StudioPrompt({
   const iteration = at.iteration;
   // A local iteration with its files and no run making it can be forked or refined.
   const made = facts?.kind === 'local' && facts.generated && !facts.run && iteration !== null;
-  const modes = [
-    {
-      id: 'new',
-      label: 'New',
-      placeholder: frame
-        ? `Directions for ${frame.name}, one per line`
-        : 'Select a component to start iterations in it',
-      disabled: !frame
-    },
-    {
-      id: 'fork',
-      label: 'Fork',
-      placeholder: made
-        ? `What should change in a fork of ${iteration}; a Keep: line says what stays`
-        : 'Select an iteration to fork it',
-      disabled: !made
-    },
-    {
-      id: 'refine',
-      label: 'Refine',
-      placeholder: made ? `How to refine ${iteration}` : 'Select an iteration to refine it',
-      disabled: !made
-    }
-  ];
-  const current = modes.find(item => item.id === mode && !item.disabled)?.id ?? 'new';
+  // Fork and Refine are complete-only (A7): dimmed, not hidden, with the switch off.
+  const modes = promptModes({
+    frame: frame?.name ?? null,
+    iteration,
+    made,
+    complete: completeFeaturesOf(state)
+  });
+  const current = currentMode(modes, mode);
 
   async function send(form: FormData) {
     const text = String(form.get('directions') ?? '');

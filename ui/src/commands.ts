@@ -2,7 +2,15 @@
 // canvas's own, every page, component and iteration by name, the runs and terminals, and the
 // studio's settings, with no JSX so the tests can walk them. What each command does is said as
 // data (`CommandRun`), and the canvas carries it out.
-import { matchCommands, type PaletteCommand } from '@roughbook/ui/commands';
+import {
+  dimCompleteOnly,
+  HOW_FAR,
+  VERB_LABELS,
+  matchCommands,
+  type HowFar,
+  type PaletteCommand,
+  type VerbId
+} from '@roughbook/ui/commands';
 import { newestFirst } from '@roughbook/ui/canvas';
 import {
   canvasActions,
@@ -22,6 +30,10 @@ export { matchCommands };
 export type CommandRun =
   /** One of the canvas's actions, on the selection (`key`), or on the canvas. */
   | { kind: 'action'; action: StudioActionId; key: string | null; session?: string }
+  /** A plain verb on the card `key` with its fields, as Something different at a How far. */
+  | { kind: 'verb'; verb: VerbId; key: string; fields: Record<string, string> }
+  /** The Complete features switch, to `on`. */
+  | { kind: 'complete-features'; on: boolean }
   /** Select an item on the canvas and put the keyboard on it. */
   | { kind: 'select'; key: string }
   | { kind: 'href'; href: string; external?: boolean }
@@ -44,7 +56,22 @@ export type CommandContext = {
   sessions: TerminalInfo[];
   agents: AgentView[];
   defaultAgent: string | null;
+  /** The Complete features switch; unknown, as from an older studio server, reads as on. */
+  complete?: boolean;
 };
+
+/** Something different's How far, in words, as the web says them. */
+export const HOW_FAR_WORDS: Record<HowFar, string> = {
+  conservative: 'A little different',
+  balanced: 'Quite different',
+  high: 'Very different',
+  wild: 'Wildly different'
+};
+
+/** The switch as the palette's context says it, on the context or its selection state. */
+function completeOf(context: CommandContext): boolean | undefined {
+  return context.complete ?? context.state.complete;
+}
 
 /** Recent shows this many before a query; the rest wait for one. */
 const RECENT_SHOWN = 6;
@@ -53,13 +80,16 @@ function actionCommand(
   prefix: string,
   group: string,
   action: StudioAction,
-  key: string | null
+  key: string | null,
+  complete?: boolean
 ): StudioCommand {
-  return {
+  const command: StudioCommand = {
     id: `${prefix}:${action.id}`,
     label: action.label,
     group,
     ...(action.keys ? { hint: action.keys } : {}),
+    ...(action.keywords ? { keywords: action.keywords } : {}),
+    ...(action.disabled ? { disabled: action.disabled } : {}),
     run: action.href
       ? { kind: 'href', href: action.href, ...(action.external ? { external: true } : {}) }
       : {
@@ -69,6 +99,8 @@ function actionCommand(
           ...(action.session ? { session: action.session } : {})
         }
   };
+  // A complete-only command stays, found by its words, dimmed with the switch named.
+  return action.completeOnly ? dimCompleteOnly(command, complete) : command;
 }
 
 function selectionCommands(selection: string, context: CommandContext): StudioCommand[] {
@@ -82,9 +114,27 @@ function selectionCommands(selection: string, context: CommandContext): StudioCo
         : entry.kind === 'composition'
           ? entry.composition.name
           : entry.section.name;
-  const commands = selectionActions(context.canvas, selection, context.state).map(action =>
-    actionCommand('selection', group, action, selection)
-  );
+  const complete = completeOf(context);
+  const state = { ...context.state, complete };
+  const commands: StudioCommand[] = [];
+  for (const action of selectionActions(context.canvas, selection, state)) {
+    commands.push(actionCommand('selection', group, action, selection, complete));
+  }
+  // Something different's How far, one command a strength, found by a query.
+  const different = commands.find(command => command.id === 'selection:different');
+  if (different) {
+    for (const howFar of HOW_FAR) {
+      commands.push({
+        id: `selection:different:${howFar}`,
+        label: HOW_FAR_WORDS[howFar],
+        group,
+        keywords: ['something different', 'how far', howFar],
+        quiet: true,
+        ...(different.disabled ? { disabled: different.disabled } : {}),
+        run: { kind: 'verb', verb: 'different', key: selection, fields: { howFar } }
+      });
+    }
+  }
   if (entry.kind === 'frame') {
     const page = entry.section.id;
     const component = entry.frame.id;
@@ -176,7 +226,21 @@ function terminalCommands(context: CommandContext): StudioCommand[] {
   }));
 }
 
-function studioGroup(context: CommandContext | null): StudioCommand[] {
+/** The switch's command: turns it the other way. */
+function completeCommand(complete: boolean): StudioCommand {
+  return {
+    id: 'complete-features',
+    label: complete ? 'Turn off Complete features' : 'Turn on Complete features',
+    group: 'Studio',
+    keywords: ['complete', 'features', 'advanced', 'settings'],
+    run: { kind: 'complete-features', on: !complete }
+  };
+}
+
+function studioGroup(
+  context: CommandContext | null,
+  studio: { complete?: boolean } = {}
+): StudioCommand[] {
   const commands: StudioCommand[] = [
     {
       id: 'status',
@@ -186,6 +250,9 @@ function studioGroup(context: CommandContext | null): StudioCommand[] {
       run: { kind: 'status' }
     }
   ];
+  const complete = context ? completeOf(context) : studio.complete;
+  // Off the canvas only when the studio says how it is set.
+  if (context || complete !== undefined) commands.push(completeCommand(complete !== false));
   if (!context) return commands;
   for (const agent of context.agents) {
     if (!agent.found || agent.id === context.defaultAgent) continue;
@@ -212,15 +279,50 @@ function studioGroup(context: CommandContext | null): StudioCommand[] {
   return commands;
 }
 
+/** The verbs Compare's palette runs at once on a candidate; Not this asks why, on the stage. */
+const COMPARE_VERBS = ['more', 'different', 'polish', 'pick-this'] as const;
+
+/**
+ * Compare's palette (A7): each candidate's verbs that run at once, under its name, then the
+ * studio's own. `served` is what the host runs; a candidate's pick stays, saying why.
+ */
+export function compareCommands(
+  at: { page: string; component: string },
+  candidates: readonly { id: string; name: string; selected: boolean }[],
+  served: readonly VerbId[],
+  studio: { complete?: boolean }
+): StudioCommand[] {
+  const commands: StudioCommand[] = [];
+  for (const candidate of candidates) {
+    const key = `iteration:${at.page}/${at.component}/${candidate.id}`;
+    for (const verb of COMPARE_VERBS) {
+      if (!served.includes(verb)) continue;
+      const disabled =
+        verb === 'pick-this' && candidate.selected ? 'It is the pick already.' : undefined;
+      commands.push({
+        id: `compare:${candidate.id}:${verb}`,
+        label: VERB_LABELS[verb],
+        group: candidate.name,
+        hint: candidate.id,
+        ...(disabled ? { disabled } : {}),
+        run: { kind: 'verb', verb, key, fields: {} }
+      });
+    }
+  }
+  return [...commands, ...studioGroup(null, studio)];
+}
+
 /**
  * The palette's commands: the selection's first, then the canvas's and the project's items, the
- * runs, the terminals, and the studio's own. Off the canvas (`null`), the studio's alone.
+ * runs, the terminals, and the studio's own. Off the canvas (`null`), the studio's alone, with the
+ * Complete features switch when `studio` says how it is set.
  */
 export function studioCommands(
   selection: string | null,
-  context: CommandContext | null
+  context: CommandContext | null,
+  studio: { complete?: boolean } = {}
 ): StudioCommand[] {
-  if (!context) return studioGroup(null);
+  if (!context) return studioGroup(null, studio);
   return [
     ...(selection ? selectionCommands(selection, context) : []),
     ...projectCommands(selection, context),

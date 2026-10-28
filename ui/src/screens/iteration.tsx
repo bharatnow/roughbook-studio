@@ -19,21 +19,28 @@ import {
   previewAddress,
   reviewSummary,
   snapshotImageName,
+  HelpTag,
+  VERB_LABELS,
   termLabel,
   useUiHost
 } from '@roughbook/ui';
+import type { ReactElement } from 'react';
+import { COMPLETE_FEATURES_REASON } from '@roughbook/ui/commands';
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
+import { completeFeaturesOf } from '../features';
 import { inPageNote, inPageSrc, lazyImportNotice } from '../in-page';
+import { navigate } from '../router';
 import { Missing } from '../parts/missing';
 import { useRatings } from '../parts/ratings';
 import { RefineDrawer, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
+import { HowFarMenu, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import type { AppView, SnapshotView } from '../types';
 
 const action =
-  'inline-flex h-9 items-center gap-2 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost';
+  'inline-flex h-9 items-center gap-2 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50 disabled:hover:border-ash disabled:hover:bg-canvas';
 
 /**
  * The first screenshot, fetched with the token, for when the dev server is not answering;
@@ -134,6 +141,15 @@ function useSnapshotState(
  * The app's state, asked again often while it starts or is down, so the frame's progress moves,
  * and rarely once it answers.
  */
+
+/** A dimmed control keeps its reason in a help tag, not a title (the shell-style ratchet). */
+function withReason(
+  reason: string | null | undefined,
+  control: ReactElement<{ 'aria-describedby'?: string }>
+) {
+  return reason ? <HelpTag text={reason}>{control}</HelpTag> : control;
+}
+
 export function useApp(initial: AppView | null): AppView {
   const { state, refreshState, say } = useStudio();
   const [app, setApp] = useState<AppView | null>(initial);
@@ -203,6 +219,7 @@ export function IterationScreen({
   const reviews = useReviews(page, component, id);
   const rating = useRatings(page, component)[id] ?? null;
   const app = useApp(state?.app ?? null);
+  const verbs = useRunVerb();
   useEffect(() => setRefineOpen(refine), [refine]);
   // A live preview through a mobile stack's web target has the repo's snapshots beside it, for
   // final review; in snapshot mode they are the preview itself.
@@ -239,6 +256,21 @@ export function IterationScreen({
     item => item.page === page && item.component === component && item.iteration === id
   );
   const target = { project: project.tree.slug, page, component, iterationId: id };
+  // The plain verbs (A7): the stage's everyday actions. Refine is complete-only, dimmed when off.
+  const verbTarget = { project: project.tree.slug, page, component, iteration: id };
+  const made = generationStateOf(iteration) === 'completed' && !run;
+  const notMade = made ? undefined : "It isn't made yet.";
+  const waiting = verbs.busy === id ? 'Wait for the last one to start.' : undefined;
+  const refineOff = completeFeaturesOf(state) ? undefined : COMPLETE_FEATURES_REASON;
+  const goTo = async (
+    verb: 'more' | 'different' | 'polish',
+    fields: Record<string, string> = {}
+  ) => {
+    const result = await verbs.run(verb, verbTarget, fields);
+    const first = result?.ok ? result.made?.[0] : undefined;
+    // What it made is on the canvas, beside this one, where its agent's terminal shows.
+    if (first) navigate(`${base}/iterations#${first}`);
+  };
   const parentHere = iteration.parent
     ? project.local.iterations.includes(`${page}/${component}/${iteration.parent}`)
     : false;
@@ -339,15 +371,77 @@ export function IterationScreen({
               iterationId={id}
               rating={rating}
             />
-            <button type="button" className={action} onClick={() => setSelectOpen(true)}>
-              {selected ? 'Selected' : 'Select'}
-            </button>
-            <button type="button" className={action} onClick={() => setRejectOpen(true)}>
-              Reject
-            </button>
-            <button type="button" className={action} onClick={() => setRefineOpen(true)}>
-              Refine
-            </button>
+            {verbs.served('more')
+              ? withReason(
+                  notMade ?? waiting,
+                  <button
+                    type="button"
+                    className={action}
+                    disabled={Boolean(notMade ?? waiting)}
+                    onClick={() => void goTo('more')}
+                  >
+                    {VERB_LABELS.more}
+                  </button>
+                )
+              : null}
+            {verbs.served('different') ? (
+              <HowFarMenu
+                disabled={notMade ?? waiting}
+                onChoose={howFar => void goTo('different', { howFar })}
+              />
+            ) : null}
+            {verbs.served('polish')
+              ? withReason(
+                  notMade ?? waiting,
+                  <button
+                    type="button"
+                    className={action}
+                    disabled={Boolean(notMade ?? waiting)}
+                    onClick={() => void goTo('polish')}
+                  >
+                    {VERB_LABELS.polish}
+                  </button>
+                )
+              : null}
+            {verbs.served('not-this') ? (
+              <NotThisMenu
+                disabled={waiting}
+                onReason={reason =>
+                  void verbs.run('not-this', verbTarget, { reasonPreset: reason })
+                }
+                onOther={() => setRejectOpen(true)}
+              />
+            ) : (
+              <button type="button" className={action} onClick={() => setRejectOpen(true)}>
+                {VERB_LABELS['not-this']}
+              </button>
+            )}
+            {/* Pick this one at once; the pick itself opens its reason and rating, or Unpick. */}
+            {selected || !verbs.served('pick-this') ? (
+              <button type="button" className={action} onClick={() => setSelectOpen(true)}>
+                {selected ? 'Picked' : VERB_LABELS['pick-this']}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={action}
+                disabled={Boolean(waiting)}
+                onClick={() => void verbs.run('pick-this', verbTarget)}
+              >
+                {VERB_LABELS['pick-this']}
+              </button>
+            )}
+            {withReason(
+              refineOff,
+              <button
+                type="button"
+                className={action}
+                disabled={Boolean(refineOff)}
+                onClick={() => setRefineOpen(true)}
+              >
+                Refine
+              </button>
+            )}
             <ReviewButton
               target={target}
               reviews={reviews}
