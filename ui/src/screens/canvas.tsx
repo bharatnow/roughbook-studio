@@ -744,7 +744,7 @@ function StudioCanvasView({
                 <button
                   type="button"
                   onClick={() => setMapOpen(true)}
-                  className="inline-flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-violet"
+                  className="inline-flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                 >
                   <ListFilter className="size-4" strokeWidth={1.5} />
                   <span role="status" className="font-mono text-xs text-steel">
@@ -755,7 +755,7 @@ function StudioCanvasView({
                   type="button"
                   aria-label="Clear the filter"
                   onClick={() => setFilter(DEFAULT_IN_APP_FILTER)}
-                  className="inline-flex size-7 items-center justify-center rounded-control text-slate outline-none hover:bg-frost focus-visible:ring-2 focus-visible:ring-violet"
+                  className="inline-flex size-7 items-center justify-center rounded-control text-slate hover:bg-frost focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                 >
                   <X className="size-4" strokeWidth={1.5} />
                 </button>
@@ -765,7 +765,7 @@ function StudioCanvasView({
               <button
                 type="button"
                 onClick={() => act('dock', null)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none hover:border-mist focus-visible:ring-2 focus-visible:ring-violet"
+                className="inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
               >
                 <SquareTerminal className="size-4" strokeWidth={1.5} />
                 Terminals
@@ -891,7 +891,7 @@ function PullChoiceView({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
           disabled={busy}
           onClick={() => onAnswer('add')}
         >

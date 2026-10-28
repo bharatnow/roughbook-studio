@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { layoutCanvas } from '@roughbook/ui/canvas';
 import { PROJECT, RUNS } from './canvas-fixture.ts';
-import { SKETCH_PICTURE, studioCanvasInput, type StudioCanvas } from './canvas-input.ts';
+import {
+  SKETCH_PICTURE,
+  SKETCH_PICTURE_DARK,
+  sketchPicture,
+  studioCanvasInput,
+  type StudioCanvas
+} from './canvas-input.ts';
 
 function cardsOf(canvas: StudioCanvas, page: string, component: string) {
   const frame = canvas.input.sections
@@ -68,6 +74,10 @@ describe("the studio's canvas input", () => {
     const sketch = hero.get('iteration-40')!;
     assert.equal(sketch.thumbnail, SKETCH_PICTURE);
     assert.ok(SKETCH_PICTURE.startsWith('data:image/svg+xml,'));
+    // A dark variant waits for the page's opt-in; outside a browser the picture is light.
+    assert.ok(SKETCH_PICTURE_DARK.startsWith('data:image/svg+xml,'));
+    assert.notEqual(SKETCH_PICTURE_DARK, SKETCH_PICTURE);
+    assert.equal(sketchPicture(), SKETCH_PICTURE);
     assert.deepEqual(sketch.status, { glyph: 'none', word: 'On the web' });
     assert.equal(sketch.href, '/home/hero/iterations#iteration-40');
     assert.deepEqual(canvas.cards['iteration:home/hero/iteration-40'], {

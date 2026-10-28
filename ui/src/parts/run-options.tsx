@@ -14,10 +14,10 @@ export type RunChoice = {
 type EditorLaunched = Extract<Launched, { kind: 'editor' }>;
 
 const selectClass =
-  'h-9 rounded-control border border-ash bg-canvas px-2 text-sm text-graphite outline-none focus:border-violet disabled:opacity-50';
+  'h-9 rounded-control border border-ash bg-canvas px-2 text-sm text-graphite outline-none focus:border-focus disabled:opacity-50';
 
 const chipSelectClass =
-  'h-7 max-w-44 rounded-full border border-transparent bg-transparent px-2 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet';
+  'h-7 max-w-44 rounded-full border border-transparent bg-transparent px-2 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
 /** An editor's runs are always the designer's, in the editor; a terminal agent starts with you. */
 function modeFor(agent: AgentView | undefined): RunChoice['mode'] {

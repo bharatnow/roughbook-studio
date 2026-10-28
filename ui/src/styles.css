@@ -2,10 +2,11 @@
 @import '@roughbook/ui/theme.css';
 @import '@xterm/xterm/css/xterm.css';
 
-/* The theme reads these; the web sets them with next/font, the studio with its bundled fonts. */
+/* The theme reads these; the web sets them with next/font, the studio with its bundled fonts.
+   One sans family: display text is Host Grotesk too. */
 html.studio {
-  --font-sans: 'Inter';
-  --font-display: 'Space Grotesk';
+  --font-sans: 'Host Grotesk Variable';
+  --font-display: var(--font-sans);
   --font-mono: 'IBM Plex Mono';
 }
 

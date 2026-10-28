@@ -180,7 +180,7 @@ export function RunCard({
             type="button"
             disabled={busy !== null || run.headless?.status === 'running'}
             onClick={() => void ops.finish()}
-            className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+            className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
           >
             {busy === 'done' ? 'Checking' : 'Done'}
           </button>
@@ -337,7 +337,7 @@ function WhoseChangesPanel({
           type="button"
           disabled={busy}
           onClick={onFinish}
-          className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+          className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
         >
           {busy ? 'Checking' : 'Finish'}
         </button>

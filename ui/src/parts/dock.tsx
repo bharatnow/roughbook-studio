@@ -9,7 +9,7 @@ import { RunCard } from './run-card';
 import { TerminalView } from './terminal-view';
 
 const control =
-  'inline-flex h-8 shrink-0 items-center rounded-control px-2.5 text-sm text-graphite outline-none hover:bg-frost focus-visible:ring-2 focus-visible:ring-violet disabled:opacity-50';
+  'inline-flex h-8 shrink-0 items-center rounded-control px-2.5 text-sm text-graphite hover:bg-frost focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50';
 
 /**
  * The terminal dock at the foot of the canvas (ROUGHBOOK-QUIET-UI-PLAN.md, U5): closed until a run
@@ -87,7 +87,7 @@ export function Dock() {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => showSession(session.id, false)}
                 className={cn(
-                  'inline-flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-control px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-violet',
+                  'inline-flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-control px-2 font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
                   selected ? 'bg-frost text-graphite' : 'text-slate hover:text-graphite'
                 )}
               >
@@ -127,7 +127,7 @@ export function Dock() {
           onClick={closeDock}
           aria-label="Close the terminals"
           title="Close the terminals; the sessions keep running"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
           <X className="size-4" strokeWidth={1.5} />
         </button>

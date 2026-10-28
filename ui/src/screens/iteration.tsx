@@ -481,7 +481,7 @@ export function IterationScreen({
                       : 'The page, through the web target'
                   }
                   onClick={() => setFinalReview(on)}
-                  className={`h-7 rounded-full px-3 text-sm ${finalReview === on ? 'bg-canvas text-graphite shadow-[0_1px_1px_rgba(39,40,53,0.1)]' : 'bg-transparent text-slate hover:text-graphite'}`}
+                  className={`h-7 rounded-full px-3 text-sm ${finalReview === on ? 'bg-canvas text-graphite shadow-lift' : 'bg-transparent text-slate hover:text-graphite'}`}
                 >
                   {label}
                 </button>

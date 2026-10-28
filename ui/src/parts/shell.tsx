@@ -13,7 +13,7 @@ function Notice() {
   return (
     <div
       role={notice.tone === 'error' ? 'alert' : 'status'}
-      className={`fixed right-4 bottom-4 z-50 flex max-w-md items-start gap-3 rounded-card border bg-canvas px-4 py-3 text-sm shadow-[0_8px_30px_rgba(39,40,53,0.12)] ${
+      className={`fixed right-4 bottom-4 z-50 flex max-w-md items-start gap-3 rounded-card border bg-canvas px-4 py-3 text-sm shadow-elevation-1 ${
         notice.tone === 'error' ? 'border-danger text-danger' : 'border-ash text-graphite'
       }`}
     >

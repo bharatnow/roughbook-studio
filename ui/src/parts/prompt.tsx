@@ -187,7 +187,7 @@ export function StudioPrompt({
               type="button"
               aria-pressed={cleanStart}
               onClick={() => setCleanStart(value => !value)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet aria-pressed:bg-frost aria-pressed:text-graphite"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-frost aria-pressed:text-graphite"
             >
               <Eraser className="size-3.5" strokeWidth={1.5} />
               Clean start
@@ -197,7 +197,7 @@ export function StudioPrompt({
             <button
               type="button"
               onClick={onRefineOptions}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
             >
               <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
               Options

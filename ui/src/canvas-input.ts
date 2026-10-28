@@ -71,13 +71,35 @@ export const BASELINE = 'iteration-00';
 /** The map's page of the parts every page shares, where atoms are offered too. */
 const SHARED = 'shared';
 
+/** The cloud picture in a ground and a stroke color, 8:5 as the card's picture is. */
+function cloudPicture(ground: string, stroke: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500"><rect width="800" height="500" fill="${ground}"/><path transform="translate(364 214) scale(3)" d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  )}`;
+}
+
 /**
  * A web sketch's picture: a cloud, since its code is on the server and the studio has no still of
- * it (web thumbnails stay on the web). 8:5, as the card's picture is.
+ * it (web thumbnails stay on the web). An <img> cannot read the page's tokens, so there is one
+ * picture per appearance: Frost and Steel in light, the dark control and meta colors in dark.
  */
-export const SKETCH_PICTURE = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500"><rect width="800" height="500" fill="#eceff3"/><path transform="translate(364 214) scale(3)" d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" fill="none" stroke="#5b6274" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-)}`;
+export const SKETCH_PICTURE = cloudPicture('#eceff3', '#5b6274');
+export const SKETCH_PICTURE_DARK = cloudPicture('#2c2c2e', '#a1a1a6');
+
+/**
+ * The picture for the page's appearance. The shell stays light until the page opts in with
+ * data-rb-appearance on <html> (ROUGHBOOK-APPLE-PLAN.md, A11); then "dark" and "light" are kept,
+ * and anything else follows prefers-color-scheme. Light outside a browser.
+ */
+export function sketchPicture(): string {
+  if (typeof document === 'undefined') return SKETCH_PICTURE;
+  const appearance = document.documentElement.getAttribute('data-rb-appearance');
+  if (appearance === null || appearance === 'light') return SKETCH_PICTURE;
+  if (appearance === 'dark') return SKETCH_PICTURE_DARK;
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
+    ? SKETCH_PICTURE_DARK
+    : SKETCH_PICTURE;
+}
 
 /** A finished web sketch's mode, for a project read from a backend that does not say its origin. */
 const SKETCH_MODES = new Set(['sketch']);
@@ -195,7 +217,7 @@ export function studioCanvasInput(
         name: iteration.name,
         status: web && status.glyph === 'none' ? { glyph: 'none', word: 'On the web' } : status,
         thumbnail: web
-          ? SKETCH_PICTURE
+          ? sketchPicture()
           : shot
             ? pictureUrl(
                 `${iterationPath(page, component.slug, iteration.id)}/screenshots/${shot}`,

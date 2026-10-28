@@ -1,7 +1,7 @@
-import '@fontsource/inter/latin-400.css';
-import '@fontsource/inter/latin-500.css';
-import '@fontsource/space-grotesk/latin-400.css';
-import '@fontsource/space-grotesk/latin-500.css';
+// One variable family, Host Grotesk, for every sans weight (ROUGHBOOK-APPLE-PLAN.md, decision 29).
+// Studio rule 4: it replaces two packages (Inter and Space Grotesk) and adds no runtime code; it is
+// CSS and woff2 files only. IBM Plex Mono stays for code.
+import '@fontsource-variable/host-grotesk';
 import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './styles.css';

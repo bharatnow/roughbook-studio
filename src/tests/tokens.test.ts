@@ -10,10 +10,10 @@ import { fileURLToPath } from 'node:url';
 // a style object, the terminal's xterm theme, a data-URL picture) is one that does not. The total
 // may only go down: lower RAW_COLOR_BUDGET when a pass removes some, never raise it.
 //
-// Today's 8: the terminal dock's theme (three hexes, parts/terminal-view.tsx), the placeholder
-// picture's SVG (two, canvas-input.ts) and three rgba shadows (parts/shell.tsx, parts/status.tsx,
-// screens/iteration.tsx). It was 9 before A1 deleted accent-[#5e4cff] from parts/refine.tsx.
-const RAW_COLOR_BUDGET = 8;
+// Today's 7: the terminal dock's theme (three hexes, parts/terminal-view.tsx) and the placeholder
+// picture's SVGs, light and dark (four, canvas-input.ts). It was 9 before A1 deleted
+// accent-[#5e4cff] from parts/refine.tsx, and A2 moved the three rgba shadows to shadow tokens.
+const RAW_COLOR_BUDGET = 7;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

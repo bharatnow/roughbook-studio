@@ -162,7 +162,7 @@ export function CompositionPromote({
           disabled={
             busy || Boolean(plan?.problem) || (branching && Boolean(branchNameProblem(branch)))
           }
-          className="inline-flex h-9 items-center gap-2 rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+          className="inline-flex h-9 items-center gap-2 rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
         >
           <SquareTerminal className="size-4" strokeWidth={1.5} />
           {busy ? 'Preparing' : `Promote in ${agentName}`}

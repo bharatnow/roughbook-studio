@@ -14,7 +14,7 @@ import type { Feedback } from '../types';
 import { LaunchResult, RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 const areaClass =
-  'rounded-control border border-ash bg-canvas px-3 py-2 text-sm text-graphite outline-none placeholder:text-fog focus:border-violet';
+  'rounded-control border border-ash bg-canvas px-3 py-2 text-sm text-graphite outline-none placeholder:text-fog focus:border-focus';
 
 /** A parent's reviews, for the observations a refinement can address. */
 export function useReviews(page: string, component: string, iteration: string | null) {
@@ -85,7 +85,7 @@ export function RefineForm({
         <select
           value={preset}
           onChange={event => setPreset(event.target.value)}
-          className="h-9 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none focus:border-violet"
+          className="h-9 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none focus:border-focus"
         >
           {REFINEMENT_PRESETS.map(item => (
             <option key={item.value} value={item.value}>
@@ -150,7 +150,7 @@ export function RefineForm({
         <button
           type="submit"
           disabled={busy || !choice.agent}
-          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-white hover:bg-violet/90 disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
         >
           {busy ? 'Starting' : `Refine ${parent}`}
         </button>

@@ -9,6 +9,20 @@ type Message =
   | { type: 'exit'; exitCode: number };
 
 /**
+ * The dock's colors, in one place. The dock stays dark in every appearance (ROUGHBOOK-APPLE-PLAN.md,
+ * decision 27): agents print colors chosen for a dark terminal, and xterm takes only concrete
+ * colors, not CSS variables. Onyx, Frost and Lavender, from @roughbook/ui's light palette.
+ */
+const TERMINAL_BACKGROUND = '#1a1b25';
+const TERMINAL_FOREGROUND = '#eceff3';
+const TERMINAL_CURSOR = '#c8ccf3';
+const TERMINAL_THEME = {
+  background: TERMINAL_BACKGROUND,
+  foreground: TERMINAL_FOREGROUND,
+  cursor: TERMINAL_CURSOR
+};
+
+/**
  * One agent session in xterm.js. The session belongs to its run, so this page can close and come
  * back: it gets everything printed so far, then the rest as it comes.
  */
@@ -42,7 +56,7 @@ export function TerminalView({
       fontSize: 13,
       cursorBlink: true,
       scrollback: 10_000,
-      theme: { background: '#1a1b25', foreground: '#eceff3', cursor: '#c8ccf3' }
+      theme: TERMINAL_THEME
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -115,7 +129,7 @@ export function TerminalView({
           </button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 rounded-card bg-onyx p-3">
+      <div className="min-h-0 flex-1 rounded-card p-3" style={{ background: TERMINAL_BACKGROUND }}>
         <div ref={box} className="h-full w-full" />
       </div>
     </div>

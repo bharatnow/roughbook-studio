@@ -114,7 +114,7 @@ export function StatusButton() {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(!open)}
-        className="inline-flex h-9 items-center gap-1 rounded-control px-1.5 text-sm text-slate outline-none hover:bg-frost hover:text-graphite focus-visible:ring-2 focus-visible:ring-violet"
+        className="inline-flex h-9 items-center gap-1 rounded-control px-1.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
       >
         <StatusDot state={attention ? 'attention' : 'ready'} label={word} focusable={false} />
         <span className="hidden lg:inline">{pending ? `${pending} to send` : null}</span>
@@ -122,7 +122,7 @@ export function StatusButton() {
       {open ? (
         <div
           id={panelId}
-          className="absolute top-full right-0 z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-card border border-ash bg-canvas p-3 text-sm shadow-[0_8px_30px_rgba(39,40,53,0.14)]"
+          className="absolute top-full right-0 z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-card border border-ash bg-canvas p-3 text-sm shadow-elevation-1"
         >
           <dl>
             {problem ? (
