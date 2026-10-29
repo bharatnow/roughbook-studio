@@ -80,6 +80,24 @@ export type ReadingQuestion = {
 /** What the readings call answers. */
 export type ReadingsReply = { readings: Reading[]; question: ReadingQuestion | null };
 
+/**
+ * A sentence Roughbook learned from a person's or a brand's choices (A10 of the Apple plan), as
+ * @roughbook/ui's `LearnedSentence`: the choices behind it are codes, never anyone's words.
+ */
+export type LearnedSentence = {
+  id: string;
+  scope: 'you' | 'brand';
+  project: string | null;
+  text: string;
+  sources: {
+    kind: 'select' | 'reject' | 'rate' | 'like' | 'dislike' | 'edit';
+    code: string | null;
+    iterationId: string | null;
+    createdAt: string;
+  }[];
+  createdAt: string;
+};
+
 /** An image the studio uploads as it is: a picture of a studio iteration or an adopted page. */
 export type ImageBody = { bytes: Buffer; type: 'image/png' | 'image/webp' };
 
@@ -270,6 +288,36 @@ export class StudioApi {
     return this.request(
       'GET',
       `${componentPath(orgId, project, page, component)}/sketches/${encodeURIComponent(sketch)}/files`
+    );
+  }
+
+  /** What Roughbook learned about this person in the organization (A10 of the Apple plan). */
+  myLearned(orgId: string): Promise<{ sentences: LearnedSentence[] }> {
+    return this.request('GET', `/orgs/${encodeURIComponent(orgId)}/me/learned`);
+  }
+
+  /** What Roughbook learned about the project's brand. */
+  projectLearned(orgId: string, project: string): Promise<{ sentences: LearnedSentence[] }> {
+    return this.request('GET', `${projectPath(orgId, project)}/learned`);
+  }
+
+  /** Forgets one of this person's sentences: its choices are never read again. */
+  forgetMyLearned(orgId: string, sentenceId: string): Promise<{ forgotten: true }> {
+    return this.request(
+      'DELETE',
+      `/orgs/${encodeURIComponent(orgId)}/me/learned/${encodeURIComponent(sentenceId)}`
+    );
+  }
+
+  /** Forgets one of the brand's sentences. */
+  forgetProjectLearned(
+    orgId: string,
+    project: string,
+    sentenceId: string
+  ): Promise<{ forgotten: true }> {
+    return this.request(
+      'DELETE',
+      `${projectPath(orgId, project)}/learned/${encodeURIComponent(sentenceId)}`
     );
   }
 

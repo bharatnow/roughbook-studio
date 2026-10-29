@@ -44,6 +44,7 @@ describe("the studio's tab titles", () => {
       'Composition 02 · Home · Acme / Roughbook studio'
     );
     assert.equal(title('#/home?view=page'), 'Home · Acme / Roughbook studio');
+    assert.equal(title('#/?view=taste'), 'Your taste · Acme / Roughbook studio');
   });
 
   it('keep a card and a terminal on the canvas they sit on', () => {

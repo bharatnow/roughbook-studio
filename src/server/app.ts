@@ -17,6 +17,7 @@ import {
   originAllowed,
   sameToken
 } from './security.js';
+import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
 import { verbRoutes } from './verbs.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
@@ -237,6 +238,12 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     // A component's readings (A6 of the Apple plan): the typed words go, nothing from the repo.
     route('POST', '/api/readings', async request =>
       planReadings(studio.readingsSource, await readBody(request))
+    ),
+    // What Roughbook learned about the designer and this brand (A10 of the Apple plan), and Forget:
+    // only the sentence's scope and id go to the backend.
+    route('GET', '/api/learned', () => loadLearned(studio.readingsSource)),
+    route('POST', '/api/learned/:scope/:id/forget', (_request, params) =>
+      forgetLearned(studio.readingsSource, params.scope, params.id)
     ),
     // The local UI's privacy sheet, shown once per install apart from the CLI's.
     route('POST', '/api/privacy-sheet/seen', () => studio.privacySheetSeen()),

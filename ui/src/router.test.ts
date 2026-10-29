@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { addressFor, parseRoute } from './router.ts';
+import { TASTE_HREF, addressFor, parseRoute } from './router.ts';
 
 describe("the studio's addresses", () => {
   it('opens the canvas on the project, a page, a component and its iterations', () => {
@@ -88,5 +88,14 @@ describe("the studio's addresses", () => {
       id: 'composition-02'
     });
     assert.equal(parseRoute('#/home/compositions/notes').screen, 'missing');
+  });
+
+  it("opens what Roughbook learned (A10) on the project's address, never in a page's way", () => {
+    assert.deepEqual(parseRoute(`#${TASTE_HREF}`), { screen: 'taste' });
+    assert.deepEqual(parseRoute('#/taste'), {
+      screen: 'canvas',
+      focus: { kind: 'page', page: 'taste' }
+    });
+    assert.equal(parseRoute('#/home?view=taste').screen, 'canvas');
   });
 });

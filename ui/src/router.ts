@@ -18,7 +18,15 @@ export type Route =
   | { screen: 'compose'; page: string; from: string | null }
   /** A page's composition's own view (B6): `/<page>/compositions/<composition>`. */
   | { screen: 'composition'; page: string; id: string }
+  /**
+   * What Roughbook learned about you and this brand (A10): `/?view=taste`, a query on the
+   * project's address, so no page's slug can stand in its way.
+   */
+  | { screen: 'taste' }
   | { screen: 'missing' };
+
+/** The taste screen's address. */
+export const TASTE_HREF = '/?view=taste';
 
 const ITERATION = /^iteration-\d{2,}$/;
 const COMPOSITION = /^composition-\d{2,}$/;
@@ -34,6 +42,7 @@ export function parseRoute(hash: string): Route {
     return { screen: 'canvas', focus: { kind: 'project' }, session: parts[1] };
   }
   const [page, component, third, fourth] = parts;
+  if (!parts.length && query.get('view') === 'taste') return { screen: 'taste' };
   if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
   if (page && component === 'compose' && parts.length === 2) {
     const from = query.get('from');
@@ -112,7 +121,8 @@ type Place =
   | { kind: 'component' | 'iterations' | 'compare'; page: string; component: string }
   | { kind: 'iteration'; page: string; component: string; iteration: string }
   | { kind: 'composer'; page: string }
-  | { kind: 'composition'; page: string; composition: string };
+  | { kind: 'composition'; page: string; composition: string }
+  | { kind: 'taste' };
 
 /** A card on the canvas is its component's iterations, as on the web, whose server cannot see it. */
 function placeOf(route: Route): Place | null {
@@ -136,6 +146,8 @@ function placeOf(route: Route): Place | null {
       return { kind: 'composer', page: route.page };
     case 'composition':
       return { kind: 'composition', page: route.page, composition: route.id };
+    case 'taste':
+      return { kind: 'taste' };
     default:
       return null;
   }
@@ -144,6 +156,7 @@ function placeOf(route: Route): Place | null {
 /** The document's name, then what holds it, without the project. */
 function documentParts(names: TitleNames | null, place: Place): string[] {
   if (place.kind === 'project') return [];
+  if (place.kind === 'taste') return ['Your taste'];
   const page = names?.pages.find(item => item.slug === place.page);
   const pageName = named(page?.name, place.page);
   switch (place.kind) {

@@ -10,6 +10,7 @@ import { ComposeScreen } from './screens/compose';
 import { CompositionScreen } from './screens/composition';
 import { IterationScreen } from './screens/iteration';
 import { PageScreen } from './screens/page';
+import { TasteScreen } from './screens/taste';
 
 function Screen() {
   const route = useRoute();
@@ -56,6 +57,12 @@ function Screen() {
       return (
         <Shell bare>
           <CompositionScreen page={route.page} id={route.id} />
+        </Shell>
+      );
+    case 'taste':
+      return (
+        <Shell>
+          <TasteScreen />
         </Shell>
       );
     default:

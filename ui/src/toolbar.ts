@@ -3,6 +3,7 @@
 // trailing. Only what the studio can do: renaming, archiving and deleting a project stay on the
 // web. Pure, so the tests can check that every toolbar and menu item is also a command.
 import type { CommandRun } from './commands.ts';
+import { TASTE_HREF } from './router.ts';
 
 /** What the document menu needs from the studio's state. */
 export type DocumentInput = {
@@ -20,13 +21,24 @@ export function projectLink(input: { project: string; webUrl: string | null }): 
   return input.webUrl ? `${input.webUrl.replace(/\/+$/, '')}/projects/${input.project}` : null;
 }
 
-/** The document menu: each item opens the project's page on the web, or copies its link. */
+/** What Roughbook learned about you and this brand (A10), on the studio's own taste screen. */
+const TASTE: DocumentItem = {
+  id: 'document:taste',
+  label: 'Your taste',
+  run: { kind: 'href', href: TASTE_HREF }
+};
+
+/**
+ * The document menu: Your taste, here; each other item opens the project's page on the web, or
+ * copies its link.
+ */
 export function documentItems(input: DocumentInput): DocumentItem[] {
   const link = projectLink(input);
-  if (!link) return [];
+  if (!link) return [TASTE];
   const web = (href: string) => ({ kind: 'href', href, external: true }) as const;
   const items: DocumentItem[] = [
     { id: 'document:look', label: 'Your look', run: web(`${link}/design-system`) },
+    TASTE,
     { id: 'document:settings', label: 'Project settings', run: web(`${link}/settings`) }
   ];
   if (input.complete) {
