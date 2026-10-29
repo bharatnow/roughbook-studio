@@ -36,16 +36,16 @@ export function PrivacySheet({
         />
       }
     >
-      <dl className="space-y-4 text-sm">
+      <dl className="space-y-4 text-body">
         {items.map(item => (
           <div key={item.label || item.text}>
-            {item.label ? <dt className="font-semibold text-label">{item.label}</dt> : null}
+            {item.label ? <dt className="text-section text-label">{item.label}</dt> : null}
             <dd className="mt-1 text-label-secondary">{item.text}</dd>
           </div>
         ))}
       </dl>
       {more ? (
-        <p className="mt-4 text-sm">
+        <p className="mt-4 text-body">
           <a
             href={more}
             target="_blank"

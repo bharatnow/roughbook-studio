@@ -1,6 +1,8 @@
 import {
   HelpTip,
   PromptBar,
+  formatKeys,
+  useMac,
   type Reading,
   type ReadingsInput,
   type ReadingsOutcome,
@@ -71,6 +73,7 @@ export function StudioPrompt({
   onRefineOptions: () => void;
 }) {
   const { state } = useStudio();
+  const mac = useMac();
   const [choice, setChoice] = useRunChoice(state);
   const { start, line: started } = useStartRuns();
   const [answer, setAnswer] = useState<{ message: string; tone: 'status' | 'error' } | null>(null);
@@ -231,7 +234,7 @@ export function StudioPrompt({
               type="button"
               aria-pressed={cleanStart}
               onClick={() => setCleanStart(value => !value)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:bg-frost aria-pressed:text-graphite"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label aria-pressed:bg-control aria-pressed:text-label"
             >
               <Eraser className="size-3.5" strokeWidth={1.5} />
               Clean start
@@ -241,7 +244,7 @@ export function StudioPrompt({
             <button
               type="button"
               onClick={onRefineOptions}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label"
             >
               <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
               Options
@@ -255,7 +258,8 @@ export function StudioPrompt({
             iteration the agent takes where the words say, keeping what a{' '}
             <span className="font-mono">Keep:</span> line lists; Clean start begins empty instead,
             from what it was and what reviews said. <strong className="font-medium">Refine</strong>:
-            a new iteration that changes it as you say; Options has the presets. Ctrl Enter sends.
+            a new iteration that changes it as you say; Options has the presets.{' '}
+            {formatKeys(['Mod', 'Enter'], mac)} sends.
           </HelpTip>
         </div>
       }

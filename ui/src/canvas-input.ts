@@ -78,27 +78,57 @@ function cloudPicture(ground: string, stroke: string): string {
   )}`;
 }
 
-/**
- * A web sketch's picture: a cloud, since its code is on the server and the studio has no still of
- * it (web thumbnails stay on the web). An <img> cannot read the page's tokens, so there is one
- * picture per appearance: Frost and Steel in light, the dark control and meta colors in dark.
- */
-export const SKETCH_PICTURE = cloudPicture('#eceff3', '#5b6274');
-export const SKETCH_PICTURE_DARK = cloudPicture('#2c2c2e', '#a1a1a6');
+/** A --rb-* token's color as the page resolves it now, or null when it cannot be read. */
+export type TokenReader = (token: string) => string | null;
+
+/** The theme's tokens the cloud is drawn with: the control fill as ground, the meta label as line. */
+const GROUND_TOKEN = '--rb-control';
+const STROKE_TOKEN = '--rb-label-meta';
 
 /**
- * The picture for the page's appearance. The shell stays light until the page opts in with
- * data-rb-appearance on <html> (ROUGHBOOK-APPLE-PLAN.md, A11); then "dark" and "light" are kept,
- * and anything else follows prefers-color-scheme. Light outside a browser.
+ * A web sketch's picture when the theme cannot be read (outside a browser): a cloud in named
+ * colors close to the light theme's control fill and meta label.
  */
-export function sketchPicture(): string {
-  if (typeof document === 'undefined') return SKETCH_PICTURE;
-  const appearance = document.documentElement.getAttribute('data-rb-appearance');
-  if (appearance === null || appearance === 'light') return SKETCH_PICTURE;
-  if (appearance === 'dark') return SKETCH_PICTURE_DARK;
-  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
-    ? SKETCH_PICTURE_DARK
-    : SKETCH_PICTURE;
+export const SKETCH_PICTURE = cloudPicture('whitesmoke', 'slategray');
+
+/**
+ * The page's tokens, resolved on a probe under <html>, so light-dark() follows the appearance the
+ * page is in (data-rb-appearance, else the system). Null outside a browser.
+ */
+function pageTokens(): TokenReader | null {
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return null;
+  const root = document.documentElement;
+  return token => {
+    if (!getComputedStyle(root).getPropertyValue(token).trim()) return null;
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    probe.style.color = `var(${token})`;
+    root.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color || null;
+  };
+}
+
+/** Each drawn picture by its colors, so a card's image stays the same string between reads. */
+const drawn = new Map<string, string>();
+
+/**
+ * A web sketch's picture: a cloud, since its code is on the server and the studio has no still of
+ * it (web thumbnails stay on the web). An <img> cannot read the page's tokens, so the colors are
+ * read from the theme here and written into the picture, in whichever appearance the page is in.
+ */
+export function sketchPicture(read: TokenReader | null = pageTokens()): string {
+  const ground = read?.(GROUND_TOKEN);
+  const stroke = read?.(STROKE_TOKEN);
+  if (!ground || !stroke) return SKETCH_PICTURE;
+  const key = `${ground}|${stroke}`;
+  let picture = drawn.get(key);
+  if (!picture) {
+    picture = cloudPicture(ground, stroke);
+    drawn.set(key, picture);
+  }
+  return picture;
 }
 
 /** A finished web sketch's mode, for a project read from a backend that does not say its origin. */

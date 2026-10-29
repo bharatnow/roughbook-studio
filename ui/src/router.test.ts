@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { TASTE_HREF, addressFor, parseRoute } from './router.ts';
+import { TASTE_HREF, addressFor, parseRoute, routeListener } from './router.ts';
 
 describe("the studio's addresses", () => {
   it('opens the canvas on the project, a page, a component and its iterations', () => {
@@ -97,5 +97,22 @@ describe("the studio's addresses", () => {
       focus: { kind: 'page', page: 'taste' }
     });
     assert.equal(parseRoute('#/home?view=taste').screen, 'canvas');
+  });
+});
+
+describe('following the address', () => {
+  it('moves to a new route inside a transition, so the card-to-stage morph can play', () => {
+    const calls: string[] = [];
+    const listener = routeListener(
+      () => '#/home/hero/iteration-03',
+      route => calls.push(`set ${route.screen}`),
+      run => {
+        calls.push('transition');
+        run();
+        calls.push('done');
+      }
+    );
+    listener();
+    assert.deepEqual(calls, ['transition', 'set iteration', 'done']);
   });
 });

@@ -4,7 +4,6 @@ import { layoutCanvas } from '@roughbook/ui/canvas';
 import { PROJECT, RUNS } from './canvas-fixture.ts';
 import {
   SKETCH_PICTURE,
-  SKETCH_PICTURE_DARK,
   sketchPicture,
   studioCanvasInput,
   type StudioCanvas
@@ -74,9 +73,7 @@ describe("the studio's canvas input", () => {
     const sketch = hero.get('iteration-40')!;
     assert.equal(sketch.thumbnail, SKETCH_PICTURE);
     assert.ok(SKETCH_PICTURE.startsWith('data:image/svg+xml,'));
-    // A dark variant waits for the page's opt-in; outside a browser the picture is light.
-    assert.ok(SKETCH_PICTURE_DARK.startsWith('data:image/svg+xml,'));
-    assert.notEqual(SKETCH_PICTURE_DARK, SKETCH_PICTURE);
+    // Outside a browser there is no theme to read, so the picture is the fallback.
     assert.equal(sketchPicture(), SKETCH_PICTURE);
     assert.deepEqual(sketch.status, { glyph: 'none', word: 'On the web' });
     assert.equal(sketch.href, '/home/hero/iterations#iteration-40');
@@ -140,5 +137,36 @@ describe("the studio's canvas input", () => {
     );
     assert.equal(quiet.making, false);
     assert.equal(cardsOf(quiet, 'home', 'hero').has('iteration-08'), false);
+  });
+});
+
+describe('the sketch picture', () => {
+  it("draws with the theme's control fill and meta label, as the page resolves them", () => {
+    const colors: Record<string, string> = {
+      '--rb-control': 'rgb(44, 44, 46)',
+      '--rb-label-meta': 'rgb(161, 161, 166)'
+    };
+    const picture = sketchPicture(token => colors[token] ?? null);
+    assert.ok(picture.startsWith('data:image/svg+xml,'));
+    const svg = decodeURIComponent(picture.slice('data:image/svg+xml,'.length));
+    assert.match(svg, /<rect [^>]*fill="rgb\(44, 44, 46\)"/);
+    assert.match(svg, /stroke="rgb\(161, 161, 166\)"/);
+    assert.notEqual(picture, SKETCH_PICTURE);
+    // The same colors give the same picture, so a card's image does not change between reads.
+    assert.equal(
+      sketchPicture(token => colors[token] ?? null),
+      picture
+    );
+  });
+
+  it('falls back to the light picture when a token cannot be read', () => {
+    assert.equal(
+      sketchPicture(token => (token === '--rb-control' ? 'rgb(1, 2, 3)' : null)),
+      SKETCH_PICTURE
+    );
+    assert.equal(
+      sketchPicture(() => null),
+      SKETCH_PICTURE
+    );
   });
 });

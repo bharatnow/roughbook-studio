@@ -1,4 +1,4 @@
-import { StatusDot, cn } from '@roughbook/ui';
+import { Button, HelpTag, StatusDot, cn } from '@roughbook/ui';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { post } from '../api';
@@ -8,9 +8,6 @@ import { useChrome } from './chrome';
 import { OutputLine, useLine } from './output-line';
 import { RunCard } from './run-card';
 import { TerminalView } from './terminal-view';
-
-const control =
-  'inline-flex h-8 shrink-0 items-center rounded-control px-2.5 text-sm text-graphite hover:bg-frost focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50';
 
 /**
  * The terminal dock at the foot of the canvas (ROUGHBOOK-QUIET-UI-PLAN.md, U5): closed until a run
@@ -67,6 +64,7 @@ export function Dock() {
   return (
     <section
       aria-label="Terminals"
+      data-pane="dock"
       className="z-30 flex shrink-0 flex-col border-t border-ash bg-canvas max-md:fixed max-md:inset-x-0 max-md:top-12 max-md:bottom-0 md:h-[min(40dvh,400px)]"
     >
       <div className="flex h-11 items-center gap-1 border-b border-ash px-2">
@@ -90,8 +88,8 @@ export function Dock() {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => showSession(session.id, false)}
                 className={cn(
-                  'inline-flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-control px-2 font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-                  selected ? 'bg-frost text-graphite' : 'text-slate hover:text-graphite'
+                  'inline-flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-control px-2 font-mono text-caption',
+                  selected ? 'bg-control text-label' : 'text-label-secondary hover:text-label'
                 )}
               >
                 <StatusDot
@@ -107,34 +105,36 @@ export function Dock() {
         </div>
         <OutputLine line={said.line} className="min-w-0 shrink truncate" />
         {active.status === 'running' ? (
-          <button
+          <Button
             type="button"
+            tier="compact"
             disabled={busy}
             onClick={() => void act(`/api/terminals/${active.id}/stop`)}
-            className={control}
           >
             Stop
-          </button>
+          </Button>
         ) : (
+          <HelpTag text="Let this ended session go">
+            <Button
+              type="button"
+              tier="compact"
+              disabled={busy}
+              onClick={() => void act(`/api/terminals/${active.id}/remove`)}
+            >
+              Remove
+            </Button>
+          </HelpTag>
+        )}
+        <HelpTag text="Close the terminals; the sessions keep running">
           <button
             type="button"
-            disabled={busy}
-            title="Let this ended session go"
-            onClick={() => void act(`/api/terminals/${active.id}/remove`)}
-            className={control}
+            onClick={closeDock}
+            aria-label="Close the terminals"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-label-secondary hover:bg-control hover:text-label"
           >
-            Remove
+            <X className="size-4" strokeWidth={1.5} />
           </button>
-        )}
-        <button
-          type="button"
-          onClick={closeDock}
-          aria-label="Close the terminals"
-          title="Close the terminals; the sessions keep running"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-        >
-          <X className="size-4" strokeWidth={1.5} />
-        </button>
+        </HelpTag>
       </div>
       <div id="dock-panel" role="tabpanel" className="flex min-h-0 flex-1 gap-3 p-2">
         <div className="min-h-0 min-w-0 flex-1">

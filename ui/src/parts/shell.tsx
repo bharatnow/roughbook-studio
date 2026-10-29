@@ -78,6 +78,9 @@ function OneTimeSheets() {
   );
 }
 
+/** The content's id, which the skip link moves the keyboard to. */
+export const CONTENT_ID = 'content';
+
 const iconButton =
   'inline-flex size-8 shrink-0 items-center justify-center rounded-control text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:size-11';
 
@@ -86,7 +89,8 @@ const iconButton =
  * project's title, whose document menu holds what the studio can open or copy, then the breadcrumb
  * the canvas moves with its selection; search (the palette) in the centre; the status and one
  * Generate trailing. A narrow window shows the breadcrumb's last item with the way back. What the
- * bar's controls say goes in the <output> under it.
+ * bar's controls say goes in the <output> under it. It is frosted (A11 step 2 of the plan) and the
+ * first pane F6 reaches (step 6).
  */
 function Bar() {
   const { state, project, problem } = useStudio();
@@ -117,7 +121,7 @@ function Bar() {
   );
 
   return (
-    <header className="sticky top-0 z-30 border-b border-ash bg-cloud/95 backdrop-blur">
+    <header data-pane="bar" className="material-frost sticky top-0 z-30 border-b border-ash">
       <div className="flex h-12 items-center px-4 max-md:px-2">
         <div className="min-w-0 flex-1">
           <Toolbar
@@ -128,7 +132,7 @@ function Bar() {
                   <House className="size-4" strokeWidth={1.5} aria-hidden />
                 </a>
                 <nav aria-label="Breadcrumb" className="min-w-0">
-                  <ol className="flex min-w-0 items-center gap-1.5 text-sm max-md:hidden">
+                  <ol className="flex min-w-0 items-center gap-1.5 text-body max-md:hidden">
                     <li className="flex min-w-0 items-center">
                       {trail.length === 1 ? <h1 className="min-w-0">{title}</h1> : title}
                     </li>
@@ -149,7 +153,7 @@ function Bar() {
                       </li>
                     ))}
                   </ol>
-                  <div className="flex min-w-0 items-center gap-1 text-sm md:hidden">
+                  <div className="flex min-w-0 items-center gap-1 text-body md:hidden">
                     {back ? (
                       <a
                         href={back.href}
@@ -188,7 +192,7 @@ function Bar() {
       {problem ? (
         <p
           role="alert"
-          className="border-t border-ash bg-canvas px-4 py-2 text-center text-sm text-danger"
+          className="border-t border-ash bg-canvas px-4 py-2 text-center text-body text-danger"
         >
           {problem}
         </p>
@@ -201,6 +205,7 @@ function Bar() {
 /**
  * Every screen's frame. `fill` gives the screen the rest of the window, with the terminal dock at
  * its foot, for the canvas; `bare` leaves it the whole page, for the stage, which has its own bar.
+ * The <main> is the content pane (`data-pane`, A11 step 6) and the skip link's target.
  */
 export function Shell({
   children,
@@ -226,7 +231,14 @@ export function Shell({
     return (
       <div data-dock={docked ? 'open' : undefined} className="flex h-[100dvh] flex-col">
         <Bar />
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+        <main
+          id={CONTENT_ID}
+          tabIndex={-1}
+          data-pane="content"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        >
+          {children}
+        </main>
         <Dock />
         <OneTimeSheets />
       </div>
@@ -235,7 +247,14 @@ export function Shell({
   return (
     <div className="min-h-[100dvh]">
       <Bar />
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+      <main
+        id={CONTENT_ID}
+        tabIndex={-1}
+        data-pane="content"
+        className="mx-auto max-w-6xl px-4 py-8"
+      >
+        {children}
+      </main>
       <OneTimeSheets />
     </div>
   );

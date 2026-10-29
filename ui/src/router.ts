@@ -1,5 +1,5 @@
 import { focusForKey, focusFromPath, pathForFocus, type CanvasFocus } from '@roughbook/ui/canvas';
-import { useEffect, useState } from 'react';
+import { startTransition, useEffect, useState } from 'react';
 
 // Screens live in the address's fragment, with the web's paths: a component's base is
 // /<page>/<component>, so @roughbook/ui's links (`${base}/iterations`, `${base}/<iteration>`,
@@ -81,10 +81,25 @@ export function navigate(href: string): void {
   window.location.hash = href;
 }
 
+/**
+ * What a `hashchange` does: reads the address and sets its route inside a transition, so a
+ * `ViewTransition` can play, such as an iteration's card morphing into its stage (A11 step 5).
+ */
+export function routeListener(
+  readHash: () => string,
+  setRoute: (route: Route) => void,
+  transition: (run: () => void) => void = startTransition
+): () => void {
+  return () => {
+    const route = parseRoute(readHash());
+    transition(() => setRoute(route));
+  };
+}
+
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash));
   useEffect(() => {
-    const update = () => setRoute(parseRoute(window.location.hash));
+    const update = routeListener(() => window.location.hash, setRoute);
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
   }, []);

@@ -85,7 +85,7 @@ export function PicturesSheet({ open, onLater }: { open: boolean; onLater: () =>
         )
       }
     >
-      <div className="space-y-3 text-sm text-label-secondary">
+      <div className="space-y-3 text-body text-label-secondary">
         <p>
           Roughbook can upload pictures of this project&apos;s studio iterations and adopted pages,
           so its team and client reviewers see them on the web.

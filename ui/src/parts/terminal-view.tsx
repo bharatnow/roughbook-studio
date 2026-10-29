@@ -9,18 +9,26 @@ type Message =
   | { type: 'exit'; exitCode: number };
 
 /**
- * The dock's colors, in one place. The dock stays dark in every appearance (ROUGHBOOK-APPLE-PLAN.md,
- * decision 27): agents print colors chosen for a dark terminal, and xterm takes only concrete
- * colors, not CSS variables. Onyx, Frost and Lavender, from @roughbook/ui's light palette.
+ * The dock's colors: Onyx, Frost and Lavender from @roughbook/ui's light palette. The dock stays
+ * dark in every appearance (ROUGHBOOK-APPLE-PLAN.md, decision 27): agents print colors chosen for a
+ * dark terminal. xterm takes only concrete colors, so they are read off a probe that wears the
+ * tokens in the light scheme (`scheme-light`), whatever scheme the page is in.
  */
-const TERMINAL_BACKGROUND = '#1a1b25';
-const TERMINAL_FOREGROUND = '#eceff3';
-const TERMINAL_CURSOR = '#c8ccf3';
-const TERMINAL_THEME = {
-  background: TERMINAL_BACKGROUND,
-  foreground: TERMINAL_FOREGROUND,
-  cursor: TERMINAL_CURSOR
-};
+const PALETTE_PROBE = 'hidden scheme-light bg-onyx text-frost border-lavender';
+
+function terminalTheme(probe: HTMLElement | null) {
+  if (!probe) return {};
+  const style = getComputedStyle(probe);
+  return {
+    background: style.backgroundColor,
+    foreground: style.color,
+    cursor: style.borderTopColor
+  };
+}
+
+/** Under increased contrast, xterm lifts any text below 7:1 against its background (WCAG AAA). */
+const MORE_CONTRAST = '(prefers-contrast: more)';
+const contrastRatio = (more: boolean) => (more ? 7 : 1);
 
 /**
  * One agent session in xterm.js. The session belongs to its run, so this page can close and come
@@ -40,6 +48,7 @@ export function TerminalView({
   onExit?: (exitCode: number) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const probe = useRef<HTMLSpanElement>(null);
   const [link, setLink] = useState<'connecting' | 'open' | 'closed'>('connecting');
   /** Counts the designer's "Join again", which opens a new socket to the same session. */
   const [attempt, setAttempt] = useState(0);
@@ -51,13 +60,19 @@ export function TerminalView({
   useEffect(() => {
     const element = box.current;
     if (!element) return;
+    const contrast = window.matchMedia(MORE_CONTRAST);
     const term = new Terminal({
       fontFamily: "'IBM Plex Mono', 'Cascadia Mono', Menlo, 'DejaVu Sans Mono', monospace",
       fontSize: 13,
       cursorBlink: true,
       scrollback: 10_000,
-      theme: TERMINAL_THEME
+      theme: terminalTheme(probe.current),
+      minimumContrastRatio: contrastRatio(contrast.matches)
     });
+    const contrastChanged = (event: MediaQueryListEvent) => {
+      term.options.minimumContrastRatio = contrastRatio(event.matches);
+    };
+    contrast.addEventListener('change', contrastChanged);
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
@@ -103,6 +118,7 @@ export function TerminalView({
     }
 
     return () => {
+      contrast.removeEventListener('change', contrastChanged);
       observer.disconnect();
       typed.dispose();
       resized.dispose();
@@ -123,13 +139,14 @@ export function TerminalView({
               setLink('connecting');
               setAttempt(value => value + 1);
             }}
-            className="min-h-6 text-violet hover:underline"
+            className="min-h-6 text-accent-text hover:underline"
           >
             Join again
           </button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 rounded-card p-3" style={{ background: TERMINAL_BACKGROUND }}>
+      <div className="min-h-0 flex-1 rounded-card bg-onyx p-3 scheme-light">
+        <span ref={probe} aria-hidden className={PALETTE_PROBE} />
         <div ref={box} className="h-full w-full" />
       </div>
     </div>

@@ -1,4 +1,5 @@
 import {
+  Button,
   GENERATION_STATE_LABELS,
   HelpTip,
   IterationInspector,
@@ -9,12 +10,13 @@ import {
   RejectDrawer,
   ReviewButton,
   SelectConfirmDrawer,
+  Segmented,
   Stage,
-  buttonClasses,
   decisionOf,
   describeIterationState,
   describeRating,
   generationStateOf,
+  iterationMorphName,
   iterationStatusLabel,
   latestHumanReview,
   previewAddress,
@@ -25,6 +27,7 @@ import {
   termLabel,
   useUiHost
 } from '@roughbook/ui';
+import { Check } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { COMPLETE_FEATURES_REASON } from '@roughbook/ui/commands';
 import { useEffect, useState } from 'react';
@@ -42,9 +45,6 @@ import { RefineSheet, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
 import { HowFarMenu, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import type { AppView, SnapshotView } from '../types';
-
-const action =
-  'inline-flex h-9 items-center gap-2 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50 disabled:hover:border-ash disabled:hover:bg-canvas';
 
 /**
  * The first screenshot, fetched with the token, for when the dev server is not answering;
@@ -362,6 +362,7 @@ export function IterationScreen({
   return (
     <>
       <Stage
+        morph={iterationMorphName({ page, component, iteration: id })}
         backHref={`${base}/iterations#${id}`}
         backLabel="Back to canvas"
         backOnEscape
@@ -389,14 +390,13 @@ export function IterationScreen({
             {verbs.served('more')
               ? withReason(
                   notMade ?? waiting,
-                  <button
+                  <Button
                     type="button"
-                    className={action}
                     disabled={Boolean(notMade ?? waiting)}
                     onClick={() => void goTo('more')}
                   >
                     {VERB_LABELS.more}
-                  </button>
+                  </Button>
                 )
               : null}
             {verbs.served('different') ? (
@@ -408,14 +408,13 @@ export function IterationScreen({
             {verbs.served('polish')
               ? withReason(
                   notMade ?? waiting,
-                  <button
+                  <Button
                     type="button"
-                    className={action}
                     disabled={Boolean(notMade ?? waiting)}
                     onClick={() => void goTo('polish')}
                   >
                     {VERB_LABELS.polish}
-                  </button>
+                  </Button>
                 )
               : null}
             {verbs.served('not-this') ? (
@@ -427,20 +426,19 @@ export function IterationScreen({
                 onOther={() => setRejectOpen(true)}
               />
             ) : (
-              <button type="button" className={action} onClick={() => setRejectOpen(true)}>
+              <Button type="button" onClick={() => setRejectOpen(true)}>
                 {VERB_LABELS['not-this']}
-              </button>
+              </Button>
             )}
             {withReason(
               refineOff,
-              <button
+              <Button
                 type="button"
-                className={action}
                 disabled={Boolean(refineOff)}
                 onClick={() => setRefineOpen(true)}
               >
                 Refine
-              </button>
+              </Button>
             )}
             <ReviewButton
               target={target}
@@ -464,22 +462,29 @@ export function IterationScreen({
         // Unpick, and stays plain.
         primary={
           selected || !verbs.served('pick-this') ? (
-            <button
+            <Button
               type="button"
-              className={selected ? action : buttonClasses({ kind: 'primary' })}
+              kind={selected ? 'normal' : 'primary'}
               onClick={() => setSelectOpen(true)}
             >
-              {selected ? 'Picked' : VERB_LABELS['pick-this']}
-            </button>
+              {selected ? (
+                <>
+                  <Check aria-hidden className="size-4" strokeWidth={1.5} />
+                  Picked
+                </>
+              ) : (
+                VERB_LABELS['pick-this']
+              )}
+            </Button>
           ) : (
-            <button
+            <Button
               type="button"
-              className={buttonClasses({ kind: 'primary' })}
+              kind="primary"
               disabled={Boolean(waiting)}
               onClick={() => void verbs.run('pick-this', verbTarget)}
             >
               {VERB_LABELS['pick-this']}
-            </button>
+            </Button>
           )
         }
         inspector={
@@ -521,18 +526,13 @@ export function IterationScreen({
               madeBy: run ? <RunCard run={run} compact /> : null,
               screenshots: (
                 <span className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className={`${action} disabled:opacity-50`}
-                    disabled={shooting}
-                    onClick={() => void takeScreenshots()}
-                  >
+                  <Button type="button" disabled={shooting} onClick={() => void takeScreenshots()}>
                     {shooting
                       ? 'Taking screenshots'
                       : taken.length
                         ? 'Take them again'
                         : 'Take screenshots'}
-                  </button>
+                  </Button>
                   <HelpTip label="About screenshots">
                     One at each viewport and variant the environment names, kept in this repo. They
                     are taken when a run finishes and again when the files change; the frame shows
@@ -586,33 +586,19 @@ export function IterationScreen({
           onOpenDevice={environment.device?.approved ? () => void openOnDevice() : undefined}
         >
           {mode !== 'snapshot' && environment.snapshot ? (
-            <div
-              role="group"
-              aria-label="What the frame shows"
-              className="flex rounded-full bg-frost p-1"
-            >
-              {(
-                [
-                  [false, 'Live'],
-                  [true, 'Snapshots']
-                ] as const
-              ).map(([on, label]) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-pressed={finalReview === on}
-                  title={
-                    on
-                      ? 'The images the repo renders, for final review'
-                      : 'The page, through the web target'
-                  }
-                  onClick={() => setFinalReview(on)}
-                  className={`h-7 rounded-full px-3 text-sm ${finalReview === on ? 'bg-canvas text-graphite shadow-lift' : 'bg-transparent text-slate hover:text-graphite'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <HelpTag text="Show the live page, or the images the repo renders for final review">
+              <span className="inline-flex">
+                <Segmented
+                  label="What the frame shows"
+                  options={[
+                    { value: 'live', label: 'Live' },
+                    { value: 'snapshots', label: 'Snapshots' }
+                  ]}
+                  value={finalReview ? 'snapshots' : 'live'}
+                  onChange={value => setFinalReview(value === 'snapshots')}
+                />
+              </span>
+            </HelpTag>
           ) : null}
           {/* What In its page covers on this stack, where the recipe says (decision 44). */}
           {inPageNote(project.local, key) ? (

@@ -1,6 +1,7 @@
 import {
   Canvas,
   Button,
+  HelpTag,
   MapList,
   PromotePanel,
   SelectionToolbar,
@@ -672,18 +673,24 @@ function StudioCanvasView({
       );
     }
     const pressed = action.id === 'pick' ? compare.includes(item.key) : undefined;
-    return (
+    const control = (
       <button
         key={action.id}
         type="button"
         aria-pressed={pressed}
         disabled={(action.id === 'pull' && pulling !== null) || (RUN_VERBS.has(action.id) && busy)}
-        title={action.keys ? `${action.label} (${action.keys})` : undefined}
         onClick={() => act(action.id, item.key, action.session)}
-        className={cn(selectionToolbarItem, pressed && 'bg-frost')}
+        className={cn(selectionToolbarItem, pressed && 'bg-control')}
       >
         {action.id === 'pull' && pulling === item.id ? 'Pulling' : action.label}
       </button>
+    );
+    return action.keys ? (
+      <HelpTag key={action.id} text={action.label} keys={action.keys.split(' ')}>
+        {control}
+      </HelpTag>
+    ) : (
+      control
     );
   }
 
@@ -813,14 +820,14 @@ function StudioCanvasView({
         controls={
           <>
             {canvas.inApp && !isDefaultInAppFilter(filter) ? (
-              <span className="inline-flex h-9 items-center gap-1 rounded-control border border-ash bg-canvas pr-1 pl-3 text-sm text-graphite">
+              <span className="inline-flex h-8 items-center gap-1 rounded-control border border-separator bg-window pr-1 pl-3 text-body text-label">
                 <button
                   type="button"
                   onClick={() => setMapOpen(true)}
-                  className="inline-flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                  className="inline-flex items-center gap-1.5"
                 >
                   <ListFilter className="size-4" strokeWidth={1.5} />
-                  <span role="status" className="font-mono text-xs text-steel">
+                  <span role="status" className="font-mono text-caption text-steel">
                     {inAppShown(canvas.shown ?? [], canvas.inApp.pages)}
                   </span>
                 </button>
@@ -828,22 +835,18 @@ function StudioCanvasView({
                   type="button"
                   aria-label="Clear the filter"
                   onClick={() => setFilter(DEFAULT_IN_APP_FILTER)}
-                  className="inline-flex size-7 items-center justify-center rounded-control text-slate hover:bg-frost focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                  className="inline-flex size-7 items-center justify-center rounded-control text-label-secondary hover:bg-control"
                 >
                   <X className="size-4" strokeWidth={1.5} />
                 </button>
               </span>
             ) : null}
             {terminals.length && !dock.open ? (
-              <button
-                type="button"
-                onClick={() => act('dock', null)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-              >
+              <Button type="button" onClick={() => act('dock', null)}>
                 <SquareTerminal className="size-4" strokeWidth={1.5} />
                 Terminals
-                <span className="font-mono text-xs text-steel">{terminals.length}</span>
-              </button>
+                <span className="font-mono text-caption text-steel">{terminals.length}</span>
+              </Button>
             ) : null}
             <OutputLine
               line={line}
@@ -855,7 +858,7 @@ function StudioCanvasView({
 
       <Sheet open={mapOpen} onClose={() => setMapOpen(false)} title="The app's pages" size="large">
         {canvas.inApp?.problem ? (
-          <p className="text-sm text-graphite">{canvas.inApp.problem}</p>
+          <p className="text-body text-label">{canvas.inApp.problem}</p>
         ) : null}
         <MapList
           project={project.tree.slug}
@@ -956,7 +959,7 @@ function StudioCanvasView({
           />
         }
       >
-        <p className="text-sm text-graphite">{adoptAsk?.question}</p>
+        <p className="text-body text-label">{adoptAsk?.question}</p>
       </Sheet>
     </div>
   );
@@ -1000,7 +1003,7 @@ function NotThisSheet({
       {card ? (
         <form
           id="not-this-form"
-          className="flex flex-col gap-3 text-sm text-graphite"
+          className="flex flex-col gap-3 text-body text-label"
           onSubmit={event => {
             event.preventDefault();
             if (words.trim()) onSend(card, { reasonPreset: 'Custom', reasonCustom: words.trim() });
@@ -1009,15 +1012,14 @@ function NotThisSheet({
           <p>Why not? The next prompt for this project remembers.</p>
           <div className="flex flex-wrap gap-2">
             {NOT_THIS_REASONS.map(reason => (
-              <button
+              <Button
                 key={reason}
                 type="button"
                 disabled={busy}
                 onClick={() => onSend(card, { reasonPreset: reason })}
-                className="inline-flex min-h-8 items-center rounded-control border border-ash bg-canvas px-3 text-graphite hover:border-mist hover:bg-frost disabled:opacity-50"
               >
                 {reason}
-              </button>
+              </Button>
             ))}
           </div>
           <label className="flex flex-col gap-1">
@@ -1027,7 +1029,7 @@ function NotThisSheet({
               onChange={event => setWords(event.target.value)}
               maxLength={500}
               rows={3}
-              className="rounded-control border border-ash bg-canvas px-3 py-2 text-base text-graphite outline-none focus:border-focus md:text-sm"
+              className="rounded-control border border-separator bg-window px-3 py-2 text-base text-label outline-none focus:border-focus md:text-sm"
             />
           </label>
         </form>
@@ -1061,7 +1063,7 @@ function PullChoiceView({
   onAnswer: (how: 'add' | 'port') => void;
 }) {
   return (
-    <div className="space-y-3 text-sm text-graphite">
+    <div className="space-y-3 text-body text-label">
       {choice.why.map(line => (
         <p key={line}>{line}</p>
       ))}
@@ -1071,22 +1073,12 @@ function PullChoiceView({
         your agent rebuilds it with this app&apos;s own components.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
-          disabled={busy}
-          onClick={() => onAnswer('add')}
-        >
+        <Button type="button" kind="primary" disabled={busy} onClick={() => onAnswer('add')}>
           Add and copy
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-9 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50"
-          disabled={busy}
-          onClick={() => onAnswer('port')}
-        >
+        </Button>
+        <Button type="button" disabled={busy} onClick={() => onAnswer('port')}>
           Port it
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -43,7 +43,7 @@ export function TasteScreen() {
   if (!loaded) return <Missing>Reading what Roughbook learned…</Missing>;
   if ('problem' in loaded) {
     return (
-      <p role="alert" className="text-sm text-danger">
+      <p role="alert" className="text-body text-danger">
         {loaded.problem}
       </p>
     );

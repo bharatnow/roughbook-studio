@@ -1,4 +1,4 @@
-import { StatusDot, Switch } from '@roughbook/ui';
+import { Button, StatusDot, Switch } from '@roughbook/ui';
 import { useEffect, useId, useRef, useState } from 'react';
 import { activityView } from '../activity';
 import { post } from '../api';
@@ -7,7 +7,7 @@ import { completeFeaturesOf, switchCompleteFeatures } from '../features';
 import { useChrome } from './chrome';
 
 const row = 'border-t border-ash py-2 first:border-t-0 first:pt-0';
-const term = 'font-mono text-[11px] tracking-[0.08em] text-steel uppercase';
+const term = 'text-section text-label-secondary';
 
 /**
  * The default agent, from here as from the palette. A refusal is kept in words for the caller to
@@ -56,13 +56,13 @@ function CompleteFeaturesSwitch() {
         checked={completeFeaturesOf(state)}
         disabled={busy || !state}
         onChange={event => void toggle(event.target.checked)}
-        className="w-full text-graphite"
+        className="w-full text-label"
       />
-      <span className="block text-xs text-slate">
+      <span className="block text-caption text-slate">
         Every tool, as on the web. Off keeps the everyday ones.
       </span>
       {refusal ? (
-        <span role="alert" className="block text-xs text-danger">
+        <span role="alert" className="block text-caption text-danger">
           {refusal}
         </span>
       ) : null}
@@ -171,7 +171,7 @@ export function StatusButton() {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(!open)}
-        className="inline-flex h-9 items-center gap-1 rounded-control px-1.5 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        className="inline-flex h-8 items-center gap-1 rounded-control px-1.5 text-body text-slate hover:bg-control hover:text-label"
       >
         {activity?.spinning && !attention ? (
           <span
@@ -192,7 +192,7 @@ export function StatusButton() {
       {open ? (
         <div
           id={panelId}
-          className="absolute top-full right-0 z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-card border border-ash bg-canvas p-3 text-sm shadow-elevation-1"
+          className="absolute top-full right-0 z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-card border border-ash material-frost p-3 text-body shadow-elevation-1"
         >
           <dl>
             {problem ? (
@@ -209,12 +209,12 @@ export function StatusButton() {
                     href={state.devUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-mono text-xs break-all text-violet hover:underline"
+                    className="font-mono text-caption break-all text-accent-text hover:underline"
                   >
                     {state.devUrl}
                   </a>
                 ) : null}
-                <span className="block text-xs text-slate">
+                <span className="block text-caption text-slate">
                   {state
                     ? `${state.environment.mode === 'live' ? "The app's own dev server" : state.environment.mode === 'snapshot' ? 'Rendered images' : "The studio's own server"}: ${APP_WORDS[state.app.status] ?? state.app.status}.`
                     : null}
@@ -223,18 +223,19 @@ export function StatusButton() {
                   ) : null}
                 </span>
                 {canStart ? (
-                  <button
+                  <Button
                     type="button"
+                    tier="compact"
                     disabled={starting}
                     onClick={() => void startApp()}
-                    className="mt-1 min-h-6 text-xs text-violet hover:underline disabled:opacity-50"
+                    className="mt-1"
                   >
                     Start the app
-                  </button>
+                  </Button>
                 ) : null}
                 {startNote ? (
                   <output
-                    className={`block text-xs ${startNote.error ? 'text-danger' : 'text-slate'}`}
+                    className={`block text-caption ${startNote.error ? 'text-danger' : 'text-slate'}`}
                   >
                     {startNote.text}
                   </output>
@@ -243,10 +244,10 @@ export function StatusButton() {
             </div>
             <div className={row}>
               <dt className={term}>Outbox</dt>
-              <dd className="mt-1 text-graphite">
+              <dd className="mt-1 text-label">
                 {pending ? `${pending} waiting to send` : 'Nothing waiting'}
                 {dropped.map(item => (
-                  <span key={item.path + item.droppedAt} className="block text-xs text-danger">
+                  <span key={item.path + item.droppedAt} className="block text-caption text-danger">
                     Not sent: <span className="font-mono">{item.path}</span> ({item.code})
                   </span>
                 ))}
@@ -255,7 +256,7 @@ export function StatusButton() {
             {activity ? (
               <div className={row}>
                 <dt className={term}>Activity</dt>
-                <dd className="mt-1 text-graphite">{activity.word}</dd>
+                <dd className="mt-1 text-label">{activity.word}</dd>
               </div>
             ) : null}
             {found.length ? (
@@ -265,9 +266,9 @@ export function StatusButton() {
                   <ul className="flex flex-col gap-1">
                     {found.map(agent => (
                       <li key={agent.id} className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 text-graphite">
+                        <span className="min-w-0 text-label">
                           {agent.name}
-                          <span className="block text-xs text-steel">
+                          <span className="block text-caption text-steel">
                             {agent.version ? `${agent.version} · ` : ''}
                             {agent.signIn ??
                               (agent.signedIn === false ? 'Not signed in' : 'Signed in')}
@@ -275,22 +276,24 @@ export function StatusButton() {
                           </span>
                         </span>
                         {state?.defaultAgent === agent.id ? (
-                          <span className="text-xs text-steel">Default</span>
+                          <span className="text-caption text-steel">Default</span>
                         ) : (
-                          <button
+                          <Button
                             type="button"
+                            tier="compact"
                             disabled={busy}
                             onClick={() => void makeDefault(agent.id)}
-                            className="min-h-6 shrink-0 text-xs text-violet hover:underline disabled:opacity-50"
                           >
                             Make default
-                          </button>
+                          </Button>
                         )}
                       </li>
                     ))}
                   </ul>
                   {defaultRefusal ? (
-                    <output className="mt-1 block text-xs text-danger">{defaultRefusal}</output>
+                    <output className="mt-1 block text-caption text-danger">
+                      {defaultRefusal}
+                    </output>
                   ) : null}
                 </dd>
               </div>
@@ -303,7 +306,7 @@ export function StatusButton() {
             </div>
             <div className={row}>
               <dt className={term}>Version</dt>
-              <dd className="mt-1 font-mono text-xs text-graphite">
+              <dd className="mt-1 font-mono text-caption text-label">
                 {state ? `roughbook ${state.version}` : null}
               </dd>
             </div>

@@ -1,4 +1,5 @@
 import {
+  Button,
   Field,
   HelpTip,
   MAX_REFINE_OBSERVATIONS,
@@ -15,7 +16,7 @@ import { OutputLine } from './output-line';
 import { LaunchResult, RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 const areaClass =
-  'rounded-control border border-ash bg-canvas px-3 py-2 text-sm text-graphite outline-none placeholder:text-fog focus:border-focus';
+  'rounded-control border border-ash bg-canvas px-3 py-2 text-base text-label outline-none placeholder:text-fog focus:border-focus md:text-sm';
 
 /** A parent's reviews, for the observations a refinement can address. */
 export function useReviews(page: string, component: string, iteration: string | null) {
@@ -86,7 +87,7 @@ export function RefineForm({
         <select
           value={preset}
           onChange={event => setPreset(event.target.value)}
-          className="h-9 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite outline-none focus:border-focus"
+          className="h-8 rounded-control border border-ash bg-canvas px-3 text-base text-label outline-none focus:border-focus md:text-sm"
         >
           {REFINEMENT_PRESETS.map(item => (
             <option key={item.value} value={item.value}>
@@ -97,7 +98,7 @@ export function RefineForm({
       </Field>
       {observations.length ? (
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm text-graphite">
+          <legend className="text-body text-label">
             Observations to address (up to {MAX_REFINE_OBSERVATIONS})
           </legend>
           {observations.map(item => {
@@ -106,7 +107,7 @@ export function RefineForm({
             return (
               <label
                 key={item.id}
-                className={`flex items-start gap-2 text-sm ${full ? 'text-fog' : 'text-graphite'}`}
+                className={`flex items-start gap-2 text-body ${full ? 'text-fog' : 'text-graphite'}`}
               >
                 <input
                   type="checkbox"
@@ -121,7 +122,7 @@ export function RefineForm({
                 />
                 <span>
                   {item.text}
-                  <span className="block font-mono text-[11px] text-steel">{item.origin}</span>
+                  <span className="block font-mono text-caption text-steel">{item.origin}</span>
                 </span>
               </label>
             );
@@ -148,13 +149,9 @@ export function RefineForm({
       </Field>
       <RunOptions state={state} choice={choice} onChange={setChoice} />
       <div className="flex items-center gap-1">
-        <button
-          type="submit"
-          disabled={busy || !choice.agent}
-          className="inline-flex h-9 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
-        >
+        <Button type="submit" kind="primary" disabled={busy || !choice.agent}>
           {busy ? 'Starting' : `Refine ${parent}`}
-        </button>
+        </Button>
         <HelpTip label="About refinements">
           A refinement is always a new iteration. {parent} stays exactly as it is.
         </HelpTip>
@@ -184,7 +181,7 @@ export function RefineSheet({
 }) {
   return (
     <Sheet open={open} onClose={onClose} title={`Refine ${parent}`} size="large">
-      <p className="mb-4 font-mono text-sm text-graphite">
+      <p className="mb-4 font-mono text-code text-label">
         {parent} — {parentName}
       </p>
       {open ? (

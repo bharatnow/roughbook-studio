@@ -1,7 +1,7 @@
 import { Sheet } from '@roughbook/ui';
 import type { Component } from '../types';
 
-const term = 'font-mono text-[11px] tracking-[0.08em] text-steel uppercase';
+const term = 'text-section text-label-secondary';
 
 /**
  * A component's brief, read-only, in a full-height sheet: it is edited on the web. A frame's Brief
@@ -25,18 +25,18 @@ export function BriefSheet({
       size="full"
     >
       {component ? (
-        <div className="flex flex-col gap-4 text-sm">
+        <div className="flex flex-col gap-4 text-body">
           <dl className="flex flex-col gap-3">
             {component.messages.primary ? (
               <div>
                 <dt className={term}>Must say</dt>
-                <dd className="mt-1 text-graphite">{component.messages.primary}</dd>
+                <dd className="mt-1 text-label">{component.messages.primary}</dd>
               </div>
             ) : null}
             {component.userQuestion ? (
               <div>
                 <dt className={term}>The visitor asks</dt>
-                <dd className="mt-1 text-graphite">{component.userQuestion}</dd>
+                <dd className="mt-1 text-label">{component.userQuestion}</dd>
               </div>
             ) : null}
             <div>
@@ -45,21 +45,21 @@ export function BriefSheet({
               </dt>
               {approved ? (
                 <>
-                  <dd className="mt-1 font-display text-graphite">{approved.headline}</dd>
+                  <dd className="mt-1 font-display text-label">{approved.headline}</dd>
                   {approved.supporting.map(line => (
-                    <dd key={line} className="text-graphite">
+                    <dd key={line} className="text-label">
                       {line}
                     </dd>
                   ))}
                 </>
               ) : (
-                <dd className="mt-1 text-graphite">None yet: iterations use placeholder text.</dd>
+                <dd className="mt-1 text-label">None yet: iterations use placeholder text.</dd>
               )}
             </div>
             {component.brief ? (
               <div>
                 <dt className={term}>Brief</dt>
-                <dd className="mt-1 whitespace-pre-line text-graphite">{component.brief}</dd>
+                <dd className="mt-1 whitespace-pre-line text-label">{component.brief}</dd>
               </div>
             ) : null}
           </dl>
@@ -68,7 +68,7 @@ export function BriefSheet({
               href={webHref}
               target="_blank"
               rel="noreferrer"
-              className="self-start text-violet hover:underline"
+              className="self-start text-accent-text hover:underline"
             >
               Edit on the web
             </a>

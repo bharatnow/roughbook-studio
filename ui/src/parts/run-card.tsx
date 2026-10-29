@@ -1,13 +1,10 @@
-import { Sheet, formatRelativeTime } from '@roughbook/ui';
+import { Button, HelpTag, Sheet, formatRelativeTime } from '@roughbook/ui';
 import { useState } from 'react';
 import { get, post } from '../api';
 import { useStudio } from '../data';
 import { finishedBy, runRunning, runWord } from '../runs';
 import type { RunView } from '../types';
 import { OutputLine, useLine } from './output-line';
-
-const button =
-  'inline-flex h-8 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist hover:bg-frost disabled:opacity-50';
 
 const REVERTED: Record<string, string> = {
   restored: 'put back as it was before the run',
@@ -121,25 +118,36 @@ export function RunCard({
   const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
 
   return (
-    <div className={compact ? 'text-sm' : 'rounded-card border border-ash bg-canvas p-3'}>
+    <div className={compact ? 'text-body' : 'rounded-card border border-ash bg-canvas p-3'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          {compact ? null : <span className="block font-mono text-xs text-graphite">{label}</span>}
-          <span className={compact ? 'block text-graphite' : 'block text-xs text-steel'}>
+          {compact ? null : (
+            <span className="block font-mono text-caption text-label">{label}</span>
+          )}
+          <span className={compact ? 'block text-label' : 'block text-caption text-steel'}>
             {agent} · {run.mode} · {formatRelativeTime(run.startedAt)}
-            {by ? <span title={by.sentence}> · {by.word}</span> : null}
+            {by ? (
+              <>
+                {' · '}
+                <HelpTag text={by.sentence}>
+                  <span tabIndex={0}>{by.word}</span>
+                </HelpTag>
+              </>
+            ) : null}
             {run.reported === 'queued' ? (
-              <span title="The result waits in the outbox until the server can be reached.">
-                {' '}
-                · queued
-              </span>
+              <>
+                {' · '}
+                <HelpTag text="Waits in the outbox until the server can be reached">
+                  <span tabIndex={0}>queued</span>
+                </HelpTag>
+              </>
             ) : null}
           </span>
         </div>
         <span
-          className={`inline-flex h-5 items-center rounded-full px-2 font-mono text-[11px] ${
+          className={`inline-flex h-5 items-center rounded-full px-2 font-mono text-caption ${
             open
-              ? 'bg-violet/10 text-violet'
+              ? 'bg-control text-label'
               : run.outcome === 'failed'
                 ? 'bg-danger/10 text-danger'
                 : 'bg-frost text-slate'
@@ -150,12 +158,12 @@ export function RunCard({
       </div>
 
       {run.headless?.lines.length ? (
-        <pre className="mt-2 max-h-32 overflow-auto rounded-control bg-cloud px-2 py-1 font-mono text-[11px] text-slate">
+        <pre className="mt-2 max-h-32 overflow-auto rounded-control bg-cloud px-2 py-1 font-mono text-caption text-slate">
           {run.headless.lines.slice(-8).join('\n')}
         </pre>
       ) : null}
       {run.headless?.error ? (
-        <p className="mt-2 text-xs text-danger">{run.headless.error}</p>
+        <p className="mt-2 text-caption text-danger">{run.headless.error}</p>
       ) : null}
 
       {open && review ? (
@@ -169,79 +177,65 @@ export function RunCard({
       ) : open ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {run.terminal && terminal ? (
-            <a href={`#/terminals/${run.terminal.id}`} className={button}>
-              Terminal
-            </a>
+            <Button href={`#/terminals/${run.terminal.id}`}>Terminal</Button>
           ) : null}
-          <button
-            type="button"
-            className={button}
-            disabled={busy !== null}
-            onClick={() => void ops.copyPrompt()}
-          >
+          <Button type="button" disabled={busy !== null} onClick={() => void ops.copyPrompt()}>
             Copy prompt
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            kind="primary"
             disabled={busy !== null || run.headless?.status === 'running'}
             onClick={() => void ops.finish()}
-            className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
           >
             {busy === 'done' ? 'Checking' : 'Done'}
-          </button>
+          </Button>
           {running ? (
-            <button
-              type="button"
-              className={button}
-              disabled={busy !== null}
-              onClick={() => void ops.stop()}
-            >
+            <Button type="button" disabled={busy !== null} onClick={() => void ops.stop()}>
               Stop
-            </button>
+            </Button>
           ) : (
             <>
-              <button
+              <Button
                 type="button"
-                className={button}
                 disabled={busy !== null}
                 onClick={() => void ops.finish('failed')}
               >
                 It failed
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={button}
                 disabled={busy !== null}
                 onClick={() => void ops.finish('cancelled')}
               >
                 Cancel it
-              </button>
+              </Button>
             </>
           )}
         </div>
       ) : run.failure || run.warnings.length || run.outOfScope.length || run.mine?.length ? (
-        <ul className="mt-2 flex flex-col gap-1 text-xs">
+        <ul className="mt-2 flex flex-col gap-1 text-caption">
           {run.failure ? <li className="text-danger">{run.failure.message}</li> : null}
           {run.warnings.map(warning => (
             <li key={warning.code + warning.message} className="text-slate">
-              <span className="font-mono text-[10px] text-steel">{warning.code}</span>{' '}
+              <span className="font-mono text-caption text-steel">{warning.code}</span>{' '}
               {warning.message}
             </li>
           ))}
           {run.outOfScope.map(file => (
             <li key={file} className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-graphite">{file}</span>
+              <span className="font-mono text-label">{file}</span>
               {run.putBack?.includes(file) ? (
                 <span className="text-steel">Put back</span>
               ) : (
-                <button
+                <Button
                   type="button"
-                  className="min-h-6 text-violet hover:underline disabled:opacity-50"
+                  tier="compact"
                   disabled={busy !== null}
                   onClick={() => void ops.putBack(file)}
                 >
                   Put it back
-                </button>
+                </Button>
               )}
             </li>
           ))}
@@ -298,8 +292,8 @@ function WhoseChangesPanel({
         : [...review.mine, file]
     );
   return (
-    <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-xs">
-      <p className="text-graphite">
+    <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-caption">
+      <p className="text-label">
         {count} {count === 1 ? 'file' : 'files'} changed outside the iteration while the run was
         open. Tick what was your own work; the rest counts as the agent&apos;s and can be put back
         after.
@@ -307,14 +301,14 @@ function WhoseChangesPanel({
       <div className="mt-1 flex gap-3">
         <button
           type="button"
-          className="min-h-6 text-violet hover:underline"
+          className="min-h-6 text-accent-text hover:underline"
           onClick={() => onChange(review.files)}
         >
           All mine
         </button>
         <button
           type="button"
-          className="min-h-6 text-violet hover:underline"
+          className="min-h-6 text-accent-text hover:underline"
           onClick={() => onChange([])}
         >
           None
@@ -330,23 +324,18 @@ function WhoseChangesPanel({
                 checked={review.mine.includes(file)}
                 onChange={() => toggle(file)}
               />
-              <span className="font-mono break-all text-graphite">{file}</span>
+              <span className="font-mono break-all text-label">{file}</span>
             </label>
           </li>
         ))}
       </ul>
       <div className="mt-2 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onFinish}
-          className="inline-flex h-8 items-center rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
-        >
+        <Button type="button" kind="primary" disabled={busy} onClick={onFinish}>
           {busy ? 'Checking' : 'Finish'}
-        </button>
-        <button type="button" disabled={busy} onClick={onBack} className={button}>
+        </Button>
+        <Button type="button" kind="cancel" disabled={busy} onClick={onBack}>
           Back
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { HelpTip, InteractiveResultPanel } from '@roughbook/ui';
+import { Button, HelpTip, InteractiveResultPanel } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { post } from '../api';
 import { useStudio } from '../data';
@@ -15,10 +15,11 @@ export type RunChoice = {
 type EditorLaunched = Extract<Launched, { kind: 'editor' }>;
 
 const selectClass =
-  'h-9 rounded-control border border-ash bg-canvas px-2 text-sm text-graphite outline-none focus:border-focus disabled:opacity-50';
+  'h-8 rounded-control border border-separator bg-window px-2 text-body text-label outline-none focus:border-focus disabled:opacity-50';
 
+/** The prompt's chip: a select with no edge until the pointer is on it, a neutral fill then. */
 const chipSelectClass =
-  'h-7 max-w-44 rounded-full border border-transparent bg-transparent px-2 text-sm text-slate hover:bg-frost hover:text-graphite focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+  'h-7 max-w-44 rounded-full border border-transparent bg-transparent px-2 text-body text-label-secondary hover:bg-control hover:text-label';
 
 /** An editor's runs are always the designer's, in the editor; a terminal agent starts with you. */
 function modeFor(agent: AgentView | undefined): RunChoice['mode'] {
@@ -109,7 +110,7 @@ export function RunOptions({
   const select = compact ? chipSelectClass : selectClass;
   if (!found.length) {
     return (
-      <p className="text-sm text-danger">
+      <p className="text-body text-danger">
         No coding agent or editor was found. Install Claude Code, Codex or an editor such as Cursor,
         then reload this page.
       </p>
@@ -179,12 +180,12 @@ export function RunOptions({
   return (
     <div className="flex flex-wrap items-end gap-3">
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-steel">Agent</span>
+        <span className="text-caption text-steel">Agent</span>
         {agentSelect}
       </label>
       {whereSelect ? (
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-steel">Where</span>
+          <span className="text-caption text-steel">Where</span>
           {whereSelect}
         </label>
       ) : null}
@@ -261,8 +262,8 @@ function EditorHandoff({ launched }: { launched: EditorLaunched }) {
   const agent = launched.editor === 'Your own editor' ? 'your agent' : `${launched.editor}'s agent`;
   const many = launched.instructions.length > 1;
   return (
-    <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-sm">
-      <div className="text-graphite">
+    <div className="mt-3 rounded-card border border-ash bg-frost p-3 text-body">
+      <div className="text-label">
         {openedIn(launched)} Paste {many ? 'each line' : 'this'} into a new chat with {agent}.{' '}
         <HelpTip label="About finishing an editor's run">
           {many ? 'One chat per iteration. ' : ''}
@@ -280,16 +281,18 @@ function EditorHandoff({ launched }: { launched: EditorLaunched }) {
       <ul className="mt-2 flex flex-col gap-2">
         {launched.instructions.map((instruction, index) => (
           <li key={instruction} className="flex flex-wrap items-center gap-2">
-            <code className="min-w-0 font-mono text-xs break-all text-graphite">{instruction}</code>
-            <button
+            <code className="min-w-0 font-mono text-caption break-all text-label">
+              {instruction}
+            </code>
+            <Button
               type="button"
-              className="inline-flex h-8 items-center rounded-control border border-ash bg-canvas px-3 text-xs text-graphite hover:border-mist"
+              tier="compact"
               onClick={() =>
                 void navigator.clipboard.writeText(instruction).then(() => setCopied(index))
               }
             >
               {copied === index ? 'Copied' : 'Copy'}
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

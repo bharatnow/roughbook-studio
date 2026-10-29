@@ -42,7 +42,7 @@ export function ComposeScreen({ page, from }: { page: string; from: string | nul
   const order = appSections(project, page);
   return (
     <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-4 overflow-y-auto p-4">
-      <h1 className="font-display text-lg tracking-tight text-graphite">Compose {record.name}</h1>
+      <h1 className="text-pane text-label">Compose {record.name}</h1>
       <OutputLine line={newest(app.trouble, hostLine && hostLine.at >= since ? hostLine : null)} />
       <CompositionEditor
         key={`${page}/${from ?? ''}`}

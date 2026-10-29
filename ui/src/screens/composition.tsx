@@ -1,4 +1,5 @@
 import {
+  Button,
   CompositionSections,
   HelpTip,
   PreviewFrame,
@@ -29,7 +30,7 @@ import { useApp } from './iteration';
  */
 export function CompositionScreen({ page, id }: { page: string; id: string }) {
   const { state, project, refresh } = useStudio();
-  const { previewSrc, Link } = useUiHost();
+  const { previewSrc } = useUiHost();
   const app = useApp(state?.app ?? null);
   const plan = usePromotePlan({ page, component: 'compositions', iteration: id });
   if (!project || !state) return <Missing>Loading…</Missing>;
@@ -58,17 +59,14 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
   return (
     <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="min-w-0 truncate font-display text-lg tracking-tight text-graphite">
+        <h1 className="min-w-0 truncate text-pane text-label">
           {record.name}: {name}
         </h1>
-        <span className="font-mono text-xs text-steel">{id}</span>
-        <Link
-          href={composeAddress(page, id)}
-          className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist"
-        >
+        <span className="font-mono text-caption text-steel">{id}</span>
+        <Button href={composeAddress(page, id)} className="ml-auto">
           <CopyPlus className="size-4" strokeWidth={1.5} />
           Edit as new
-        </Link>
+        </Button>
       </div>
       <OutputLine line={app.trouble} />
       {view.address ? (
@@ -90,7 +88,7 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
         />
       ) : (
         <div className="flex flex-col gap-3">
-          <h2 className="flex items-center gap-1 text-sm text-graphite">
+          <h2 className="flex items-center gap-1 text-section text-label">
             Each section alone
             <HelpTip label="About the sections shown alone">{STACKED_NOTE}</HelpTip>
           </h2>
@@ -116,7 +114,7 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
       )}
       <div className="grid gap-6 md:grid-cols-2">
         <section className="flex min-w-0 flex-col gap-2">
-          <h2 className="font-display text-base tracking-tight text-graphite">Sections</h2>
+          <h2 className="text-pane text-label">Sections</h2>
           <CompositionSections sections={items} />
         </section>
         <CompositionPromote

@@ -11,8 +11,8 @@ export function OutputLine({ line, className }: { line: Line | null; className?:
     <output
       aria-live={line?.tone === 'error' ? 'assertive' : 'polite'}
       className={cn(
-        'block text-sm empty:hidden',
-        line?.tone === 'error' ? 'text-danger' : 'text-graphite',
+        'block text-body empty:hidden',
+        line?.tone === 'error' ? 'text-danger' : 'text-label',
         className
       )}
     >

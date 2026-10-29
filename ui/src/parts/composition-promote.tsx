@@ -1,4 +1,5 @@
 import {
+  Button,
   HelpTip,
   InteractiveResultPanel,
   PromoteBranchChoice,
@@ -100,7 +101,7 @@ export function CompositionPromote({
   const newFiles = (plan?.targets ?? []).filter(item => item.section);
   return (
     <section id="promote" className="flex min-w-0 flex-col gap-3">
-      <h2 className="flex items-center gap-1 font-display text-base tracking-tight text-graphite">
+      <h2 className="flex items-center gap-1 text-pane text-label">
         Promote
         <HelpTip label="About Promote">
           Hands the composition to {agentName}, which arranges the page’s own files in its order
@@ -108,20 +109,20 @@ export function CompositionPromote({
         </HelpTip>
       </h2>
       {plan?.problem ? (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-body text-danger">
           {plan.problem}
         </p>
       ) : null}
       {plan?.drift && !shownFinish ? <PromoteDriftNote drift={plan.drift} /> : null}
       {pageFiles.length || newFiles.length ? (
-        <ul className="flex flex-col gap-1 text-sm text-graphite">
+        <ul className="flex flex-col gap-1 text-body text-label">
           {pageFiles.map(item => (
-            <li key={item.path} className="font-mono text-xs">
+            <li key={item.path} className="font-mono text-caption">
               {item.path}
             </li>
           ))}
           {newFiles.map(item => (
-            <li key={item.path} className="font-mono text-xs">
+            <li key={item.path} className="font-mono text-caption">
               + {item.path}{' '}
               <span className="font-sans text-steel">({item.section!.name}, a new section)</span>
             </li>
@@ -129,7 +130,7 @@ export function CompositionPromote({
         </ul>
       ) : null}
       {plan?.keepsApp?.length ? (
-        <div className="flex items-start gap-1 text-sm text-slate">
+        <div className="flex items-start gap-1 text-body text-slate">
           <p>
             {plan.keepsApp.map(item => item.name).join(', ')}{' '}
             {plan.keepsApp.length === 1 ? 'keeps' : 'keep'} the app’s own version here.
@@ -156,37 +157,32 @@ export function CompositionPromote({
         />
       ) : null}
       <div>
-        <button
+        <Button
           type="button"
+          kind="primary"
           onClick={() => void promote()}
           disabled={
             busy || Boolean(plan?.problem) || (branching && Boolean(branchNameProblem(branch)))
           }
-          className="inline-flex h-9 items-center gap-2 rounded-control bg-violet px-3 text-sm text-on-accent hover:bg-violet/90 disabled:opacity-50"
         >
           <SquareTerminal className="size-4" strokeWidth={1.5} />
           {busy ? 'Preparing' : `Promote in ${agentName}`}
-        </button>
+        </Button>
       </div>
       {result ? <InteractiveResultPanel result={result} /> : null}
       {(result?.ok || open) && actions.finishPromotion && !shownFinish ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void finish()}
-              disabled={finishing}
-              className="inline-flex h-9 items-center rounded-control border border-ash bg-canvas px-3 text-sm text-graphite hover:border-mist disabled:opacity-50"
-            >
+            <Button type="button" onClick={() => void finish()} disabled={finishing}>
               {finishing ? 'Finishing: running the checks' : 'Finish'}
-            </button>
+            </Button>
             <HelpTip label="About Finish">
               When {agentName} is done, Finish shows the diff, names any file changed outside the
               page’s files and its new sections’, and runs the app’s build and checks.
             </HelpTip>
           </div>
           {finishError ? (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-body text-danger">
               {finishError}
             </p>
           ) : null}

@@ -18,10 +18,8 @@ root.render(
       <App />
     ) : (
       <main className="mx-auto max-w-lg px-4 py-24 text-center">
-        <h1 className="font-display text-xl tracking-tight text-graphite">
-          Open the studio&apos;s link
-        </h1>
-        <p className="mt-2 text-sm text-slate">
+        <h1 className="text-title text-label">Open the studio&apos;s link</h1>
+        <p className="mt-2 text-body text-slate">
           This page answers only the link <span className="font-mono">roughbook start</span> printed
           in your terminal. Open that link, or run it again.
         </p>
