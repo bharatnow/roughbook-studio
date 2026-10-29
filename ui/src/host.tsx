@@ -23,9 +23,12 @@ import {
 } from 'react';
 import { iterationPath, post, promotePath } from './api';
 import { describe, useStudio } from './data';
+import { emptyHostActions, firstComponent, requestPageList } from './empty-host';
 import { completeFeaturesOf, switchCompleteFeatures } from './features';
 import { pickedAddress } from './in-page';
+import { forgetSentence } from './memory-api';
 import { decidedText, errorLine, infoLine, type Line } from './output';
+import { focusPrompt } from './parts/palette';
 import { navigate } from './router';
 import { verbHostActions } from './verbs-host';
 
@@ -119,6 +122,10 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
   const previewTemplate = state?.environment.preview ?? '/rough-preview/{key}';
   const completeFeatures = completeFeaturesOf(state);
   const backdrop = useStoredBackdrop();
+  // Generate directions is offered only once the project has a component to generate in.
+  const first = firstComponent(project);
+  const firstPage = first?.page ?? null;
+  const firstSlug = first?.component ?? null;
 
   const host = useMemo<UiHost>(() => {
     const decide = async (
@@ -299,10 +306,32 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
         setCompleteFeatures: (on: boolean) =>
           switchCompleteFeatures(on, { post, refresh: refreshState }),
         // The plain verbs (A7) and their Undo, through the local server.
-        ...verbHostActions({ post, project: () => projectRef.current, refresh })
+        ...verbHostActions({ post, project: () => projectRef.current, refresh }),
+        // An empty canvas's Add a page and Generate, and an empty frame's Generate (A12): the app's
+        // pages to adopt from, and the canvas's prompt on the component.
+        ...emptyHostActions({
+          firstComponent: firstPage && firstSlug ? { page: firstPage, component: firstSlug } : null,
+          navigate,
+          focusPrompt,
+          // Here on the canvas, or on the canvas once it is drawn.
+          openPageList: () => {
+            if (!requestPageList()) navigate('/');
+          }
+        }),
+        // Forget on the learned sentences (A10), through the local server.
+        forgetSentence
       }
     };
-  }, [backdrop, completeFeatures, devUrl, previewTemplate, refresh, refreshState]);
+  }, [
+    backdrop,
+    completeFeatures,
+    devUrl,
+    firstPage,
+    firstSlug,
+    previewTemplate,
+    refresh,
+    refreshState
+  ]);
 
   return (
     <UiHostProvider host={host}>

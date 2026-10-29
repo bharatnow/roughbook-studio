@@ -68,6 +68,7 @@ import { RefineSheet } from '../parts/refine';
 import { HowFarMenu, NOT_THIS_REASONS, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import { WhoseChangesSheet, useRunOps, type RunOps } from '../parts/run-card';
 import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
+import { onPageListRequest } from '../empty-host';
 import { addressFor, navigate } from '../router';
 import type { Launched, ProjectView, RunView, StudioState } from '../types';
 
@@ -354,6 +355,8 @@ function StudioCanvasView({
   const [brief, setBrief] = useState<{ page: string; component: string } | null>(null);
   /** The list of the app's pages from the map (B2 of the brownfield plan). */
   const [mapOpen, setMapOpen] = useState(false);
+  // An empty canvas's Add a page (A12), asked through the host: this list, where a page is adopted.
+  useEffect(() => onPageListRequest(() => setMapOpen(true)), []);
   const [promote, setPromote] = useState<{ page: string; component: string } | null>(null);
   const [refine, setRefine] = useState<{ page: string; component: string; id: string } | null>(
     null
@@ -772,6 +775,7 @@ function StudioCanvasView({
       <Canvas
         input={canvas.input}
         label={`${project.tree.name} canvas`}
+        project={project.tree.slug}
         selection={selection}
         onSelect={select}
         opening={{
