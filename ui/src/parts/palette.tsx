@@ -1,4 +1,4 @@
-import { CommandPalette, useUiHost } from '@roughbook/ui';
+import { CommandPalette, openComposer, useUiHost } from '@roughbook/ui';
 import { atRest, studioCommands, type StudioCommand } from '../commands';
 import { useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
@@ -7,14 +7,13 @@ import { navigate } from '../router';
 import { useChrome } from './chrome';
 import { useMakeDefault } from './status';
 
-/** The canvas's prompt field, which the toolbar's Generate puts the keyboard in. */
+/** The canvas's prompt field, in its composer. */
 export const PROMPT_FIELD = 'canvas-prompt';
 
-/** The canvas's prompt, with the keyboard in it: here, or on the canvas once it is drawn. */
+/** The canvas's composer, open with the keyboard in it: here, or on the canvas once it is drawn. */
 export function focusPrompt() {
-  const here = document.getElementById(PROMPT_FIELD);
-  if (here) {
-    here.focus();
+  if (document.getElementById(PROMPT_FIELD)) {
+    openComposer();
     return;
   }
   navigate('/');
@@ -22,7 +21,7 @@ export function focusPrompt() {
   const wait = window.setInterval(() => {
     const field = document.getElementById(PROMPT_FIELD);
     if (field || ++tries > 40) window.clearInterval(wait);
-    field?.focus();
+    if (field) openComposer();
   }, 50);
 }
 

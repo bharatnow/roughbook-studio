@@ -5,6 +5,7 @@ import {
   MapList,
   PromotePanel,
   SelectionToolbar,
+  openComposer,
   cardToolbar,
   Sheet,
   SheetFooter,
@@ -371,7 +372,7 @@ function StudioCanvasView({
 
   function promptFor(next: string) {
     setPromptMode(next);
-    document.getElementById(PROMPT_FIELD)?.focus();
+    openComposer();
   }
 
   const [runChoice] = useRunChoice(state);
@@ -547,7 +548,7 @@ function StudioCanvasView({
         return;
       }
       case 'prompt':
-        document.getElementById(PROMPT_FIELD)?.focus();
+        openComposer();
         return;
       case 'zoom-in':
         view?.zoomBy(1.25);

@@ -1,11 +1,11 @@
-import { Button, MenuButton, Toolbar } from '@roughbook/ui';
+import { MenuButton, Toolbar } from '@roughbook/ui';
 import { ChevronLeft, House } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { post } from '../api';
 import type { StudioCommand } from '../commands';
 import { useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
-import { TOOLBAR_ITEMS, documentItems, type DocumentItem } from '../toolbar';
+import { documentItems, type DocumentItem } from '../toolbar';
 import { useChrome } from './chrome';
 import { Dock } from './dock';
 import { OutputLine } from './output-line';
@@ -107,7 +107,6 @@ function Bar() {
         complete: completeFeaturesOf(state)
       })
     : [];
-  const generate = TOOLBAR_ITEMS.find(item => item.id === 'generate')!;
   const title = menu.length ? (
     <MenuButton
       label={`${name}, project menu`}
@@ -178,14 +177,6 @@ function Bar() {
             trailing={
               <>
                 <StatusButton />
-                <Button
-                  type="button"
-                  kind="primary"
-                  tier="compact"
-                  onClick={() => runApp(asCommand(generate))}
-                >
-                  {generate.label}
-                </Button>
               </>
             }
           />
