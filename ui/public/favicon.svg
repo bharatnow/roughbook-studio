@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Provisional mark until the owner's artwork arrives: a disc and its ring, out of register, like a rough proof. -->
+  <style>
+    .ground { fill: #ffffff; }
+    .mark { fill: #5e4cff; }
+    .ring { fill: none; stroke: #5e4cff; stroke-width: 60; }
+    .inside { fill: none; stroke: #ffffff; stroke-width: 60; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #1c1c1e; }
+      .mark { fill: #9d91ff; }
+      .ring { stroke: #9d91ff; }
+      .inside { stroke: #1c1c1e; }
+    }
+  </style>
+  <defs>
+    <clipPath id="disc"><circle cx="572" cy="572" r="280" /></clipPath>
+  </defs>
+  <rect class="ground" width="1024" height="1024" />
+  <circle class="ring" cx="452" cy="452" r="250" />
+  <circle class="mark" cx="572" cy="572" r="280" />
+  <circle class="inside" cx="452" cy="452" r="250" clip-path="url(#disc)" />
+</svg>
