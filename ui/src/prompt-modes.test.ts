@@ -34,19 +34,16 @@ describe("the canvas prompt's modes", () => {
     );
   });
 
-  it('dims Fork and Refine with Complete features off, rather than hiding them', () => {
-    const quiet = promptModes({ ...made, complete: false });
+  it('lets the selection decide with Complete features off', () => {
+    const onSketch = promptModes({ ...made, complete: false });
     assert.deepEqual(
-      quiet.map(mode => [mode.id, mode.disabled, Boolean(mode.completeOnly)]),
-      [
-        ['new', false, false],
-        ['fork', true, true],
-        ['refine', true, true]
-      ]
+      onSketch.map(mode => [mode.id, mode.disabled, mode.placeholder]),
+      [['fork', false, 'What should change in iteration-02']]
     );
-    assert.equal(
-      quiet[1]!.placeholder,
-      'Fork: turn on Complete features in Settings, or use More like this'
+    const inComponent = promptModes({ ...made, iteration: null, made: false, complete: false });
+    assert.deepEqual(
+      inComponent.map(mode => mode.id),
+      ['new']
     );
     // On, or not known (an older studio server): as they were.
     assert.equal(promptModes({ ...made, complete: true })[1]!.disabled, false);
@@ -55,7 +52,7 @@ describe("the canvas prompt's modes", () => {
 
   it('falls back to New when the asked mode cannot be used', () => {
     assert.equal(currentMode(promptModes(made), 'fork'), 'fork');
-    assert.equal(currentMode(promptModes({ ...made, complete: false }), 'fork'), 'new');
+    assert.equal(currentMode(promptModes({ ...made, complete: false }), 'new'), 'fork');
     assert.equal(currentMode(promptModes(made), 'sideways'), 'new');
   });
 });

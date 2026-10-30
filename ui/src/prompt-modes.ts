@@ -1,7 +1,7 @@
 // The canvas prompt's modes (ROUGHBOOK-QUIET-UI-PLAN.md, U5; ROUGHBOOK-APPLE-PLAN.md, A7): New in
-// the selected component, and Fork and Refine on a made iteration. Fork and Refine are
-// complete-only: with Complete features off they stay, dimmed, saying how to have them, since the
-// plain verbs do the everyday part. No JSX, so the tests can walk them.
+// the selected component, and Fork and Refine on a made iteration. With Complete features off there
+// is one mode and the selection decides it (ROUGHBOOK-LEAN-PLAN.md, L3): words on a made iteration
+// fork it, and otherwise start new ones. No JSX, so the tests can walk them.
 import type { PromptMode } from '@roughbook/ui';
 
 export type StudioPromptMode = PromptMode & {
@@ -28,46 +28,51 @@ export function promptModes({
 }): StudioPromptMode[] {
   const off = complete === false;
   const usable = made && iteration !== null;
-  const quiet = (label: string, instead: string) =>
-    `${label}: turn on Complete features in Settings, or use ${instead}`;
+  const fresh: StudioPromptMode = {
+    id: 'new',
+    label: 'New',
+    placeholder: frame
+      ? `Directions for ${frame}, one per line`
+      : 'Select a component to start iterations in it',
+    disabled: !frame
+  };
+  if (off) {
+    return [
+      usable
+        ? {
+            id: 'fork',
+            label: 'Fork',
+            placeholder: `What should change in ${iteration}`,
+            disabled: false
+          }
+        : fresh
+    ];
+  }
   return [
-    {
-      id: 'new',
-      label: 'New',
-      placeholder: frame
-        ? `Directions for ${frame}, one per line`
-        : 'Select a component to start iterations in it',
-      disabled: !frame
-    },
+    fresh,
     {
       id: 'fork',
       label: 'Fork',
       completeOnly: true,
       placeholder: !usable
         ? 'Select an iteration to fork it'
-        : off
-          ? quiet('Fork', 'More like this')
-          : `What should change in a fork of ${iteration}; a Keep: line says what stays`,
-      disabled: !usable || off
+        : `What should change in a fork of ${iteration}; a Keep: line says what stays`,
+      disabled: !usable
     },
     {
       id: 'refine',
       label: 'Refine',
       completeOnly: true,
-      placeholder: !usable
-        ? 'Select an iteration to refine it'
-        : off
-          ? quiet('Refine', 'Polish')
-          : `How to refine ${iteration}`,
-      disabled: !usable || off
+      placeholder: !usable ? 'Select an iteration to refine it' : `How to refine ${iteration}`,
+      disabled: !usable
     }
   ];
 }
 
-/** The mode the prompt is in: the one asked for while it can be used, otherwise New. */
+/** The mode the prompt is in: the one asked for while it can be used, otherwise the first. */
 export function currentMode(
   modes: readonly StudioPromptMode[],
   asked: string
 ): StudioPromptMode['id'] {
-  return modes.find(item => item.id === asked && !item.disabled)?.id ?? 'new';
+  return modes.find(item => item.id === asked && !item.disabled)?.id ?? modes[0]?.id ?? 'new';
 }

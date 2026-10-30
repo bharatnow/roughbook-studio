@@ -93,12 +93,13 @@ export function StudioPrompt({
   const iteration = at.iteration;
   // A local iteration with its files and no run making it can be forked or refined.
   const made = facts?.kind === 'local' && facts.generated && !facts.run && iteration !== null;
-  // Fork and Refine are complete-only (A7): dimmed, not hidden, with the switch off.
+  // With the switch off the selection decides the one mode (Lean plan, L3).
+  const complete = completeFeaturesOf(state);
   const modes = promptModes({
     frame: frame?.name ?? null,
     iteration,
     made,
-    complete: completeFeaturesOf(state)
+    complete
   });
   const current = currentMode(modes, mode);
 
@@ -229,7 +230,7 @@ export function StudioPrompt({
       }}
       chip={
         <div className="flex flex-wrap items-center gap-0.5">
-          {current === 'fork' ? (
+          {current === 'fork' && complete !== false ? (
             <button
               type="button"
               aria-pressed={cleanStart}
@@ -250,17 +251,26 @@ export function StudioPrompt({
               Options
             </button>
           ) : null}
-          <RunOptions state={state} choice={choice} onChange={setChoice} compact />
-          <HelpTip label="About the prompt">
-            <strong className="font-medium">New</strong>: one iteration per line, up to{' '}
-            {MAX_DIRECTIONS}; a line starting with <span className="font-mono">Tests:</span> says
-            what they test. <strong className="font-medium">Fork</strong>: a copy of the selected
-            iteration the agent takes where the words say, keeping what a{' '}
-            <span className="font-mono">Keep:</span> line lists; Clean start begins empty instead,
-            from what it was and what reviews said. <strong className="font-medium">Refine</strong>:
-            a new iteration that changes it as you say; Options has the presets.{' '}
-            {formatKeys(['Mod', 'Enter'], mac)} sends.
-          </HelpTip>
+          <details className="group/run relative">
+            <summary className="inline-flex h-7 cursor-pointer list-none items-center rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label group-open/run:bg-control [&::-webkit-details-marker]:hidden">
+              Agent
+            </summary>
+            <div className="material-frost absolute right-0 bottom-full z-10 mb-2 flex gap-1 rounded-control border border-separator p-1 shadow-elevation-1">
+              <RunOptions state={state} choice={choice} onChange={setChoice} compact />
+            </div>
+          </details>
+          {complete !== false ? (
+            <HelpTip label="About the prompt">
+              <strong className="font-medium">New</strong>: one iteration per line, up to{' '}
+              {MAX_DIRECTIONS}; a line starting with <span className="font-mono">Tests:</span> says
+              what they test. <strong className="font-medium">Fork</strong>: a copy of the selected
+              iteration the agent takes where the words say, keeping what a{' '}
+              <span className="font-mono">Keep:</span> line lists; Clean start begins empty instead,
+              from what it was and what reviews said.{' '}
+              <strong className="font-medium">Refine</strong>: a new iteration that changes it as
+              you say; Options has the presets. {formatKeys(['Mod', 'Enter'], mac)} sends.
+            </HelpTip>
+          ) : null}
         </div>
       }
       fieldId={fieldId}
