@@ -387,24 +387,6 @@ export function IterationScreen({
               iterationId={id}
               rating={rating}
             />
-            {verbs.served('more')
-              ? withReason(
-                  notMade ?? waiting,
-                  <Button
-                    type="button"
-                    disabled={Boolean(notMade ?? waiting)}
-                    onClick={() => void goTo('more')}
-                  >
-                    {VERB_LABELS.more}
-                  </Button>
-                )
-              : null}
-            {verbs.served('different') ? (
-              <HowFarMenu
-                disabled={notMade ?? waiting}
-                onChoose={howFar => void goTo('different', { howFar })}
-              />
-            ) : null}
             {verbs.served('polish')
               ? withReason(
                   notMade ?? waiting,
@@ -447,16 +429,40 @@ export function IterationScreen({
               critiquePrompt=""
               refineHref={`${base}/${id}?refine=1`}
             />
-            <OutputLine
-              line={newest(
-                said.line,
-                verbs.line,
-                app.trouble,
-                hostLine && hostLine.at >= since ? hostLine : null
-              )}
-              className="basis-full"
-            />
           </>
+        }
+        lead={
+          <>
+            {verbs.served('more')
+              ? withReason(
+                  notMade ?? waiting,
+                  <Button
+                    type="button"
+                    disabled={Boolean(notMade ?? waiting)}
+                    onClick={() => void goTo('more')}
+                  >
+                    {VERB_LABELS.more}
+                  </Button>
+                )
+              : null}
+            {verbs.served('different') ? (
+              <HowFarMenu
+                disabled={notMade ?? waiting}
+                onChoose={howFar => void goTo('different', { howFar })}
+              />
+            ) : null}
+          </>
+        }
+        status={
+          <OutputLine
+            line={newest(
+              said.line,
+              verbs.line,
+              app.trouble,
+              hostLine && hostLine.at >= since ? hostLine : null
+            )}
+            className="basis-full"
+          />
         }
         // The one prominent action (A9), at once; the pick itself opens its reason and rating, or
         // Unpick, and stays plain.
