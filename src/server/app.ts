@@ -90,6 +90,15 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
   throw new BadRequest('The request was not a JSON object.');
 }
 
+/** A part of the address, decoded; a malformed % is the page's mistake, not a crash. */
+function decoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    throw new BadRequest('That address is not valid.');
+  }
+}
+
 function failure(error: unknown): { status: number; body: { error: string; message: string } } {
   if (error instanceof BadRequest) {
     return { status: 400, body: { error: 'BAD_REQUEST', message: error.message } };
@@ -316,8 +325,8 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       const match = item.pattern.exec(pathname);
       if (!match || item.method !== request.method) continue;
       const params: Params = {};
-      item.keys.forEach((key, index) => (params[key] = decodeURIComponent(match[index + 1]!)));
       try {
+        item.keys.forEach((key, index) => (params[key] = decoded(match[index + 1]!)));
         return sendJson(response, 200, { ok: true, data: await item.handler(request, params) });
       } catch (error) {
         const { status, body } = failure(error);
@@ -338,13 +347,13 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       /^\/api\/files\/(project)\/([^/]+)\/([^/]+)$/.exec(pathname) ??
       /^\/api\/files\/(library)\/([^/]+)$/.exec(pathname);
     const scope = match?.[1] as AssetScope | undefined;
-    const slug = scope === 'project' ? decodeURIComponent(match![2]!) : options.project;
-    const file = decodeURIComponent((scope === 'project' ? match?.[3] : match?.[2]) ?? '');
-    if (!scope || slug !== options.project) {
-      response.writeHead(404).end();
-      return;
-    }
     try {
+      const slug = scope === 'project' ? decoded(match![2]!) : options.project;
+      const file = decoded((scope === 'project' ? match?.[3] : match?.[2]) ?? '');
+      if (!scope || slug !== options.project) {
+        response.writeHead(404).end();
+        return;
+      }
       const bytes = await studio.asset(scope, file);
       const type = assetType(file);
       const headers: Record<string, string> = {
@@ -440,7 +449,13 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       return;
     }
     const root = path.resolve(options.uiDir);
-    const wanted = path.resolve(root, `.${decodeURIComponent(pathname)}`);
+    let wanted: string;
+    try {
+      wanted = path.resolve(root, `.${decoded(pathname)}`);
+    } catch {
+      response.writeHead(400, security).end();
+      return;
+    }
     const inside = wanted.startsWith(root + path.sep);
     const isFile = inside && fs.existsSync(wanted) && fs.statSync(wanted).isFile();
     const file = isFile ? wanted : path.join(root, 'index.html');

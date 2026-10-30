@@ -4,6 +4,7 @@ import { post } from '../api';
 import { useStudio } from '../data';
 import { errorLine, infoLine, type Line } from '../output';
 import { OutputLine } from './output-line';
+import { PICTURES_NO_SAID, PICTURES_NO_WARNING } from './sheets';
 
 /**
  * The project's pictures question, asked once in the local UI while nobody has answered it
@@ -26,7 +27,7 @@ export function PicturesSheet({ open, onLater }: { open: boolean; onLater: () =>
         infoLine(
           on
             ? "This project's pictures go up to Roughbook. Turn them off with roughbook pictures off."
-            : "This project's pictures stay on this machine. Turn them on with roughbook pictures on."
+            : PICTURES_NO_SAID
         )
       );
     } catch (error) {
@@ -91,6 +92,7 @@ export function PicturesSheet({ open, onLater }: { open: boolean; onLater: () =>
           so its team and client reviewers see them on the web.
         </p>
         <p>Only the pictures go: never your code, file names or paths.</p>
+        <p>{PICTURES_NO_WARNING}</p>
         <p>
           Until someone answers, pictures stay on this machine. You can change it later with{' '}
           <span className="font-mono text-label">roughbook pictures on</span> or{' '}

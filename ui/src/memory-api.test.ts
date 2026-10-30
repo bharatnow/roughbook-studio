@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, it } from 'node:test';
-import { forgetPath, forgetSentence, loadLearned } from './memory-api.ts';
+import {
+  forgetPath,
+  forgetSentence,
+  learnedRefused,
+  LEARNED_REFUSED_LINE,
+  loadLearned
+} from './memory-api.ts';
 
 const SENTENCE = {
   id: 'sentence-1',
@@ -49,6 +56,19 @@ describe('the studio’s memory calls', () => {
       ok: false,
       message: 'Viewers cannot forget it.'
     });
+  });
+
+  it('knows a viewer’s refusal from a failure, and the screen says it in a plain line', async () => {
+    answer(403, { ok: false, error: 'FORBIDDEN', message: 'Forbidden.' });
+    const refused = await loadLearned().catch((error: unknown) => error);
+    assert.equal(learnedRefused(refused), true);
+    answer(503, { ok: false, error: 'OFFLINE', message: 'Offline.' });
+    const offline = await loadLearned().catch((error: unknown) => error);
+    assert.equal(learnedRefused(offline), false);
+    assert.equal(learnedRefused(new Error('no')), false);
+    assert.match(LEARNED_REFUSED_LINE, /owners and editors/);
+    const screen = readFileSync(new URL('./screens/taste.tsx', import.meta.url), 'utf8');
+    assert.match(screen, /<Missing>\{LEARNED_REFUSED_LINE\}<\/Missing>/);
   });
 
   it('puts the id in the address only as one segment', () => {

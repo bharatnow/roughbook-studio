@@ -11,6 +11,15 @@ export function loadLearned(): Promise<Learned> {
   return get<Learned>('/api/learned');
 }
 
+/** Said to a viewer, whom the backend refuses these lists. */
+export const LEARNED_REFUSED_LINE =
+  "Only the project's owners and editors can see what Roughbook learned.";
+
+/** Whether the read failed because this person may not read it, not because something broke. */
+export function learnedRefused(error: unknown): boolean {
+  return error instanceof Failure && error.status === 403;
+}
+
 /** The local server's Forget for a sentence: its scope and id, nothing else. */
 export function forgetPath(sentence: Pick<LearnedSentence, 'scope' | 'id'>): string {
   return `/api/learned/${sentence.scope}/${encodeURIComponent(sentence.id)}/forget`;

@@ -2,11 +2,12 @@
 // a yes. Asked once, where a person can answer it (init, run in a terminal, adopt); never in an
 // agent's shell, an unattended or editor run, or MCP's finish_run, which leave it unanswered and
 // say so in one line. Until then the pictures are taken and kept here, waiting in the outbox, and
-// a yes sends them; a no turns pictures off, as the web's setting does.
+// a yes sends them; a no turns pictures off, as the web's setting does, which deletes any stored
+// on Roughbook for good. So only a typed n is a no: Enter, or anything else, is "not now".
 import type { StudioApi } from '../api/client.js';
 import { ApiError, describeError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
-import { askYesNo, type Io } from '../io.js';
+import type { Io } from '../io.js';
 
 /** Said wherever nobody can answer, so the designer knows why nothing went up. */
 export const PICTURES_WAIT_LINE =
@@ -70,9 +71,11 @@ export async function answerPictures(
 }
 
 /**
- * Asks the project's pictures question once, when nobody has answered it and `ask` allows (a
- * person at a terminal). Returns the answer, or null while there is none. An empty answer is a no,
- * and nobody answering is never a yes: it leaves the question open and says the one line.
+ * Asks the project's pictures question, when nobody has answered it and `ask` allows (a person at
+ * a terminal). Returns the answer, or null while there is none. The studio cannot tell whether the
+ * project has stored pictures (the project's tree does not say), so the question always says what
+ * a no does to them. Only y or n answers: Enter, anything else and nobody there all leave the
+ * question open and say the one line, so it is asked again.
  */
 export async function ensurePicturesAnswer(
   io: Io,
@@ -93,8 +96,12 @@ export async function ensurePicturesAnswer(
     "Roughbook can upload pictures of this project's studio iterations and adopted pages, so its team and client reviewers see them on the web."
   );
   io.out('Only the pictures go: never your code, file names or paths.');
-  const yes = await askYesNo(io, PICTURES_QUESTION, false);
-  if (yes === null) {
+  io.out(
+    'If this project already has pictures on Roughbook, a no deletes them for good, for its team and client reviewers too.'
+  );
+  const reply = (await io.ask(`${PICTURES_QUESTION} [y/n, Enter for not now] `))?.trim() ?? '';
+  const yes = /^y(es)?$/i.test(reply);
+  if (!yes && !/^no?$/i.test(reply)) {
     io.out(PICTURES_WAIT_LINE);
     return null;
   }
@@ -108,7 +115,7 @@ export async function ensurePicturesAnswer(
   io.out(
     yes
       ? 'Pictures go up for this project. Turn them off with roughbook pictures off.'
-      : 'Pictures stay on this machine. Turn them on with roughbook pictures on.'
+      : 'Pictures stay on this machine. Any already on Roughbook are deleted. Turn them on with roughbook pictures on.'
   );
   return yes;
 }

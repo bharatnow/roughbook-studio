@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { nextSheet, privacyWords } from './parts/sheets.ts';
+import { nextSheet, PICTURES_NO_SAID, PICTURES_NO_WARNING, privacyWords } from './parts/sheets.ts';
 
 const LINES = [
   'What Roughbook keeps, and what it does not:',
@@ -9,6 +10,14 @@ const LINES = [
 ];
 
 describe('the local UI’s one-time sheets', () => {
+  it('says plainly that No deletes stored pictures, before and after it', () => {
+    assert.match(PICTURES_NO_WARNING, /No deletes them for good/);
+    assert.match(PICTURES_NO_SAID, /already on Roughbook are deleted/);
+    const sheet = readFileSync(new URL('./parts/pictures-sheet.tsx', import.meta.url), 'utf8');
+    assert.match(sheet, /<p>\{PICTURES_NO_WARNING\}<\/p>/);
+    assert.match(sheet, /: PICTURES_NO_SAID/);
+  });
+
   it('asks the pictures question first, only while nobody has answered', () => {
     const open = { later: false, privacyClosed: false };
     assert.equal(nextSheet({ pictures: null, privacySheet: LINES }, open), 'pictures');

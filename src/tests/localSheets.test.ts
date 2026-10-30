@@ -47,6 +47,9 @@ function backend(initial: boolean | null | undefined, role: 'editor' | 'viewer' 
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname.replace('/v1/api/studio', '')}`;
     if (route === `GET ${PROJECT}`) return ok(tree(state.pictures));
+    if (url.pathname.endsWith('/learned') && role === 'viewer') {
+      return refused('FORBIDDEN', 403);
+    }
     if (route === `PUT ${PROJECT}/pictures`) {
       if (role === 'viewer') return refused('FORBIDDEN', 403);
       const body = request.body as { on: unknown };
@@ -76,7 +79,7 @@ async function freePort(): Promise<number> {
 }
 
 /** The local server over a linked repo, and a way to call its API as the page does. */
-async function localServer(fake: ReturnType<typeof backend>) {
+async function localServer(fake: ReturnType<typeof backend>, uiDir: string | null = null) {
   const repo = path.join(await tempDir('roughbook-sheets-'), 'app');
   fs.mkdirSync(path.join(repo, 'rough'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'package.json'), '{}');
@@ -124,7 +127,7 @@ async function localServer(fake: ReturnType<typeof backend>) {
     studio,
     port,
     token,
-    uiDir: null,
+    uiDir,
     devUrl: 'http://localhost:3100',
     project: 'site'
   });
@@ -147,7 +150,7 @@ async function localServer(fake: ReturnType<typeof backend>) {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
   };
-  return { call, close, configDir };
+  return { call, close, configDir, port };
 }
 
 const answers = (fake: ReturnType<typeof backend>) =>
@@ -219,6 +222,40 @@ describe('/api/state and the pictures question', () => {
       assert.equal(refusal.status, 403);
       assert.match(refusal.json.message, /owner or an editor/);
       assert.equal((await local.call('GET', '/api/state')).json.data.pictures, null);
+    } finally {
+      await local.close();
+    }
+  });
+});
+
+describe('an address the server cannot decode', () => {
+  it('answers instead of throwing, and the server goes on', async () => {
+    const ui = await tempDir('roughbook-ui-');
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html>');
+    const local = await localServer(backend(true), ui);
+    const signal = () => AbortSignal.timeout(2000);
+    try {
+      const param = await local.call('GET', '/api/runs/%zz/prompt');
+      assert.equal(param.status, 400);
+      assert.equal(param.json.error, 'BAD_REQUEST');
+      const posted = await local.call('POST', '/api/terminals/%E0%A4%A/stop', {});
+      assert.equal(posted.status, 400);
+      const base = `http://127.0.0.1:${local.port}`;
+      const file = await fetch(`${base}/api/files/project/site/%zz`, { signal: signal() });
+      assert.equal(file.status, 404);
+      assert.equal((await fetch(`${base}/%zz`, { signal: signal() })).status, 400);
+      assert.equal((await local.call('GET', '/api/state')).status, 200);
+    } finally {
+      await local.close();
+    }
+  });
+});
+
+describe('/api/learned for a viewer', () => {
+  it('carries the backend’s 403, which the taste screen says in a plain line', async () => {
+    const local = await localServer(backend(true, 'viewer'));
+    try {
+      assert.equal((await local.call('GET', '/api/learned')).status, 403);
     } finally {
       await local.close();
     }

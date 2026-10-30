@@ -2,12 +2,12 @@ import { LearnedSentences } from '@roughbook/ui';
 import { useEffect, useState } from 'react';
 import { Failure } from '../api';
 import { useStudio } from '../data';
-import { loadLearned, type Learned } from '../memory-api';
+import { LEARNED_REFUSED_LINE, learnedRefused, loadLearned, type Learned } from '../memory-api';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
 import { TASTE_HREF } from '../router';
 
-type Loaded = { learned: Learned } | { problem: string } | null;
+type Loaded = { learned: Learned } | { refused: true } | { problem: string } | null;
 
 /**
  * What Roughbook learned about you and this brand (A10 step 3 of ROUGHBOOK-APPLE-PLAN.md), as the
@@ -30,10 +30,16 @@ export function TasteScreen() {
       learned => live && setLoaded({ learned }),
       (error: unknown) =>
         live &&
-        setLoaded({
-          problem:
-            error instanceof Failure ? error.message : 'Could not read what Roughbook learned.'
-        })
+        setLoaded(
+          learnedRefused(error)
+            ? { refused: true }
+            : {
+                problem:
+                  error instanceof Failure
+                    ? error.message
+                    : 'Could not read what Roughbook learned.'
+              }
+        )
     );
     return () => {
       live = false;
@@ -41,6 +47,7 @@ export function TasteScreen() {
   }, []);
 
   if (!loaded) return <Missing>Reading what Roughbook learned…</Missing>;
+  if ('refused' in loaded) return <Missing>{LEARNED_REFUSED_LINE}</Missing>;
   if ('problem' in loaded) {
     return (
       <p role="alert" className="text-body text-danger">

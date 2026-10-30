@@ -236,13 +236,13 @@ describe('ensurePicturesAnswer', () => {
     for (const [answer, on] of [
       ['y', true],
       ['n', false],
-      ['', false]
+      ['NO', false]
     ] as const) {
       const { api, requests, state } = backend(null);
       const io = recordingIo([answer]);
       assert.equal(await ensurePicturesAnswer(io, api, LINK), on);
       assert.equal(io.questions.length, 1);
-      assert.match(io.questions[0]!, /\[y\/N\] $/);
+      assert.match(io.questions[0]!, /\[y\/n, Enter for not now\] $/);
       assert.deepEqual(
         answers(requests).map(request => request.body),
         [{ on }]
@@ -252,6 +252,41 @@ describe('ensurePicturesAnswer', () => {
       assert.equal(await ensurePicturesAnswer(io, api, LINK), on);
       assert.equal(io.questions.length, 1);
     }
+  });
+
+  it('takes only an explicit n for a no: Enter or anything else is not now, and deletes nothing', async () => {
+    for (const answer of ['', '   ', 'nope', 'x']) {
+      const { api, requests, state } = backend(null);
+      const io = recordingIo([answer, 'y']);
+      assert.equal(await ensurePicturesAnswer(io, api, LINK), null, JSON.stringify(answer));
+      assert.deepEqual(answers(requests), [], 'no answer reaches the backend');
+      assert.equal(state.pictures, null);
+      assert.ok(io.lines.includes(PICTURES_WAIT_LINE));
+      // Still unanswered, so it is asked again next time.
+      assert.equal(await ensurePicturesAnswer(io, api, LINK), true);
+      assert.equal(io.questions.length, 2);
+    }
+  });
+
+  it('says a no deletes stored pictures before asking, and again once it has', async () => {
+    const { api } = backend(null);
+    const asked: number[] = [];
+    const io = recordingIo();
+    const answering = {
+      ...io,
+      ask: async (question: string) => {
+        asked.push(io.lines.length);
+        io.questions.push(question);
+        return 'n';
+      }
+    };
+    await ensurePicturesAnswer(answering, api, LINK);
+    const warning = io.lines.findIndex(line => /a no deletes them for good/.test(line));
+    assert.ok(warning >= 0 && warning < asked[0]!, 'said before the question');
+    assert.ok(
+      io.lines.slice(asked[0]).some(line => /already on Roughbook are deleted/.test(line)),
+      'said in the answer'
+    );
   });
 
   it('never takes silence for a yes, and says one line where nobody can answer', async () => {
