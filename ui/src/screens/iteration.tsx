@@ -29,7 +29,6 @@ import {
 } from '@roughbook/ui';
 import { Check } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { COMPLETE_FEATURES_REASON } from '@roughbook/ui/commands';
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
@@ -280,7 +279,6 @@ export function IterationScreen({
   const made = generationStateOf(iteration) === 'completed' && !run;
   const notMade = made ? undefined : "It isn't made yet.";
   const waiting = verbs.busy === id ? 'Wait for the last one to start.' : undefined;
-  const refineOff = completeFeaturesOf(state) ? undefined : COMPLETE_FEATURES_REASON;
   const goTo = async (
     verb: 'more' | 'different' | 'polish',
     fields: Record<string, string> = {}
@@ -412,16 +410,11 @@ export function IterationScreen({
                 {VERB_LABELS['not-this']}
               </Button>
             )}
-            {withReason(
-              refineOff,
-              <Button
-                type="button"
-                disabled={Boolean(refineOff)}
-                onClick={() => setRefineOpen(true)}
-              >
+            {completeFeaturesOf(state) ? (
+              <Button type="button" onClick={() => setRefineOpen(true)}>
                 Refine
               </Button>
-            )}
+            ) : null}
             <ReviewButton
               target={target}
               reviews={reviews}

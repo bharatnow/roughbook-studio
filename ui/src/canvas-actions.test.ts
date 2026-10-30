@@ -147,7 +147,7 @@ describe("the studio canvas's actions", () => {
       );
       assert.equal(
         action(card('iteration-02'), id, { ...STATE, complete: false })?.disabled,
-        'Turn on Complete features in Settings to use this.',
+        'Turn on Complete features to use this.',
         id
       );
       // Not made yet says more than the switch.

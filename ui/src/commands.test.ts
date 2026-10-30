@@ -264,7 +264,7 @@ describe("the studio's palette", () => {
     const off = studioCommands('iteration:home/hero/iteration-02', { ...CONTEXT, complete: false });
     for (const label of ['Fork', 'Refine']) {
       const command = off.find(item => item.label === label)!;
-      assert.equal(command.disabled, 'Turn on Complete features in Settings to use this.', label);
+      assert.equal(command.disabled, 'Turn on Complete features to use this.', label);
       assert.equal(command.hint, 'Complete features', label);
     }
     assert.ok(matchCommands(off, 'fork').some(item => item.label === 'Fork'));
