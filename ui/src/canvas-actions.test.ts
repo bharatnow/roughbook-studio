@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { cardToolbar } from '@roughbook/ui/commands';
 import { PROJECT, RUNS, TERMINAL } from './canvas-fixture.ts';
 import {
   STUDIO_VERBS,
@@ -35,6 +36,17 @@ const action = (key: string, id: string, state: SelectionState = STATE) =>
 const card = (id: string) => `iteration:home/hero/${id}`;
 
 describe("the studio canvas's actions", () => {
+  // The lean budget (ROUGHBOOK-LEAN-PLAN.md, L7): it only goes down.
+  it('keeps a selected card to five controls, More among them', () => {
+    for (const id of ['iteration-01', 'iteration-02', 'iteration-03']) {
+      const list = selectionActions(canvas, card(id), STATE).filter(
+        item => item.toolbar && !item.disabled
+      );
+      const { onView } = cardToolbar(list, ['done', 'stop', 'copy-prompt']);
+      assert.ok(onView.length + 1 <= 5, `${id}: ${onView.map(item => item.id).join(', ')}`);
+    }
+  });
+
   it('serves every plain verb but What’s wrong?, which is for web sketches (decision 41)', () => {
     assert.deepEqual(
       [...STUDIO_VERBS],
