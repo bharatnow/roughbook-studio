@@ -326,6 +326,87 @@ describe('outbound requests (ground rule 2)', () => {
   });
 });
 
+describe('outbound requests: a path typed into the words of a run', () => {
+  /** A backend that stores the words and compiles them into the prompt, as `compileRun` does. */
+  async function typed(words: Record<string, unknown>) {
+    const { StudioApi } = await import('../api/client.js');
+    const { startRuns: start } = await import('../runs/lifecycle.js');
+    const root = await tempDir('roughbook-outbound-typed-');
+    const repo = path.join(root, 'client-app');
+    fs.mkdirSync(path.join(repo, 'rough', 'home', 'hero', 'iteration-01'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'rough', 'home', 'hero', 'iteration-01', 'index.tsx'),
+      ITERATION_SOURCE
+    );
+    fs.writeFileSync(path.join(repo, 'stray.ts'), STRAY_EDIT);
+    fs.writeFileSync(
+      path.join(repo, 'package.json'),
+      '{\n  "name": "client-app-private",\n  "dependencies": { "next": "^16.3.8" }\n}\n'
+    );
+    const backend = fakeFetch(request => {
+      const { direction } = (request.body as { directions: { direction: string }[] })
+        .directions[0]!;
+      const runs: StartedRun[] = [
+        {
+          runId: 'eeeeeeee-eeee-4eee-8eee-000000000001',
+          iteration: 'iteration-02',
+          parent: null,
+          targetFolder: 'rough/home/hero/iteration-02',
+          prompt: `<task>\nDirection: ${direction}\n</task>\n`,
+          checks: [{ kind: 'entry-file', file: 'index.tsx' }]
+        }
+      ];
+      return ok(runs, 201);
+    });
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+    const link = { orgId: ORG, project: 'site' } as Parameters<typeof start>[2];
+    const base = { page: 'home', component: 'hero', agent: 'claude-code', mode: 'headless' };
+    const [run] = await start(repo, api, link, { ...base, ...words } as never);
+    const prompt = fs.readFileSync(path.join(repo, ...run!.promptFile.split('/')), 'utf8');
+    return { backend, repo, root, prompt };
+  }
+
+  it('sends a stand-in, and the agent’s prompt still names the path', async () => {
+    const typedPath = 'C:\\Users\\dana\\client-app\\src\\hero.tsx';
+    const { backend, repo, root, prompt } = await typed({
+      kind: 'generate',
+      directions: [{ direction: `Match ${typedPath}`, hypothesis: 'Warm reads as trust' }]
+    });
+    const [request] = backend.requests;
+    const sent = JSON.stringify(request!.body);
+    assert.ok(!sent.includes('dana'), sent);
+    assert.ok(!sent.includes('client-app'), sent);
+    assert.ok(sent.includes('Match [local path 1]'), sent);
+    // The prompt the agent reads came back from the server, and is what was typed.
+    assert.ok(prompt.includes(`Direction: Match ${typedPath}\n`), prompt);
+    assert.ok(!prompt.includes('[local path'), prompt);
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 5
+    });
+  });
+
+  it('sends the repo’s own path as a stand-in too', async () => {
+    const root = await tempDir('roughbook-outbound-own-');
+    const own = path.join(root, 'client-app', 'src', 'hero.tsx');
+    const { backend, prompt } = await typed({
+      kind: 'generate',
+      directions: [{ direction: `Match ${own}` }]
+    });
+    const sent = JSON.stringify(backend.requests[0]!.body).toLowerCase();
+    assert.ok(!sent.includes('hero.tsx'), sent);
+    assert.ok(!sent.includes(path.basename(root).toLowerCase()), sent);
+    assert.ok(prompt.includes(`Direction: Match ${own}\n`), prompt);
+  });
+});
+
 describe('outbound requests: the readings call (A6 of the Apple plan)', () => {
   it('sends only the typed text, the readings kept and the one to replace', async () => {
     const { StudioApi } = await import('../api/client.js');

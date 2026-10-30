@@ -641,6 +641,11 @@ describe('the privacy sheet', () => {
     assert.match(text, /not kept/i);
     assert.match(text, /code/);
     assert.match(text, /paths/);
+    assert.match(text, /stays with the project until it is deleted/);
+    assert.match(text, /delete your own/);
+    assert.match(text, /never shown to client reviewers/);
+    assert.match(text, /no model is trained on them/);
+    assert.match(text, /stand-in/);
   });
 });
 

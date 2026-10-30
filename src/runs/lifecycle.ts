@@ -29,6 +29,7 @@ import {
   recordChildren
 } from './base.js';
 import { checkIteration, importsFromRough } from './checks.js';
+import { redactRunRequest, restoreLocalPaths } from './localPaths.js';
 import {
   assertTarget,
   createSlot,
@@ -150,8 +151,11 @@ export async function startRuns(
   // This studio takes screenshots (roughbook screenshot), so the prompt says when to look (D7).
   // The family and entry file choose the checks the backend sends (decision 23); the stack's
   // tokens stay with the iteration, so its ratings compare by stack (F7).
+  // A path in the typed words goes out as a stand-in, and comes back into the prompt below; the
+  // slot's placeholder keeps the words as typed, since it stays here.
+  const { request: outbound, paths } = redactRunRequest(request);
   const started = await api.startRuns(link.orgId, link.project, {
-    ...request,
+    ...outbound,
     ...(link.skills?.length ? { skills: link.skills } : {}),
     screenshots: true,
     family: environment.family,
@@ -225,7 +229,7 @@ export async function startRuns(
     );
     const standIn = run.placeholders?.assetOrigin ?? ASSET_ORIGIN_PLACEHOLDER;
     let prompt = fillEnvironment(
-      run.prompt.replaceAll(standIn, () => assetOrigin),
+      restoreLocalPaths(run.prompt, paths).replaceAll(standIn, () => assetOrigin),
       environment,
       run.placeholders ?? {},
       { hasEnvironmentFile: hasEnvironmentFile(repoRoot) }
