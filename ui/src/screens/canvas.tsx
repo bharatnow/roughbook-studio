@@ -5,6 +5,7 @@ import {
   MapList,
   PromotePanel,
   SelectionToolbar,
+  cardToolbar,
   Sheet,
   SheetFooter,
   cn,
@@ -701,8 +702,9 @@ function StudioCanvasView({
     if (!all.length) return null;
     const run = canvas.cards[item.key]?.run ?? null;
     const runActions = all.filter(action => RUN_ACTIONS.has(action.id));
+    const { onView, overflow } = cardToolbar(all, [...RUN_ACTIONS]);
     const items: ReactNode[] = [];
-    for (const action of all) {
+    for (const action of onView) {
       if (RUN_ACTIONS.has(action.id)) {
         if (run && action === runActions[0]) {
           items.push(<RunButtons key="run" run={run} actions={runActions} opsRef={runOps} />);
@@ -711,7 +713,15 @@ function StudioCanvasView({
         items.push(toolbarItem(action, item));
       }
     }
-    return <SelectionToolbar label={`${item.name} actions`}>{items}</SelectionToolbar>;
+    return (
+      <SelectionToolbar
+        key={item.key}
+        label={`${item.name} actions`}
+        overflow={overflow.length ? overflow.map(action => toolbarItem(action, item)) : undefined}
+      >
+        {items}
+      </SelectionToolbar>
+    );
   }
 
   // --- the drawers' items -------------------------------------------------------------------------

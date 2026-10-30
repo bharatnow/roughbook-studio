@@ -428,6 +428,7 @@ export function IterationScreen({
               feedback={iteration.feedback}
               critiquePrompt=""
               refineHref={`${base}/${id}?refine=1`}
+              variant="toolbar"
             />
           </>
         }
