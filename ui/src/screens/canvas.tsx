@@ -771,6 +771,10 @@ function StudioCanvasView({
       mode={promptMode}
       onModeChange={setPromptMode}
       fieldId={PROMPT_FIELD}
+      onSelect={key => {
+        controls.current?.select(key);
+        openComposer();
+      }}
       onStarted={({ runs: made, launched: how }) => {
         const first = made[0];
         // A built-in terminal has the keyboard; its session's address selects the card.

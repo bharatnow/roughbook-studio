@@ -31,9 +31,7 @@ export function promptModes({
   const fresh: StudioPromptMode = {
     id: 'new',
     label: 'New',
-    placeholder: frame
-      ? `Directions for ${frame}, one per line`
-      : 'Select a component to start iterations in it',
+    placeholder: frame ? `Directions for ${frame}, one per line` : 'What should Roughbook make?',
     disabled: !frame
   };
   if (off) {

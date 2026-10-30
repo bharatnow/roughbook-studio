@@ -1,6 +1,8 @@
 import {
   HelpTip,
   PromptBar,
+  composerChoices,
+  composerLabel,
   formatKeys,
   useMac,
   type Reading,
@@ -58,7 +60,8 @@ export function StudioPrompt({
   fieldId,
   onStarted,
   onLaunched,
-  onRefineOptions
+  onRefineOptions,
+  onSelect
 }: {
   canvas: StudioCanvas;
   selection: string | null;
@@ -71,6 +74,8 @@ export function StudioPrompt({
   onLaunched: (launched: Launched) => void;
   /** The refine drawer, with presets, observations and what to keep. */
   onRefineOptions: () => void;
+  /** Selects a component on the canvas, chosen from the context chip. */
+  onSelect: (key: string) => void;
 }) {
   const { state } = useStudio();
   const mac = useMac();
@@ -102,6 +107,17 @@ export function StudioPrompt({
     complete
   });
   const current = currentMode(modes, mode);
+  const choices = frame ? [] : composerChoices(canvas.input.sections, at.page);
+  const target = {
+    label: composerLabel({
+      mode: current,
+      frame: frame?.name ?? null,
+      iteration: entry?.kind === 'card' ? entry.card.name : null,
+      choices
+    }),
+    choices,
+    onChoose: onSelect
+  };
 
   async function send(form: FormData) {
     const text = String(form.get('directions') ?? '');
@@ -228,6 +244,7 @@ export function StudioPrompt({
         setAnswer(null);
         onModeChange(next);
       }}
+      target={target}
       chip={
         <div className="flex flex-wrap items-center gap-0.5">
           {current === 'fork' && complete !== false ? (

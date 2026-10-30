@@ -27,7 +27,7 @@ describe("the canvas prompt's modes", () => {
     assert.deepEqual(
       none.map(mode => [mode.id, mode.disabled, mode.placeholder]),
       [
-        ['new', true, 'Select a component to start iterations in it'],
+        ['new', true, 'What should Roughbook make?'],
         ['fork', true, 'Select an iteration to fork it'],
         ['refine', true, 'Select an iteration to refine it']
       ]
