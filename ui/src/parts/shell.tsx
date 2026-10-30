@@ -112,7 +112,9 @@ function Bar() {
     <MenuButton
       label={`${name}, project menu`}
       align="start"
-      items={menu.map(item => ({ label: item.label, onSelect: () => runApp(asCommand(item)) }))}
+      items={menu
+        .filter(item => !item.paletteOnly)
+        .map(item => ({ label: item.label, onSelect: () => runApp(asCommand(item)) }))}
     >
       <span className="truncate font-medium text-graphite">{name}</span>
     </MenuButton>

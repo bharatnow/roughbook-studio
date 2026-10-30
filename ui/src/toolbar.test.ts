@@ -43,6 +43,14 @@ describe("the shell's toolbar", () => {
     });
   });
 
+  it("shows only what has no other home in its menu; the rest are the palette's", () => {
+    const menu = documentItems({ ...INPUT, complete: true }).filter(item => !item.paletteOnly);
+    assert.deepEqual(
+      menu.map(item => item.label),
+      ['Your taste', 'Project settings', 'Copy link']
+    );
+  });
+
   it('never offers what only the web can do', () => {
     const labels = documentItems({ ...INPUT, complete: true }).map(item => item.label);
     for (const label of ['Rename…', 'Archive…', 'Delete…']) assert.ok(!labels.includes(label));

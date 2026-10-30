@@ -339,6 +339,18 @@ export function compareCommands(
 }
 
 /**
+ * The palette before a query (Lean plan, rule 2): where to go next, the recent work and runs, and
+ * Home. A query still finds every command.
+ */
+export function atRest(commands: StudioCommand[]): StudioCommand[] {
+  return commands.map(command =>
+    command.group === 'Recent' || command.group === 'Runs' || command.id === 'home'
+      ? command
+      : { ...command, quiet: true }
+  );
+}
+
+/**
  * The palette's commands: the selection's first, then the canvas's and the project's items, the
  * runs, the terminals, and the studio's own. Off the canvas (`null`), the studio's alone, with the
  * Complete features switch when `studio` says how it is set.

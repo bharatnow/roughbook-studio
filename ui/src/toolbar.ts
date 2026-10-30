@@ -14,7 +14,13 @@ export type DocumentInput = {
 };
 
 /** One item of the document menu, and the command that does the same. */
-export type DocumentItem = { id: string; label: string; run: CommandRun };
+export type DocumentItem = {
+  id: string;
+  label: string;
+  run: CommandRun;
+  /** Its visible home is elsewhere (Lean plan, rule 2), so only the palette lists it. */
+  paletteOnly?: true;
+};
 
 /** The project's address on the web. */
 export function projectLink(input: { project: string; webUrl: string | null }): string | null {
@@ -37,18 +43,34 @@ export function documentItems(input: DocumentInput): DocumentItem[] {
   if (!link) return [TASTE];
   const web = (href: string) => ({ kind: 'href', href, external: true }) as const;
   const items: DocumentItem[] = [
-    { id: 'document:look', label: 'Your look', run: web(`${link}/design-system`) },
+    {
+      id: 'document:look',
+      label: 'Your look',
+      run: web(`${link}/design-system`),
+      paletteOnly: true
+    },
     TASTE,
     { id: 'document:settings', label: 'Project settings', run: web(`${link}/settings`) }
   ];
   if (input.complete) {
     items.push(
-      { id: 'document:strategy', label: 'Strategy', run: web(`${link}/strategy`) },
-      { id: 'document:art-direction', label: 'Art direction', run: web(`${link}/art-direction`) },
+      {
+        id: 'document:strategy',
+        label: 'Strategy',
+        run: web(`${link}/strategy`),
+        paletteOnly: true
+      },
+      {
+        id: 'document:art-direction',
+        label: 'Art direction',
+        run: web(`${link}/art-direction`),
+        paletteOnly: true
+      },
       {
         id: 'document:library',
         label: 'Library',
-        run: web(`${input.webUrl!.replace(/\/+$/, '')}/library`)
+        run: web(`${input.webUrl!.replace(/\/+$/, '')}/library`),
+        paletteOnly: true
       }
     );
   }

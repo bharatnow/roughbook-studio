@@ -1,5 +1,5 @@
 import { CommandPalette, useUiHost } from '@roughbook/ui';
-import { studioCommands, type StudioCommand } from '../commands';
+import { atRest, studioCommands, type StudioCommand } from '../commands';
 import { useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
 import { errorLine, infoLine } from '../output';
@@ -77,12 +77,14 @@ export function StudioPalette() {
   return (
     <CommandPalette<StudioCommand>
       commands={() =>
-        palette.current?.commands() ??
-        studioCommands(null, null, {
-          complete,
-          project: state?.project.slug,
-          webUrl: state?.webUrl ?? null
-        })
+        atRest(
+          palette.current?.commands() ??
+            studioCommands(null, null, {
+              complete,
+              project: state?.project.slug,
+              webUrl: state?.webUrl ?? null
+            })
+        )
       }
       onRun={command => {
         if (palette.current) palette.current.run(command);
