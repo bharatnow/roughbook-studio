@@ -55,7 +55,7 @@ describe('the composed preview on Expo', () => {
   it('is in a mapped repo’s route: sections in order, in markers, with Pick and one ready', async () => {
     const expo = recipeFor('expo')!;
     assert.equal(expo.composes, true);
-    assert.equal(expo.version, 6);
+    assert.equal(expo.version, 7);
     const repo = await expoApp(true);
     const plan = expo.planPreview(repo, LINK);
     const route = plan.changes.find(change => change.file === ROUTE)?.after ?? '';
@@ -105,13 +105,12 @@ describe('the composed preview on Expo', () => {
     assert.match(route, /Reflect\.deleteProperty\(visual, "height"\)/);
   });
 
-  it('leaves a repo that maps nothing with the route it had', async () => {
+  it('runs pages in a repo that maps nothing too', async () => {
     const expo = recipeFor('expo')!;
     const repo = await expoApp(false);
     const route = expo.planPreview(repo, LINK).changes.find(change => change.file === ROUTE);
-    assert.equal(route?.after, previewRoute('app').content);
-    assert.ok(!route?.after?.includes('roughbook-compose'));
-    assert.ok(!route?.after?.includes('roughbook-variant'));
+    assert.equal(route?.after, previewRoute('app', { compose: true }).content);
+    assert.ok(route?.after?.includes('roughbook-compose'));
   });
 
   it('leaves a mapped repo with the route it had to setup --upgrade', async () => {

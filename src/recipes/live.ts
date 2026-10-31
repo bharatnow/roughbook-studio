@@ -62,8 +62,14 @@ export const LIVE_FUNCTION = `function roughbookLive() {
       var component = (section.getAttribute("${SECTION_ATTRIBUTE}") || "").split("/")[1];
       if (first && component) sections.push({ component: component, top: Math.round(first.getBoundingClientRect().top + window.scrollY) });
     });
+    // The app's own layout can go on past the sections, with its footer.
+    var bottom = root.getBoundingClientRect().bottom;
+    Array.from(document.body.children).forEach(function (child) {
+      if (/^(SCRIPT|STYLE|LINK|TEMPLATE)$/.test(child.tagName) || getComputedStyle(child).position === "fixed") return;
+      bottom = Math.max(bottom, child.getBoundingClientRect().bottom);
+    });
     var margin = parseFloat(getComputedStyle(document.body).marginBottom) || 0;
-    post({ roughbook: "size", height: Math.ceil(root.getBoundingClientRect().bottom + window.scrollY + margin), sections: sections });
+    post({ roughbook: "size", height: Math.ceil(bottom + window.scrollY + margin), sections: sections });
   };
   var hear = function (event) {
     if (event.source !== window.parent || !event.data || event.data.roughbook !== "viewport") return;

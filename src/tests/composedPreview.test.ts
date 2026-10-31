@@ -51,7 +51,7 @@ describe('the composed preview on Next.js', () => {
   it('is in a mapped repo’s route: sections in order, in markers, with Pick and one ready', async () => {
     const next = recipeFor('next')!;
     assert.equal(next.composes, true);
-    assert.equal(next.version, 9);
+    assert.equal(next.version, 10);
     const repo = await nextApp(true);
     const routes = next.planPreview(repo, LINK).changes.map(change => change.file);
     assert.ok(routes.includes('app/rough-preview/[...slug]/pick.tsx'), routes.join(', '));
@@ -107,15 +107,18 @@ describe('the composed preview on Next.js', () => {
     assert.ok(!next.contextPreview!.missing(repo, LINK).some(file => file.includes('[...slug]')));
   });
 
-  it('leaves a repo that maps nothing with the route it had', async () => {
+  it('runs pages in a repo that maps nothing too, with no in-page view', async () => {
     const next = recipeFor('next')!;
     const repo = await nextApp(false);
-    const files = next.planPreview(repo, LINK).changes.map(change => change.file);
-    assert.ok(!files.some(file => file.endsWith('pick.tsx')));
-    const [page, , error] = previewRouteFiles('app');
-    assert.ok(!page!.content.includes('roughbook-compose'));
-    assert.ok(!error!.content.includes('roughbook-compose'));
-    assert.equal(previewRouteFiles('app').length, 4);
+    const changes = next.planPreview(repo, LINK).changes;
+    assert.ok(changes.some(change => change.file.endsWith('pick.tsx')));
+    assert.ok(
+      changes.some(
+        change => change.file.endsWith('page.tsx') && change.after?.includes('roughbook-compose')
+      )
+    );
+    assert.ok(!changes.some(change => change.file.includes('context')));
+    assert.ok(next.setupFiles(repo, LINK).some(file => file.endsWith('pick.tsx')));
   });
 
   it('gives the composed address only where the recipe composes, in live mode', async () => {

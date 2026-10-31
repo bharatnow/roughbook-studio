@@ -29,7 +29,7 @@ import {
   renderContextList,
   viewName
 } from '../recipes/laravel/context.js';
-import { COMPOSED_ROUTE, PREVIEW_ROUTE, ROUTE_FILE } from '../recipes/laravel/preview.js';
+import { COMPOSED_ROUTE, ROUTE_FILE } from '../recipes/laravel/preview.js';
 import {
   CONTEXT_MODULES,
   CONTEXT_KEYS,
@@ -642,7 +642,7 @@ if (roughbookExists("app/rough-preview/context/loader.cjs")) {
     assert.equal(planned.summary, 'Update the in-page view’s rule.');
     assert.equal(planned.after, current);
     assert.equal(undoNextConfig(current), CONFIG);
-    assert.equal(next.version, 9);
+    assert.equal(next.version, 10);
   });
 
   it('writes the cache setting for Next.js 16.1 and later alone, by the version the app has (review finding 14)', async () => {
@@ -845,7 +845,7 @@ describe('the Laravel switch', () => {
     const plain = await tempDir('roughbook-context-');
     write(plain, 'routes/web.php', '<?php\n');
     const before = planPrep(plain, { link: LINK, recipe: laravel });
-    assert.equal(before.changes.find(change => change.file === ROUTE_FILE)?.after, PREVIEW_ROUTE);
+    assert.equal(before.changes.find(change => change.file === ROUTE_FILE)?.after, COMPOSED_ROUTE);
     assert.ok(!before.changes.some(change => change.file === SECTION_TEMPLATE));
     assert.deepEqual(laravel.setupFiles(plain, LINK), [ROUTE_FILE]);
   });

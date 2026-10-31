@@ -55,7 +55,7 @@ async function bladeApp(mapped: boolean): Promise<string> {
 describe('the composed preview on Laravel', () => {
   it('composes, at a version that brings a repo forward', () => {
     assert.equal(laravel.composes, true);
-    assert.equal(laravel.version, 3);
+    assert.equal(laravel.version, 4);
   });
 
   it('gives the address the route answers', () => {
@@ -69,7 +69,7 @@ describe('the composed preview on Laravel', () => {
     );
   });
 
-  it('is in a mapped repo’s route, and a repo that maps nothing keeps the route it had', async () => {
+  it('is in every repo’s route, with the in-page switch only where the repo is mapped', async () => {
     const mapped = await bladeApp(true);
     assert.equal(routeFile(mapped), `${COMPOSED_ROUTE}${CONTEXT_BLOCK}`);
     assert.equal(
@@ -77,9 +77,7 @@ describe('the composed preview on Laravel', () => {
       routeFile(mapped)
     );
     const plain = await bladeApp(false);
-    assert.equal(routeFile(plain), PREVIEW_ROUTE);
-    assert.ok(!PREVIEW_ROUTE.includes('roughbook-compose'));
-    assert.ok(!PREVIEW_ROUTE.includes('use (&$key)'));
+    assert.equal(routeFile(plain), COMPOSED_ROUTE);
   });
 
   it('checks the address before it looks for a file, behind the route’s gates', () => {

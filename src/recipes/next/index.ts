@@ -103,15 +103,14 @@ export function defaultComponentFile(
 }
 
 /**
- * The route's files, and for a mapped repo the in-page view's beside them and the route's page
- * compositions (B6): the recipe's own files outside rough/. A repo that maps nothing gets the
- * setup it had before B5.
+ * The route's files, with its page compositions (B6), and for a mapped repo the in-page view's beside
+ * them: the recipe's own files outside rough/. A repo that maps nothing gets no in-page view.
  */
 function ownFiles(repo: string, appDir: string): { file: string; content: string }[] {
   return [
     ...previewRouteFiles(appDir, {
       cacheComponents: usesCacheComponents(repo),
-      compose: hasMapFile(repo)
+      compose: true
     }),
     ...(hasMapFile(repo) ? contextFiles(appDir) : [])
   ];
@@ -200,7 +199,7 @@ export const next: Recipe = {
   // 7: the registries type each iteration's default export as unknown, so a baseline of a component
   // with required props passes the app's type check (B6).
   // 8: next.config's block turns Turbopack's development cache off (B7b, decision 67).
-  version: 9,
+  version: 10,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {

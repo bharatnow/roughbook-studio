@@ -236,7 +236,7 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   else if (layout) changes.push(layout);
   const route = previewRoute(appDir, {
     splash: dependsOn(repo, 'expo-splash-screen'),
-    compose: hasMapFile(repo)
+    compose: true
   });
   const routeDir = `${appDir}/${PREVIEW_ROUTE}`;
   ignoredFromBuild.push(routeDir);
@@ -353,7 +353,7 @@ export const expo: Recipe = {
   // 4: the in-page view's switch on the web target, and metro.config's block (brownfield B5b).
   // 5: every mapped file has a wrapper from the start, so one is adopted while Metro runs (B7).
   // 6: the route renders a mapped page's composition on the web target, with Pick (B6).
-  version: 6,
+  version: 7,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {

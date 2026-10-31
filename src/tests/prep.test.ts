@@ -120,6 +120,7 @@ describe('preparing a repo', () => {
         'src/app/rough-preview/[...slug]/ready.tsx',
         'src/app/rough-preview/[...slug]/error.tsx',
         'src/app/rough-preview/[...slug]/not-found.tsx',
+        'src/app/rough-preview/[...slug]/pick.tsx',
         'rough/preview.tsx',
         'src/app/globals.css',
         'rough/preview-registry.ts',
