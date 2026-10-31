@@ -375,7 +375,6 @@ export function studioCanvasInput(
         ...page.components.map(component => frame(page.slug, component)),
         ...(map ? notAdopted(map, page.slug, have) : []).map(item => mapFrame(page.slug, item))
       ],
-      compositionOrder: null,
       compositions: compositions(page.slug),
       ...(page.inApp ? { inApp: true } : {})
     };
@@ -390,7 +389,6 @@ export function studioCanvasInput(
       name: page.name,
       href: `/${page.slug}`,
       frames,
-      compositionOrder: null,
       compositions: []
     });
   }
