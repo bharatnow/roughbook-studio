@@ -36,7 +36,7 @@ import {
 import type { MapComponent } from '../../map/types.js';
 import { discoverWordpress } from './discover.js';
 import { hasMapFile } from '../../map/file.js';
-import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import { COMPOSE_PARAM, CONTEXT_SENTINEL, swapAddress } from '../context.js';
 import { CONTEXT_BLOCK, CONTEXT_LIST, pluginFor, writeContextList } from './context.js';
 
 /** The wp-env release the scaffold pins; the conformance fixture pins the same. */
@@ -152,7 +152,9 @@ runs on another local WordPress (Local, ddev, Lando) needs the plugin copied int
 and rough/ where it finds it. Keep recipe: wordpress so the studio keeps the plugin up to date. For a mapped
 block theme the plugin also holds the in-page view's switch, local environment only: each adopted
 template part and pattern renders inside its marker, and ?roughbook-swap=<page>/<component>/<iteration> renders the
-iteration's copy in its place through WordPress's own rendering (rough/preview-context.json lists them).`;
+iteration's copy in its place through WordPress's own rendering (rough/preview-context.json lists them). A
+page's slug at the same address with ?${COMPOSE_PARAM}=<component>:<iteration>,… renders that page's sections in order
+inside one ${WRAPPER}, for the canvas.`;
 
 /** A folder name as a theme's name: `harbor-theme` is Harbor Theme. */
 function themeName(name: string): string {
@@ -360,7 +362,8 @@ export const wordpress: Recipe = {
   // 3: the in-page view's switch in the preview plugin, for a mapped theme (brownfield B5b).
   // Also 3: the theme mounted and active in wp-env when the repo has no .wp-env.json of its own.
   // 4: the switch, as the preview route, in the local environment alone (review finding 14).
-  version: 4,
+  // 5: the preview plugin renders a page's composition, with Pick, for the canvas.
+  version: 5,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -417,6 +420,7 @@ export const wordpress: Recipe = {
   discover: discoverWordpress,
   pointer: themePointer,
   fromApp: themeFromApp,
+  composes: true,
   // The override file only when it is the recipe's own as written, never one of the designer's.
   setupFiles: repo => [
     ...(read(repo, OVERRIDE_FILE)?.replace(/\r\n/g, '\n') === overrideFor(repo) ||
@@ -445,10 +449,12 @@ export const wordpress: Recipe = {
     files: () => [],
     edits: () => [],
     generated: [CONTEXT_LIST],
-    missing: repo =>
-      hasMapFile(repo) && !(read(repo, PLUGIN_FILE)?.includes(CONTEXT_BLOCK) ?? false)
+    missing: repo => {
+      const plugin = read(repo, PLUGIN_FILE) ?? '';
+      return hasMapFile(repo) && !(plugin.includes(CONTEXT_BLOCK) && plugin.includes(COMPOSE_PARAM))
         ? [PLUGIN_FILE]
-        : [],
+        : [];
+    },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL
   },

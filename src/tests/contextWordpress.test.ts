@@ -168,7 +168,7 @@ describe('the WordPress switch’s list', () => {
 
 describe('the WordPress switch in the setup', () => {
   it('is the preview plugin’s for a mapped theme only, behind a new version, its list generated', async () => {
-    assert.equal(wordpress.version, 4);
+    assert.equal(wordpress.version, 5);
     const repo = await themeRepo();
     const hook = wordpress.contextPreview!;
     assert.equal(hook.sentinel, CONTEXT_SENTINEL);

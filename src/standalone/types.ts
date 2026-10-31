@@ -32,7 +32,47 @@ export type Rendered =
     }
   | { ok: false; message: string };
 
+/** One section of a page's composition, as a renderer gets it. */
+export type ComposeSection = {
+  component: string;
+  /** The iteration's folder on disk. */
+  dir: string;
+  /** The iteration's folder on the site, ending with a slash: what its relative links meant. */
+  sitePath: string;
+  /** Its parsed fixture, or null when it has none. */
+  fixture: unknown;
+};
+
+export type ComposeInput = {
+  repoRoot: string;
+  environment: RepoEnvironment;
+  page: string;
+  /** In the page's order. */
+  sections: ComposeSection[];
+  /** Where the composition's own files are served, as a path on the site ending with a slash. */
+  filesPath: string;
+  /** The same, as the composed page links them. */
+  filesLink: string;
+};
+
+export type Composed =
+  | {
+      ok: true;
+      /** What the page's root holds: every section in its marker, inside the wrapper if any. */
+      markup: string;
+      /** Tags the page's head gets after the site's stylesheets. */
+      head: string[];
+      /** Attributes for the page's body, with a space before each: a wrapper's own. */
+      bodyAttributes: string;
+      readyOn: 'load' | 'script';
+      /** The files the head names, by their path under `filesPath`. */
+      files: Record<string, PageFile>;
+    }
+  | { ok: false; message: string };
+
 export type StandaloneRenderer = {
   id: string;
   render(input: RenderInput): Promise<Rendered>;
+  /** A page's composition: every section in one document. */
+  composePage(input: ComposeInput): Promise<Composed>;
 };

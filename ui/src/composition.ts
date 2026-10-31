@@ -118,6 +118,47 @@ export function composedSrc(
   };
 }
 
+/** Where a frame on this page shows a snapshot stack's page, from its rendered images. */
+export function snapshotPageSrc(page: string, sections: DraftSection[], shotKey: string): string {
+  return `${webPageSrc(page, sections, shotKey)}&source=snapshots`;
+}
+
+/** Where a frame on this page runs a page's web sketches: this server sends it to the sandbox. */
+export function webPageSrc(page: string, sections: DraftSection[], shotKey: string): string {
+  const value = encodeURIComponent(composeValue(sections));
+  return `/api/pages/${page}/composed?sections=${value}&key=${encodeURIComponent(shotKey)}`;
+}
+
+/**
+ * A page's sections as they run: the repo's on the app and the rest on the sandbox, each run of them
+ * one frame, in order. One address when one frame holds them all; null when any cannot run.
+ */
+export function pageParts(
+  page: string,
+  sections: { component: string; iteration: string }[],
+  runners: {
+    here: ReadonlySet<string>;
+    local: ((sections: DraftSection[]) => string | null) | null;
+    web: ((sections: DraftSection[]) => string | null) | null;
+  }
+): string | { src: string; sections: { component: string; iteration: string }[] }[] | null {
+  const isLocal = (section: { component: string; iteration: string }) =>
+    runners.here.has(`${page}/${section.component}/${section.iteration}`);
+  const runs: { local: boolean; sections: typeof sections }[] = [];
+  for (const section of sections) {
+    const last = runs.at(-1);
+    if (last && last.local === isLocal(section)) last.sections.push(section);
+    else runs.push({ local: isLocal(section), sections: [section] });
+  }
+  const parts = runs.map(run => ({
+    src: (run.local ? runners.local : runners.web)?.(run.sections) ?? null,
+    sections: run.sections
+  }));
+  if (!parts.length || parts.some(part => part.src === null)) return null;
+  const ready = parts as { src: string; sections: typeof sections }[];
+  return ready.length === 1 ? ready[0]!.src : ready;
+}
+
 /** The preview's key for a page's composition: what its route says ready with, as the editor's. */
 export function composedKey(page: string): string {
   return `${page}/composition`;

@@ -96,7 +96,9 @@ export function composedAddress(
   page: string,
   sections: CompositionSection[]
 ): string | null {
-  if (environment.mode !== 'live' || !recipeFor(environment.recipe)?.composes) return null;
+  if (environment.mode === 'snapshot') return null;
+  // The standalone server composes whatever the repo's iterations are; it has no recipe of its own.
+  if (environment.mode !== 'standalone' && !recipeFor(environment.recipe)?.composes) return null;
   const route = environment.preview.replaceAll('{key}', page);
   return `${route}${route.includes('?') ? '&' : '?'}${COMPOSE_PARAM}=${formatSections(sections)}`;
 }

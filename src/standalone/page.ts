@@ -2,6 +2,8 @@
 // variant on its root, and the contract's messages (rough/CONTRACT.md, point 3), the same for every
 // kind of iteration. A failed or missing one gets a page of its own that posts the error.
 import { VARIANT_PARAMS } from '../environment/variants.js';
+import { MARKER_ELEMENT, SECTION_ATTRIBUTE } from '../recipes/context.js';
+import { LIVE_SCRIPT } from '../recipes/live.js';
 
 /** Where an HTML wrapper puts the iteration. */
 export const ITERATION_STAND_IN = '{{roughbook:iteration}}';
@@ -164,6 +166,66 @@ ${tags}
 </head>
 <body>
 ${input.markup}
+</body>
+</html>
+`;
+}
+
+/** A section of a composition in its marker, for a renderer that writes HTML. */
+export function sectionMarker(page: string, component: string, inner: string): string {
+  return `<${MARKER_ELEMENT} ${SECTION_ATTRIBUTE}="${escape(`${page}/${component}`)}" style="display: contents">
+${inner}
+</${MARKER_ELEMENT}>`;
+}
+
+/** With ?roughbook-pick=1: a click names the section it fell in to the frame, and goes nowhere. */
+export const PICK_SCRIPT = `document.addEventListener("click", function (event) {
+  event.preventDefault();
+  event.stopPropagation();
+  var section = event.target instanceof Element ? event.target.closest("[${SECTION_ATTRIBUTE}]") : null;
+  var key = section && section.getAttribute("${SECTION_ATTRIBUTE}");
+  if (key) window.parent.postMessage({ roughbook: "section", key: key }, "*");
+}, true);`;
+
+export type ComposedPageInput = {
+  page: string;
+  /** Every section in its marker. */
+  markup: string;
+  head: string[];
+  bodyAttributes: string;
+  stylesheets: string[];
+  variant: PageVariant;
+  readyOn: 'load' | 'script';
+  pick: boolean;
+};
+
+/**
+ * A page's composition: one document whose sections all sit in one data-roughbook-variant root,
+ * which runs the script the canvas talks to. The variant's word is on that root, since the script
+ * measures the first element with the attribute, and the rest is on the page's root as ever.
+ */
+export function composedPage(input: ComposedPageInput): string {
+  const id = `${input.page}/composition`;
+  const tags = [
+    `<script>${messagesScript(id, input.readyOn)}</script>`,
+    `<script>${LIVE_SCRIPT}</script>`,
+    ...(input.pick ? [`<script>${PICK_SCRIPT}</script>`] : []),
+    ...input.stylesheets.map(href => `<link rel="stylesheet" href="${escape(href)}">`),
+    ...input.head
+  ].join('\n');
+  const word = input.variant.word ? `="${escape(input.variant.word)}"` : '';
+  return `<!doctype html>
+<html${rootAttributes({ ...input.variant, word: null })}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escape(id)}</title>
+${tags}
+</head>
+<body${input.bodyAttributes}>
+<div data-roughbook-variant${word}>
+${input.markup}
+</div>
 </body>
 </html>
 `;

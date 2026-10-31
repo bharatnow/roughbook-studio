@@ -8,10 +8,15 @@
 //
 // The app's own lib/main.dart never imports lib/rough/, so `flutter build web` holds nothing of it:
 // the build gate. Neither file is committed; both are the recipe's, rewritten by setup --upgrade.
+//
+// Flutter web paints to a canvas, so the shared live script (../live.ts) sees nothing of the page and
+// no CSS window height exists. The composed route says the same words itself from measured widgets,
+// and sections read the device's height from the MediaQuery it gives them.
 import fs from 'node:fs';
 import path from 'node:path';
 import { listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, PICK_PARAM } from '../context.js';
 
 export const MIRROR = 'lib/rough';
 export const ENTRY = 'iteration.dart';
@@ -91,28 +96,61 @@ export function previewEntry(pkg: string): string {
 // The web target's preview of one iteration from ${ROUGH_DIR}/ (mirrored in ${MIRROR}/), at
 // /#/rough-preview/<page>/<component>/<iteration>, run as flutter run -d web-server -t ${PREVIEW_ENTRY}.
 // The app's own lib/main.dart never imports ${MIRROR}/, so its production build holds none of it.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 import 'package:${pkg}/rough/registry.dart';
 
 @JS('window.parent.postMessage')
 external void _post(JSAny message, JSString origin);
 
+@JS('window.parent')
+external JSAny? get _parent;
+
+@JS('window.self')
+external JSAny? get _self;
+
+@JS('window.addEventListener')
+external void _listen(JSString type, JSFunction handler, JSBoolean capture);
+
+@JS('window.location.reload')
+external void _reload();
+
+extension type _Message(JSObject _) implements JSObject {
+  external JSAny? get source;
+  external JSAny? get data;
+  external void stopImmediatePropagation();
+}
+
+extension type _Key(JSObject _) implements JSObject {
+  external String? get key;
+}
+
 void _say(String word, String key, [String? message]) {
   _post(<String, Object?>{'roughbook': word, 'id': key, if (message != null) 'message': message}.jsify()!, '*'.toJS);
 }
+
+/// Whether a section failed, so the page stops saying it is ready, painted or any size.
+var _failed = false;
 
 void main() {
   final uri = Uri.base;
   final route = uri.fragment.split('?').first;
   final key = route.replaceFirst(RegExp(r'^/?rough-preview/'), '');
-  final query = uri.queryParameters;
+  // The route sits in the fragment, so what follows it does too; a variant comes before the #.
+  final query = {...uri.queryParameters, ...Uri.splitQueryString(uri.fragment.substring(route.length).replaceFirst('?', ''))};
+  final composed = query['${COMPOSE_PARAM}'];
   // Answers this machine only (the preview contract, point 5).
   if (!RegExp(r'^(localhost|127\\.0\\.0\\.1|\\[::1\\])$').hasMatch(uri.host)) {
-    _say('error', key, 'The preview answers this machine only.');
+    _say('error', composed == null ? key : '$key/composition', 'The preview answers this machine only.');
+    return;
+  }
+  if (composed != null) {
+    _compose(key, composed, query);
     return;
   }
   final build = iterations[key];
@@ -129,14 +167,189 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SemanticsBinding.instance.ensureSemantics();
   final fixture = fixtures[key] == null ? <String, dynamic>{} : jsonDecode(fixtures[key]!) as Map<String, dynamic>;
-  runApp(roughPreview(
+  runApp(_preview(query, _Built(make: () => build(fixture))));
+  WidgetsBinding.instance.addPostFrameCallback((_) => _say('ready', key));
+}
+
+/// The variant the studio asks for in the address, on the app's own wrapper.
+Widget _preview(Map<String, String> query, Widget child) {
+  return roughPreview(
     brightness: query['roughbook-scheme'] == 'dark' ? Brightness.dark : Brightness.light,
     direction: query['roughbook-dir'] == 'rtl' ? TextDirection.rtl : TextDirection.ltr,
     locale: query['roughbook-lang'] == null ? null : Locale.fromSubtags(languageCode: query['roughbook-lang']!.split('-').first),
     textScale: query['roughbook-text'] == 'large' ? 1.3 : 1,
-    child: _Built(make: () => build(fixture)),
-  ));
-  WidgetsBinding.instance.addPostFrameCallback((_) => _say('ready', key));
+    child: child,
+  );
+}
+
+/// A page's composition: each section's iteration and fixture, in order; a section the registry
+/// lacks answers as a missing iteration.
+void _compose(String page, String composed, Map<String, String> query) {
+  final id = '$page/composition';
+  void refuse(String message) {
+    _say('error', id, message);
+    runApp(Directionality(textDirection: TextDirection.ltr, child: Text(message)));
+  }
+
+  final named = composed.split(',').where((section) => section.isNotEmpty).toList();
+  if (!RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$').hasMatch(page) || named.isEmpty || named.length > 30) {
+    refuse('There is no composition at $page in this repo.');
+    return;
+  }
+  final sections = <_Section>[];
+  for (final section in named) {
+    final parts = section.split(':');
+    final component = parts.first;
+    final key = '$page/$component/\${parts.length > 1 ? parts[1] : ''}';
+    final build = iterations[key];
+    if (build == null) {
+      refuse('There is no iteration $key in this repo.');
+      return;
+    }
+    final fixture = fixtures[key];
+    sections.add(_Section(component, _Built(make: () => build(fixture == null ? <String, dynamic>{} : jsonDecode(fixture) as Map<String, dynamic>))));
+  }
+  FlutterError.onError = (details) {
+    // The route is in the address and the wrapper's app has only its home: not the page's fault.
+    if (details.exception.toString().startsWith('Could not navigate to initial route')) return;
+    _failed = true;
+    FlutterError.presentError(details);
+    _say('error', id, details.exceptionAsString());
+  };
+  // The text in the page, for the studio's doctor and for screen readers.
+  WidgetsFlutterBinding.ensureInitialized();
+  SemanticsBinding.instance.ensureSemantics();
+  runApp(_preview(query, _Composed(page: page, sections: sections, pick: query['${PICK_PARAM}'] == '1')));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!_failed) _say('ready', id);
+  });
+}
+
+class _Section {
+  _Section(this.component, this.child);
+  final String component;
+  final Widget child;
+  final GlobalKey key = GlobalKey();
+}
+
+/// The sections, one under another, and what a canvas needs of them. It runs the page in a frame as
+/// tall as the page, so the page says how tall it is and where each section starts, and the sections
+/// read the device's height from their MediaQuery, not the frame's. A browser holds back rendering
+/// in a frame it is not drawing, so these go by the clock as well. Outside a frame it does nothing.
+class _Composed extends StatefulWidget {
+  const _Composed({required this.page, required this.sections, required this.pick});
+  final String page;
+  final List<_Section> sections;
+  final bool pick;
+  @override
+  State<_Composed> createState() => _ComposedState();
+}
+
+class _ComposedState extends State<_Composed> {
+  final _root = GlobalKey();
+  final _framed = !_parent.strictEquals(_self).toDart;
+  double? _height;
+  String _said = '';
+  Timer? _waiting;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_framed) return;
+    _listen('message'.toJS, _hear.toJS, false.toJS);
+    // On the way down, before the engine's own key handling sees it.
+    _listen('keydown'.toJS, _escape.toJS, true.toJS);
+    // The route is in the fragment, so a new address in the frame loads nothing and the wrapper's app
+    // would be asked for a route it does not have. It is a new page, so load it.
+    _listen('popstate'.toJS, _moved.toJS, true.toJS);
+    SchedulerBinding.instance.addPersistentFrameCallback((_) => _later());
+    for (final wait in const [300, 1000, 2500, 5000]) {
+      Timer(Duration(milliseconds: wait), _measure);
+    }
+    Timer(const Duration(milliseconds: 300), () {
+      if (!_failed) _tell('painted');
+    });
+  }
+
+  void _tell(String word) => _post(<String, Object?>{'roughbook': word}.jsify()!, '*'.toJS);
+
+  void _hear(_Message event) {
+    if (!event.source.strictEquals(_parent).toDart) return;
+    final data = event.data.dartify();
+    if (data is! Map || data['roughbook'] != 'viewport') return;
+    final height = data['height'];
+    if (height is! num || height <= 0) return;
+    setState(() => _height = height.toDouble());
+    // A frame the browser is not drawing gets no animation frames, so this one goes by the clock.
+    SchedulerBinding.instance.scheduleWarmUpFrame();
+    SchedulerBinding.instance.addPostFrameCallback((_) => _measure());
+  }
+
+  void _escape(_Key event) {
+    if (event.key == 'Escape') _tell('escape');
+  }
+
+  void _moved(_Message event) {
+    event.stopImmediatePropagation();
+    _reload();
+  }
+
+  void _later() {
+    _waiting?.cancel();
+    _waiting = Timer(const Duration(milliseconds: 100), () => _measure(changed: true));
+  }
+
+  void _measure({bool changed = false}) {
+    final root = _root.currentContext?.findRenderObject();
+    if (_failed || root is! RenderBox || !root.hasSize) return;
+    final height = root.localToGlobal(Offset(0, root.size.height)).dy.ceil();
+    final sections = <Map<String, Object?>>[
+      for (final section in widget.sections)
+        if (section.key.currentContext?.findRenderObject() case final RenderBox box when box.hasSize)
+          {'component': section.component, 'top': box.localToGlobal(Offset.zero).dy.round()},
+    ];
+    final message = <String, Object?>{'roughbook': 'size', 'height': height, 'sections': sections};
+    final text = jsonEncode(message);
+    if (changed && text == _said) return;
+    _said = text;
+    _post(message.jsify()!, '*'.toJS);
+  }
+
+  void _picked(_Section section) {
+    _post(<String, Object?>{'roughbook': 'section', 'key': '\${widget.page}/\${section.component}'}.jsify()!, '*'.toJS);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    // The frame's first height is the device's until the canvas says, and the frame then grows to the page.
+    if (_height == null && media.size.height > 0) _height = media.size.height;
+    return MediaQuery(
+      data: media.copyWith(size: Size(media.size.width, _height ?? media.size.height)),
+      child: SingleChildScrollView(
+        // The frame is as tall as the page, so a wheel over it belongs to the canvas.
+        physics: _framed ? const NeverScrollableScrollPhysics() : null,
+        child: Column(
+          key: _root,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final section in widget.sections)
+              KeyedSubtree(
+                key: section.key,
+                child: widget.pick
+                    ? GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _picked(section),
+                        child: AbsorbPointer(child: section.child),
+                      )
+                    : section.child,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Built extends StatelessWidget {

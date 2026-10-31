@@ -10,6 +10,12 @@
 //   snippets/rough-preview-wrapper.liquid                              rough/preview.liquid, copied
 //   templates/search.rough-preview.liquid                              the page that shows one
 //
+// A page's composition (B6) comes through the same template. Liquid reads no parameter of an
+// address, so at a page's key with ?roughbook-compose=… a script sends the browser once to
+// /search?q=roughbook-compose <page> <key> <key>…&view=rough-preview, with the parameter's sections
+// as iteration keys in the terms; Liquid renders each through the dispatcher, which already names
+// them all, so a composition needs no generated file of its own.
+//
 // The template renders nothing outside a development theme (theme.role), so a theme pushed with
 // them by mistake shows its search page, never an iteration; and a theme deployed from git has
 // none of them.
@@ -17,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listFixtures, listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
+import { LIVE_SCRIPT } from '../live.js';
 
 export const ENTRY = 'index.liquid';
 export const FIXTURE = 'preview.json';
@@ -32,22 +40,44 @@ export function snippetName(key: string): string {
   return `${ITERATION_PREFIX}${key.split('/').join('--')}`;
 }
 
-export const PREVIEW_TEMPLATE = `{%- comment -%}
-  ${MARKER} template: development only, not committed (see .gitignore). The Roughbook studio shows
-  one iteration of ${ROUGH_DIR}/ at /search?q=<page>/<component>/<iteration>&view=rough-preview, inside the
-  theme's layout, and only on a development theme (shopify theme dev): anywhere else it renders
-  nothing of ${ROUGH_DIR}/. Written by roughbook init from the Shopify recipe, which rewrites it.
-{%- endcomment -%}
-{%- if theme.role == 'development' -%}
-  {%- assign rough_key = search.terms -%}
-  <div id="rough-preview">
-    {%- capture rough_iteration -%}{%- render 'rough-preview', key: rough_key -%}{%- endcapture -%}
-    {%- render 'rough-preview-wrapper', iteration: rough_iteration -%}
-  </div>
-  <script>
+/** The first of the terms of a composition's address, then the page, then its sections' keys. */
+const COMPOSE_WORD = 'roughbook-compose';
+
+/**
+ * Turns the composed address into the terms Liquid can read, and goes there; the rest of the address
+ * (the view, the variant, Pick) goes with it. An address that names no sections is refused here, as
+ * the route refuses one on Next.js.
+ */
+const COMPOSE_ADDRESS = `<script>
     (function () {
-      var key = {{ rough_key | json }};
       var params = new URLSearchParams(window.location.search);
+      var composed = params.get('${COMPOSE_PARAM}');
+      if (composed === null) return;
+      var page = params.get('q') || '';
+      var sections = composed.split(',').filter(Boolean);
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(page) || !sections.length || sections.length > 30) {
+        window.parent.postMessage(
+          { roughbook: 'error', id: page + '/composition', message: 'No composition at this key.' },
+          '*'
+        );
+        return;
+      }
+      var keys = sections.map(function (section) {
+        return page + '/' + section.split(':').join('/');
+      });
+      params.set('q', ['${COMPOSE_WORD}', page].concat(keys).join(' '));
+      params.delete('${COMPOSE_PARAM}');
+      window.location.replace(window.location.pathname + '?' + params.toString());
+    })();
+  </script>`;
+
+/** What follows the iteration, or a composition, on the page: its variant, then ready or its error. */
+const report = (id: string) => `<script>
+    (function () {
+      var key = ${id};
+      var params = new URLSearchParams(window.location.search);
+      // On its way to a composition's terms: what Liquid wrote here is not what was asked for.
+      if (params.has('${COMPOSE_PARAM}')) return;
       // The variant the studio asks for in the address (rough/CONTRACT.md, point 2).
       var root = document.documentElement;
       var scheme = params.get('roughbook-scheme');
@@ -72,7 +102,75 @@ export const PREVIEW_TEMPLATE = `{%- comment -%}
         '*'
       );
     })();
+  </script>`;
+
+/**
+ * What only a composition has. The shared script measures a marker's first element, and a section
+ * in Liquid often opens with its own <style>, which has no box: its markup goes first. With
+ * ?roughbook-pick=1 a click names its section to the frame instead of following the page. A page
+ * that failed answers with its error and no shared script: Liquid leaves the other sections on it,
+ * and a 100vh section there would grow with a frame that takes each height the script says.
+ */
+const COMPOSED_SCRIPT = `<script>
+    (function () {
+      document.querySelectorAll('[${SECTION_ATTRIBUTE}]').forEach(function (marker) {
+        var shown = Array.from(marker.children).find(function (child) {
+          return !/^(STYLE|LINK|SCRIPT)$/.test(child.tagName);
+        });
+        if (shown) marker.insertBefore(shown, marker.firstElementChild);
+      });
+      if (new URLSearchParams(window.location.search).get('${PICK_PARAM}') !== '1') return;
+      document.addEventListener(
+        'click',
+        function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          var section = event.target.closest ? event.target.closest('[${SECTION_ATTRIBUTE}]') : null;
+          var key = section && section.getAttribute('${SECTION_ATTRIBUTE}');
+          if (key) window.parent.postMessage({ roughbook: 'section', key: key }, '*');
+        },
+        true
+      );
+    })();
   </script>
+  <script>{% raw %}if (!document.querySelector("[data-rough-missing]") && !/Liquid (syntax )?error/i.test(document.getElementById("rough-preview").textContent)) ${LIVE_SCRIPT}{% endraw %}</script>`;
+
+export const PREVIEW_TEMPLATE = `{%- comment -%}
+  ${MARKER} template: development only, not committed (see .gitignore). The Roughbook studio shows
+  one iteration of ${ROUGH_DIR}/ at /search?q=<page>/<component>/<iteration>&view=rough-preview, inside the
+  theme's layout, and only on a development theme (shopify theme dev): anywhere else it renders
+  nothing of ${ROUGH_DIR}/. A page's composition comes as /search?q=<page>&view=rough-preview&${COMPOSE_PARAM}=<component>:<iteration>,...
+  and is sent on to terms Liquid can read, each section in its marker. Written by roughbook init from
+  the Shopify recipe, which rewrites it.
+{%- endcomment -%}
+{%- if theme.role == 'development' -%}
+  {%- assign rough_words = search.terms | split: ' ' -%}
+  {%- if rough_words.first == '${COMPOSE_WORD}' -%}
+    {%- assign rough_page = rough_words[1] -%}
+    <div id="rough-preview" data-roughbook-variant>
+      {%- capture rough_iteration -%}
+        {%- for rough_key in rough_words offset: 2 -%}
+          {%- assign rough_parts = rough_key | split: '/' -%}
+          <${MARKER_ELEMENT} ${SECTION_ATTRIBUTE}="{{ rough_page | escape }}/{{ rough_parts[1] | escape }}" style="display: contents">
+            {%- render 'rough-preview', key: rough_key -%}
+          </${MARKER_ELEMENT}>
+        {%- else -%}
+          <p data-rough-missing>There is no composition of {{ rough_page | escape }} here.</p>
+        {%- endfor -%}
+      {%- endcapture -%}
+      {%- render 'rough-preview-wrapper', iteration: rough_iteration -%}
+    </div>
+  ${COMPOSED_SCRIPT}
+  ${report(`{{ rough_page | json }} + '/composition'`)}
+  {%- else -%}
+  {%- assign rough_key = search.terms -%}
+  ${COMPOSE_ADDRESS}
+  <div id="rough-preview">
+    {%- capture rough_iteration -%}{%- render 'rough-preview', key: rough_key -%}{%- endcapture -%}
+    {%- render 'rough-preview-wrapper', iteration: rough_iteration -%}
+  </div>
+  ${report('{{ rough_key | json }}')}
+  {%- endif -%}
 {%- endif -%}
 `;
 

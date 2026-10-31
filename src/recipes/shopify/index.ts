@@ -77,7 +77,9 @@ ${DISPATCH} that renders the one asked for with its ${FIXTURE} values as paramet
 from ${WRAPPER}; roughbook init writes ${TEMPLATE}, which shows one at
 /search?q=<page>/<component>/<iteration>&view=rough-preview (search.terms is the part of an address
 Liquid reads) inside the theme's layout, posts ready, or the error Liquid wrote in its place, and
-renders nothing unless theme.role is development. All of them are gitignored, so a theme deployed from
+renders nothing unless theme.role is development. At a page's key with ?roughbook-compose=<component>:<iteration>,…
+it sends the browser on to /search?q=roughbook-compose <page> <key>…&view=rough-preview, since Liquid
+reads no parameter of an address, and renders each section in its marker. All of them are gitignored, so a theme deployed from
 git never has them (gate: runtime: name the store's live address as production, where the preview shows
 nothing). theme dev reloads the page when a file changes (reload: app). Start from that setup; keep an
 iteration a section's markup with the theme's own snippets and settings, and keep recipe: shopify so the
@@ -87,7 +89,8 @@ studio keeps the snippets up to date. Never push a theme from a checkout with pr
 export const shopify: Recipe = {
   id: 'shopify',
   name: 'Shopify themes',
-  version: 1,
+  // 2: the template renders a page's composition, for the canvas (B6, the composite plan).
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link, os?: EnvironmentOs): RepoEnvironment {
@@ -144,6 +147,7 @@ export const shopify: Recipe = {
   },
   planPreview,
   discover: discoverShopify,
+  composes: true,
   // The template, and the snippets written for the iterations there are now, for uninstall.
   setupFiles: repo => [
     TEMPLATE,

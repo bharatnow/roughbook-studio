@@ -234,7 +234,10 @@ function planPreview(repo: string, link: RepoLink): PreviewPlan {
   const layout = planLayout(repo, appDir);
   if (layout && 'manual' in layout) manual.push(layout.manual);
   else if (layout) changes.push(layout);
-  const route = previewRoute(appDir, { splash: dependsOn(repo, 'expo-splash-screen') });
+  const route = previewRoute(appDir, {
+    splash: dependsOn(repo, 'expo-splash-screen'),
+    compose: hasMapFile(repo)
+  });
   const routeDir = `${appDir}/${PREVIEW_ROUTE}`;
   ignoredFromBuild.push(routeDir);
   gitWanted.push(`/${routeDir}/`);
@@ -337,7 +340,10 @@ a theme the app keeps itself should read the roughbook-scheme parameter in the w
 view's switch lives in rough/_context/ (development only, gitignored) and metro.config.js hands Metro's config to it:
 on the web target alone, the app's imports of an adopted component resolve to a wrapper that marks it and, for
 ?roughbook-swap=<page>/<component>/<iteration>, renders the iteration in its place with the same props. In its page works
-on the web target (react-native-web); on a device or simulator, screens show components alone.`;
+on the web target (react-native-web); on a device or simulator, screens show components alone. In a mapped app the
+route also renders a page's composition on the web target, at the page's key with ?roughbook-compose=<component>:<iteration>,…:
+keep its one root element with data-roughbook-variant around the sections, and give a page's sections their full-window
+height through Dimensions, useWindowDimensions, flex: 1 or vh, which the page answers with the device's height.`;
 
 export const expo: Recipe = {
   id: 'expo',
@@ -345,7 +351,9 @@ export const expo: Recipe = {
   // 2: the root layout's edit keeps every hook on every render, and uninstall reverses it.
   // 3: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 4: the in-page view's switch on the web target, and metro.config's block (brownfield B5b).
-  version: 5,
+  // 5: every mapped file has a wrapper from the start, so one is adopted while Metro runs (B7).
+  // 6: the route renders a mapped page's composition on the web target, with Pick (B6).
+  version: 6,
   setupNotes: SETUP_NOTES,
   appDir: detectRouterDir,
   environment(link): RepoEnvironment {
@@ -403,6 +411,7 @@ export const expo: Recipe = {
   discover: discoverExpo,
   pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: ENTRY, fixture: FIXTURE }),
+  composes: true,
   setupFiles: (repo, link) =>
     link.appDir
       ? [previewRouteFile(link.appDir), ...contextSetupFiles(repo), ...wrapperFiles(repo)]
@@ -421,10 +430,14 @@ export const expo: Recipe = {
       const absent = contextFiles()
         .map(item => item.file)
         .filter(file => read(repo, file) === null);
+      // The route's page compositions (B6), in a route still as a repo that maps nothing has it.
+      const splash = dependsOn(repo, 'expo-splash-screen');
+      const route = previewRoute(link.appDir, { splash });
+      const pending = read(repo, route.file) === route.content ? [...absent, route.file] : absent;
       const config = read(repo, METRO_CONFIG);
       return config === null || (!isOwnMetroConfig(config) && undoMetroConfig(config) === null)
-        ? [...absent, METRO_CONFIG]
-        : absent;
+        ? [...pending, METRO_CONFIG]
+        : pending;
     },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL,

@@ -184,6 +184,8 @@ export type StillEntry = {
 
 /** `GET …/stills`: the project's signed picture links, by `<page>/<component>/<iteration>`. */
 export type StillsRead = {
+  /** Where web sketches run; a backend from before the canvas ran pages does not say. */
+  sandbox?: string;
   expiresAt: string;
   /** How many are still being made. */
   pending: number;

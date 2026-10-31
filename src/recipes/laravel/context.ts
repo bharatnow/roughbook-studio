@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  COMPOSE_PARAM,
   CONTEXT_SENTINEL,
   MARKER_ELEMENT,
   MARKERS_PARAM,
@@ -28,16 +29,20 @@ export const CONTEXT_LIST = 'routes/rough-preview.json';
 export const SECTION_TEMPLATE = 'routes/rough-preview-section.php';
 const ENTRY = 'index.blade.php';
 
+/** A click names the section it fell in to the frame instead of following the page: in PHP's double quotes. */
+export const PICK_SCRIPT = `<script>(function(){if(window.roughbookPick)return;window.roughbookPick=1;document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var s=e.target instanceof Element?e.target.closest('[${SECTION_ATTRIBUTE}]'):null;if(s)window.parent.postMessage({roughbook:'section',key:s.getAttribute('${SECTION_ATTRIBUTE}')},'*');},true);})();</script>`;
+
 /** What the route file gains for a mapped app, after the route itself. */
 export const CONTEXT_BLOCK = `
 // The in-page view (${CONTEXT_SENTINEL}): each adopted view renders inside its marker, and with
 // ?${SWAP_PARAM}=<page>/<component>/<iteration> the iteration renders in its place, with the variables the
 // page gave the view. For this machine only, as the route is; ${CONTEXT_LIST} lists the adopted views.
+// A page's composition marks its own sections, so a baseline that shows an adopted view is not marked twice.
 (function () {
     $list = __DIR__.'/rough-preview.json';
     $template = __DIR__.'/rough-preview-section.php';
     $request = request();
-    if (! is_file($list) || ! is_file($template) || ! in_array($request->getHost(), ['localhost', '127.0.0.1', '[::1]', '::1'], true)) {
+    if ($request->query->has('${COMPOSE_PARAM}') || ! is_file($list) || ! is_file($template) || ! in_array($request->getHost(), ['localhost', '127.0.0.1', '[::1]', '::1'], true)) {
         return;
     }
     $context = json_decode((string) file_get_contents($list), true);
@@ -132,7 +137,7 @@ if ($__roughbook['key'] === null) {
         .($__roughbook['swap'] !== null ? ' ${SWAPPED_ATTRIBUTE}="'.e($__roughbook['swap']).'"' : '')
         .' style="display: contents">'.$__roughbookShown
         // With ?${PICK_PARAM}=1, once a page: a click names the section it fell in to the frame instead of following the page.
-        .($__roughbook['pick'] ? "<script>(function(){if(window.roughbookPick)return;window.roughbookPick=1;document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var s=e.target instanceof Element?e.target.closest('[${SECTION_ATTRIBUTE}]'):null;if(s)window.parent.postMessage({roughbook:'section',key:s.getAttribute('${SECTION_ATTRIBUTE}')},'*');},true);})();</script>" : '')
+        .($__roughbook['pick'] ? "${PICK_SCRIPT}" : '')
         .'</${MARKER_ELEMENT}>';
 }
 `;

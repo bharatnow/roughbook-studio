@@ -16,10 +16,15 @@
 // file starts with GUARD, which stops it outside WordPress (the plugin includes them inside), and
 // rough/.htaccess refuses the folder on Apache and LiteSpeed. A release zip leaves it out
 // (.distignore), and doctor's gate asks the theme's copy of it for the sample's own files.
+//
+// The same address with a page's slug and ?roughbook-compose=<component>:<iteration>,… is that page's
+// composition: its sections in order, inside the one wrapper, for the canvas (see src/recipes/live.ts).
 import fs from 'node:fs';
 import path from 'node:path';
 import { covers } from '../../repo/plan.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
+import { LIVE_SCRIPT } from '../live.js';
 
 export const PLUGIN_FILE = `${ROUGH_DIR}/preview-plugin.php`;
 export const OVERRIDE_FILE = '.wp-env.override.json';
@@ -85,51 +90,110 @@ function roughbook_preview_failed( int $status, string $key, string $message ): 
 	exit;
 }
 
+/** An iteration's markup: its file run with its fixture's keys as variables, then its blocks. A failure answers under $id. */
+function roughbook_preview_render( string $folder, string $id ): string {
+	$fixture = array();
+	if ( is_file( $folder . '/${FIXTURE}' ) ) {
+		$fixture = json_decode( (string) file_get_contents( $folder . '/${FIXTURE}' ), true );
+		if ( ! is_array( $fixture ) ) {
+			roughbook_preview_failed( 500, $id, '${FIXTURE} is not a JSON object.' );
+		}
+	}
+	$level = ob_get_level();
+	try {
+		$iteration = ( static function ( string $roughbook_file, array $fixture ): string {
+			extract( $fixture, EXTR_SKIP );
+			ob_start();
+			include $roughbook_file;
+			return (string) ob_get_clean();
+		} )( $folder . '/${ENTRY}', $fixture );
+		return do_blocks( $iteration );
+	} catch ( \\Throwable $error ) {
+		while ( ob_get_level() > $level ) {
+			ob_end_clean();
+		}
+		roughbook_preview_failed( 500, $id, $error->getMessage() );
+	}
+}
+
+/** What keeps the canvas told of the page's size, the same for every stack (src/recipes/live.ts). */
+function roughbook_preview_live(): string {
+	return <<<'ROUGHBOOK_LIVE'
+${LIVE_SCRIPT}
+ROUGHBOOK_LIVE;
+}
+
+/**
+ * A page's composition: each section's iteration with its fixture, in order, each in its marker, in
+ * one measured root, with what the canvas needs after them. Every name is checked before the filesystem
+ * is touched, and a section with no iteration answers as a missing iteration does.
+ */
+function roughbook_preview_composition( string $rough, string $page, string $composed, string $id ): string {
+	$slug     = '[a-z0-9]+(?:-[a-z0-9]+)*';
+	$sections = array_values( array_filter( explode( ',', $composed ), 'strlen' ) );
+	if ( ! preg_match( '#^' . $slug . '\\z#', $page ) || ! $sections || count( $sections ) > 30 ) {
+		roughbook_preview_failed( 404, $id, 'No composition at this key.' );
+	}
+	$folders = array();
+	foreach ( $sections as $section ) {
+		if ( ! preg_match( '#^(' . $slug . '):(iteration-\\d{2,})\\z#', $section, $parts ) ) {
+			roughbook_preview_failed( 404, $id, 'No composition at this key.' );
+		}
+		$folders[] = array( $parts[1], $rough . '/' . $page . '/' . $parts[1] . '/' . $parts[2] );
+	}
+	foreach ( $folders as $folder ) {
+		if ( ! is_file( $folder[1] . '/${ENTRY}' ) ) {
+			roughbook_preview_failed( 404, $id, 'There is no iteration ' . substr( $folder[1], strlen( $rough ) + 1 ) . ' in this repo.' );
+		}
+	}
+	$html = '';
+	foreach ( $folders as $folder ) {
+		$section = roughbook_preview_render( $folder[1], $id );
+		// A section's first element is what the canvas measures, so what draws nothing stands before its marker.
+		$leading = preg_match( '#^(?:\\s*(?:<style\\b.*?</style>|<script\\b.*?</script>|<link\\b[^>]*>))+#is', $section, $parts ) ? $parts[0] : '';
+		$html   .= $leading . '<${MARKER_ELEMENT} ${SECTION_ATTRIBUTE}="' . esc_attr( $page . '/' . $folder[0] ) . '" style="display: contents">'
+			. substr( $section, strlen( $leading ) ) . '</${MARKER_ELEMENT}>';
+	}
+	$html = '<div data-roughbook-variant>' . $html . '</div><script>' . roughbook_preview_live() . '</script>';
+	// With ?${PICK_PARAM}=1: a click names the section it fell in to the frame instead of following the page.
+	if ( '1' === ( $_GET['${PICK_PARAM}'] ?? '' ) ) {
+		$html .= "<script>document.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var s=e.target instanceof Element?e.target.closest('[${SECTION_ATTRIBUTE}]'):null;if(s)window.parent.postMessage({roughbook:'section',key:s.getAttribute('${SECTION_ATTRIBUTE}')},'*');},true);</script>";
+	}
+	return $html;
+}
+
 add_action(
 	'template_redirect',
 	static function (): void {
 		if ( ! isset( $_GET['rough_preview'] ) ) {
 			return;
 		}
-		$key = (string) wp_unslash( $_GET['rough_preview'] );
+		$key       = (string) wp_unslash( $_GET['rough_preview'] );
+		$composing = isset( $_GET['${COMPOSE_PARAM}'] );
+		$id        = $composing ? $key . '/composition' : $key;
 		// Development only (the runtime gate): anywhere but the local environment, there is no preview.
 		if ( 'local' !== wp_get_environment_type() ) {
-			roughbook_preview_failed( 404, $key, 'Not found.' );
+			roughbook_preview_failed( 404, $id, 'Not found.' );
 		}
 		// Asked by another name than this machine's, it shows nothing from ${ROUGH_DIR}/ (contract point 5). A
 		// request can name localhost, and wp-env serves every interface: this holds against a browser only.
 		$host = strtolower( preg_replace( '/:\\d+$/', '', (string) ( $_SERVER['HTTP_HOST'] ?? '' ) ) );
 		if ( ! in_array( $host, array( 'localhost', '127.0.0.1', '[::1]' ), true ) ) {
-			roughbook_preview_failed( 404, $key, 'The preview answers this machine only.' );
+			roughbook_preview_failed( 404, $id, 'The preview answers this machine only.' );
 		}
-		$rough  = WP_CONTENT_DIR . '/rough';
-		$folder = $rough . '/' . $key;
-		if ( ! preg_match( '#^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*/iteration-\\d{2,}$#', $key ) || ! is_file( $folder . '/${ENTRY}' ) ) {
-			roughbook_preview_failed( 404, $key, "There is no iteration {$key} in this repo." );
-		}
-		$fixture = array();
-		if ( is_file( $folder . '/${FIXTURE}' ) ) {
-			$fixture = json_decode( (string) file_get_contents( $folder . '/${FIXTURE}' ), true );
-			if ( ! is_array( $fixture ) ) {
-				roughbook_preview_failed( 500, $key, '${FIXTURE} is not a JSON object.' );
-			}
-		}
+		$rough = WP_CONTENT_DIR . '/rough';
 		// The iteration first, then the page around it, as a block theme's template is: blocks it
 		// renders put their styles in the head.
-		$level = ob_get_level();
-		try {
-			$iteration = ( static function ( string $roughbook_file, array $fixture ): string {
-				extract( $fixture, EXTR_SKIP );
-				ob_start();
-				include $roughbook_file;
-				return (string) ob_get_clean();
-			} )( $folder . '/${ENTRY}', $fixture );
-			$iteration = do_blocks( $iteration );
-		} catch ( \\Throwable $error ) {
-			while ( ob_get_level() > $level ) {
-				ob_end_clean();
+		if ( $composing ) {
+			$composed  = is_string( $_GET['${COMPOSE_PARAM}'] ) ? (string) wp_unslash( $_GET['${COMPOSE_PARAM}'] ) : '';
+			$iteration = roughbook_preview_composition( $rough, $key, $composed, $id );
+			$key       = $id;
+		} else {
+			$folder = $rough . '/' . $key;
+			if ( ! preg_match( '#^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*/iteration-\\d{2,}$#', $key ) || ! is_file( $folder . '/${ENTRY}' ) ) {
+				roughbook_preview_failed( 404, $key, "There is no iteration {$key} in this repo." );
 			}
-			roughbook_preview_failed( 500, $key, $error->getMessage() );
+			$iteration = roughbook_preview_render( $folder, $key );
 		}
 		// The variant the studio asks for in the address (contract point 2).
 		$variant = array(

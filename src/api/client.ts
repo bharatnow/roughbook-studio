@@ -93,7 +93,7 @@ export type RequestLine = {
   [field: string]: unknown;
 };
 
-/** One page of the record; `next` is null on the last. */
+/** One page of the record; the cursor is null on the last. */
 export type RequestsPage = { requests: RequestLine[]; next: string | null };
 
 /** What the understand call sends: the typed words, the prompt's mode and the selection's slugs. */
@@ -399,6 +399,20 @@ export class StudioApi {
     return this.request('GET', `${projectPath(orgId, project)}/stills`);
   }
 
+  /** A page's web sketches built into one page on the sandbox: its link, or why it cannot be built. */
+  compositionPreview(
+    orgId: string,
+    project: string,
+    page: string,
+    sections: string
+  ): Promise<{ status: string; url?: string }> {
+    const query = encodeURIComponent(sections);
+    return this.request(
+      'GET',
+      `${projectPath(orgId, project)}/pages/${page}/compositions/preview?sections=${query}`
+    );
+  }
+
   /** Opens a signed link the backend gave: storage's, so it gets no token and no redirect. */
   async openLink(url: string): Promise<Response> {
     try {
@@ -479,7 +493,7 @@ export class StudioApi {
 
   /**
    * A page of the project's record, newest first (C6 of the composer audit). The studio's lines hold
-   * stand-ins for its paths; `next` is the backend's own cursor. Only the page's place goes up.
+   * stand-ins for its paths; the cursor is the backend's own cursor. Only the page's place goes up.
    */
   requests(orgId: string, project: string, page: RequestsQuery): Promise<RequestsPage> {
     const query = new URLSearchParams({ limit: String(page.limit) });

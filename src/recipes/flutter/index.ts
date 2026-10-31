@@ -85,7 +85,8 @@ each iteration's ${ENTRY} (a top-level Widget buildIteration(Map<String, dynamic
 ${FIXTURE}, and ${MIRROR}/${WRAPPER}, copied from rough/${WRAPPER}, which wraps every iteration in the app's
 theme. roughbook init writes ${PREVIEW_ENTRY}, the web target's preview (flutter run -d web-server -t
 ${PREVIEW_ENTRY}, at /#/rough-preview/<key>, posting the ready and error messages, semantics on so its text
-is in the page), and ${SNAPSHOT_TEST}, the snapshot command, which renders each key at every shot with
+is in the page; at /#/rough-preview/<page>?roughbook-compose=<component>:<iteration>,… it renders a page's
+sections in one roughPreview and tells the frame the page's size), and ${SNAPSHOT_TEST}, the snapshot command, which renders each key at every shot with
 Flutter's own engine and writes the PNGs and result.txt. The app's lib/main.dart never imports
 ${MIRROR}/, so flutter build web holds nothing of it (gate: build). Start from that setup; make
 rough/${WRAPPER} the app's own (its ThemeData, dark theme, localizations and providers), and keep
@@ -94,7 +95,8 @@ recipe: flutter so the studio keeps the registry.`;
 export const flutter: Recipe = {
   id: 'flutter',
   name: 'Flutter',
-  version: 1,
+  // 2: the preview entry renders a page's composition, measured for the canvas.
+  version: 2,
   setupNotes: SETUP_NOTES,
   appDir: () => 'lib',
   environment(link, os): RepoEnvironment {
@@ -149,6 +151,7 @@ export const flutter: Recipe = {
     };
   },
   planPreview,
+  composes: true,
   setupFiles: repo => ownFiles(repo).map(own => own.file),
   agentRules:
     environment => `- \`${environment.entry}\` holds a top-level \`Widget buildIteration(Map<String, dynamic> fixture)\`,

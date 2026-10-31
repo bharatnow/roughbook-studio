@@ -28,7 +28,7 @@ import {
 } from './preview.js';
 import type { MapComponent } from '../../map/types.js';
 import { discoverNuxt } from './discover.js';
-import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import { COMPOSE_PARAM, CONTEXT_SENTINEL, swapAddress } from '../context.js';
 import {
   CONTEXT_MODULES,
   CONTEXT_REGISTRY,
@@ -141,7 +141,8 @@ generated ${REGISTRY_FILE}, which the studio rewrites when iterations come and g
 as props, inside ${WRAPPER}, renders it on the server and the client,
 answers 404 for a key with no iteration and 500 for one that fails, posts the ready and error messages,
 applies the variant asked for (a dark class and color-scheme on the html element) and answers this
-machine only. Vite's hot reload shows a changed iteration (reload: app). Where the app uses Tailwind 4,
+machine only. At a page's key with ?${COMPOSE_PARAM}=<component>:<iteration>,… it shows that page's
+composition, each section in its marker. Vite's hot reload shows a changed iteration (reload: app). Where the app uses Tailwind 4,
 its stylesheet gains an @source line for rough/. Start from that setup; change it only where this app
 needs it: ${WRAPPER} is the place for the layout, providers and stylesheets an iteration needs around it
 (an app's global css from nuxt.config already applies), and a global route middleware that redirects
@@ -210,7 +211,8 @@ export const nuxt: Recipe = {
   id: 'nuxt',
   name: 'Vue with Nuxt',
   // 2: the in-page view's module and wrapper (brownfield B5b).
-  version: 3,
+  // 4: the preview page renders a page's composition, for the canvas, with Pick.
+  version: 4,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -266,6 +268,7 @@ export const nuxt: Recipe = {
   discover: discoverNuxt,
   pointer: vuePointer,
   fromApp: vueFromApp,
+  composes: true,
   setupFiles: repo => [
     ...new Set([
       MODULE_FILE,
@@ -278,10 +281,14 @@ export const nuxt: Recipe = {
     // Nuxt registers a module in modules/ on its own: nothing of the app's is edited.
     edits: () => [],
     generated: [CONTEXT_MODULES, CONTEXT_REGISTRY],
-    missing: repo =>
-      contextFiles()
+    missing: repo => {
+      const absent = contextFiles()
         .map(item => item.file)
-        .filter(file => !fs.existsSync(path.join(repo, ...file.split('/')))),
+        .filter(file => !fs.existsSync(path.join(repo, ...file.split('/'))));
+      // The page's compositions, in a page written before it had them.
+      const page = read(repo, PAGE_FILE);
+      return isOurFile(page) && !page!.includes(COMPOSE_PARAM) ? [...absent, PAGE_FILE] : absent;
+    },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL
   },

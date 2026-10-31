@@ -14,6 +14,7 @@ import path from 'node:path';
 import { listFixtures, listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
 import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
+import { LIVE_FUNCTION } from '../live.js';
 
 export const PREVIEW_ROUTE = 'rough-preview';
 export const REGISTRY_FILE = 'preview-registry.ts';
@@ -100,10 +101,14 @@ async function composition(registry: Registry, page: string, composed: string) {
 
 const PICK_FILE = `"use client";
 // ${MARKER}. Pick on a page's composition: with ?${PICK_PARAM}=1, a click posts { roughbook: "section", key }
-// to the frame, naming the section it fell in, instead of following the page.
+// to the frame, naming the section it fell in, instead of following the page. In a canvas, which runs
+// the page in a frame as tall as itself, it also answers the canvas.
 import { useEffect } from "react";
 
+const live = ${LIVE_FUNCTION};
+
 export function Pick() {
+  useEffect(live, []);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("${PICK_PARAM}") !== "1") return;
     const pick = (event: MouseEvent) => {

@@ -17,6 +17,7 @@ import path from 'node:path';
 import { read, type PrepChange } from '../../repo/plan.js';
 import { ROUGH_DIR } from '../../repo/root.js';
 import {
+  COMPOSE_PARAM,
   CONTEXT_SENTINEL,
   MARKER_ELEMENT,
   MARKERS_PARAM,
@@ -187,8 +188,11 @@ class Failed extends Component<{ section: string; swap: string; markers: boolean
 const here = typeof window === "undefined" ? null : window.location;
 const live = import.meta.env.DEV && here !== null && LOOPBACK.test(here.hostname);
 
+/** On a page's composition the preview page marks each section and has its own Pick; an adopted component inside one adds neither. */
+const composed = live && new URLSearchParams(here!.search).has("${COMPOSE_PARAM}");
+
 // Pick: a click names the marked section it fell in to the frame, instead of following the page.
-if (live && new URLSearchParams(here!.search).get("${PICK_PARAM}") === "1") {
+if (live && !composed && new URLSearchParams(here!.search).get("${PICK_PARAM}") === "1") {
   document.addEventListener(
     "click",
     (event) => {
@@ -215,7 +219,7 @@ export function wrap<P extends Props>(Original: ComponentType<P>, sections: Sect
     const around = useContext(Swapped);
     const search = new URLSearchParams(window.location.search);
     const key = keyFor(sections, window.location.pathname);
-    const markers = search.get("${MARKERS_PARAM}") !== "0";
+    const markers = !composed && search.get("${MARKERS_PARAM}") !== "0";
     const swap = search.get("${SWAP_PARAM}");
     const Shown = swap && around !== key && swap.startsWith(key + "/") ? iteration(swap) : null;
     if (!Shown || !swap) {

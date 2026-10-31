@@ -11,6 +11,7 @@ import { composedAddress } from '../compositions/save.js';
 import { readEnvironment } from '../environment/read.js';
 import { writeMap } from '../map/file.js';
 import { recipeFor } from '../recipes/index.js';
+import { LIVE_FUNCTION } from '../recipes/live.js';
 import { previewRouteFiles } from '../recipes/next/preview.js';
 import type { RepoLink } from '../repo/link.js';
 import { tempDir } from './helpers.js';
@@ -50,7 +51,7 @@ describe('the composed preview on Next.js', () => {
   it('is in a mapped repo’s route: sections in order, in markers, with Pick and one ready', async () => {
     const next = recipeFor('next')!;
     assert.equal(next.composes, true);
-    assert.equal(next.version, 8);
+    assert.equal(next.version, 9);
     const repo = await nextApp(true);
     const routes = next.planPreview(repo, LINK).changes.map(change => change.file);
     assert.ok(routes.includes('app/rough-preview/[...slug]/pick.tsx'), routes.join(', '));
@@ -85,6 +86,9 @@ describe('the composed preview on Next.js', () => {
     assert.equal(pick!.file, 'app/rough-preview/[...slug]/pick.tsx');
     assert.match(pick!.content, /^"use client";\n\/\/ Roughbook preview route\./);
     assert.match(pick!.content, /postMessage\(\{ roughbook: "section", key \}, "\*"\)/);
+    // In a canvas it answers as every stack does.
+    assert.ok(pick!.content.includes(`const live = ${LIVE_FUNCTION};`));
+    assert.match(pick!.content, /useEffect\(live, \[\]\)/);
   });
 
   it('leaves a mapped repo with the route it had to setup --upgrade, as the switch is', async () => {
@@ -125,7 +129,7 @@ describe('the composed preview on Next.js', () => {
       composedAddress(environment, 'home', sections),
       '/rough-preview/home?roughbook-compose=hero:iteration-00,logos:iteration-01'
     );
-    assert.equal(composedAddress({ ...environment, recipe: 'vite' }, 'home', sections), null);
+    assert.equal(composedAddress({ ...environment, recipe: 'swiftui' }, 'home', sections), null);
     assert.equal(composedAddress({ ...environment, mode: 'snapshot' }, 'home', sections), null);
     assert.equal(composedAddress({ ...environment, recipe: null }, 'home', sections), null);
   });

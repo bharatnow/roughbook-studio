@@ -9,6 +9,9 @@
 //   rough/preview-registry.ts    one loader per iteration, generated (gitignored)
 //   rough/preview.vue            wraps iterations in what the app's pages need (committed)
 //
+// The page also answers a page's key with ?roughbook-compose=<component>:<iteration>,…: that page's
+// composition, each section with its fixture, in order, inside one preview.vue, each in its marker.
+//
 // The registry is a file the studio rewrites when iterations come and go, as the Next.js recipe's
 // is: Nuxt's server render keeps the list a glob import gave it when a file is added, while a
 // change to a file it imports reaches it. Vite's hot reload shows a changed iteration on its own.
@@ -16,6 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listFixtures, listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
+import { LIVE_FUNCTION } from '../live.js';
 
 export const MODULE_FILE = 'modules/rough-preview.ts';
 export const PAGE_FILE = `${ROUGH_DIR}/preview-page.vue`;
@@ -84,19 +89,24 @@ const shown = useRequestURL().pathname.startsWith("/rough-preview/");
 export const PREVIEW_PAGE = `<script setup lang="ts">
 // ${MARKER} page: development only, not committed (see .gitignore). It shows one iteration from
 // this folder, by the key in its address, with its ${FIXTURE} as props, inside preview.vue, and tells
-// the Roughbook studio how it went (rough/CONTRACT.md, point 3).
-import { onErrorCaptured, onMounted, ref, shallowRef, type Component } from "vue";
+// the Roughbook studio how it went (rough/CONTRACT.md, point 3). At a page's key with
+// ?${COMPOSE_PARAM}=<component>:<iteration>,… it shows that page's composition, each section in its marker.
+import { h, onBeforeUnmount, onErrorCaptured, onMounted, ref, shallowRef, type Component } from "vue";
 import { setResponseStatus, useHead, useRequestEvent, useRequestURL } from "#imports";
 import Preview from "./preview.vue";
 import { fixtures, iterations } from "./preview-registry";
 
 type Fixture = Record<string, unknown>;
+type Section = { key: string; marker: string; component: Component; fixture: Fixture };
 const KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/iteration-\\d{2,}$/;
 const LOOPBACK = /^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/;
 
 const url = useRequestURL();
 const key = decodeURIComponent(url.pathname.replace(/^\\/rough-preview\\/?/, "").replace(/\\/+$/, ""));
 const params = url.searchParams;
+const composed = params.get("${COMPOSE_PARAM}");
+// What this page tells the studio it is: the iteration's key, or the composition of the page at the key.
+const id = composed === null ? key : \`\${key}/composition\`;
 
 // The variant the studio asks for in the address (rough/CONTRACT.md, point 2).
 const scheme = params.get("roughbook-scheme") === "dark" ? "dark" : "light";
@@ -114,10 +124,38 @@ const failure = ref<string | null>(null);
 let status = 200;
 const Iteration = shallowRef<Component | null>(null);
 const fixture = shallowRef<Fixture>({});
+const sections = shallowRef<Section[]>([]);
 // Answers this machine only, so a dev server reachable on the network shows nothing from ${ROUGH_DIR}/ (point 5).
 if (!LOOPBACK.test(url.hostname)) {
   failure.value = "The preview answers this machine only.";
   status = 404;
+} else if (composed !== null) {
+  const wanted = composed.split(",").filter(Boolean).map(item => {
+    const [component = "", iteration = ""] = item.split(":");
+    return { key: \`\${key}/\${component}/\${iteration}\`, marker: \`\${key}/\${component}\` };
+  });
+  const absent = wanted.find(item => !KEY.test(item.key) || !iterations[item.key]);
+  if (absent) {
+    failure.value = \`There is no iteration \${absent.key} in this repo.\`;
+    status = 404;
+  } else if (!wanted.length || wanted.length > 30) {
+    failure.value = "A composition has between 1 and 30 sections.";
+    status = 404;
+  } else {
+    try {
+      sections.value = await Promise.all(
+        wanted.map(async item => {
+          const loaded = (await iterations[item.key]!()) as { default: Component };
+          const loadFixture = fixtures[item.key];
+          const inputs = loadFixture ? ((await loadFixture()) as { default: Fixture }).default : {};
+          return { ...item, component: loaded.default, fixture: inputs };
+        })
+      );
+    } catch (error) {
+      failure.value = error instanceof Error ? error.message : "The iteration failed to load.";
+      status = 500;
+    }
+  }
 } else if (!KEY.test(key) || !iterations[key]) {
   failure.value = \`There is no iteration \${key} in this repo.\`;
   status = 404;
@@ -143,16 +181,56 @@ onErrorCaptured(error => {
 });
 
 function post(message: Record<string, unknown>) {
-  window.parent.postMessage({ ...message, id: key }, "*");
+  window.parent.postMessage({ ...message, id }, "*");
+}
+
+/** The composition's sections, each in the marker the canvas and Pick find it by. */
+const Sections = () =>
+  sections.value.map(section =>
+    h(
+      "${MARKER_ELEMENT}",
+      { key: section.key, "${SECTION_ATTRIBUTE}": section.marker, style: { display: "contents" } },
+      [h(section.component, section.fixture)]
+    )
+  );
+
+// In a canvas, which runs the page in a frame as tall as itself, the composition answers the canvas.
+const live = ${LIVE_FUNCTION};
+
+/** Pick: with ?${PICK_PARAM}=1, a click names the section it fell in to the frame instead of following the page. */
+function pick(event: MouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  const section = event.target instanceof Element ? event.target.closest("[${SECTION_ATTRIBUTE}]") : null;
+  const name = section?.getAttribute("${SECTION_ATTRIBUTE}");
+  if (name) window.parent.postMessage({ roughbook: "section", key: name }, "*");
+}
+
+let leave = () => {};
+function composePage() {
+  const stop = live();
+  const picking = params.get("${PICK_PARAM}") === "1";
+  if (picking) document.addEventListener("click", pick, true);
+  leave = () => {
+    stop();
+    if (picking) document.removeEventListener("click", pick, true);
+  };
 }
 
 onMounted(() => {
+  if (composed !== null && !failure.value) composePage();
   post(failure.value ? { roughbook: "error", message: failure.value } : { roughbook: "ready" });
 });
+onBeforeUnmount(() => leave());
 </script>
 
 <template>
   <pre v-if="failure" style="padding: 2rem; white-space: pre-wrap">{{ failure }}</pre>
+  <div v-else-if="composed !== null" data-roughbook-variant>
+    <Preview>
+      <Sections />
+    </Preview>
+  </div>
   <Preview v-else>
     <component :is="Iteration" v-bind="fixture" />
   </Preview>

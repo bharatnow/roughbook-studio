@@ -2,6 +2,7 @@
 // repo's dev server, and the built-in terminal's socket. 127.0.0.1 only; see security.ts for who
 // may ask what. In standalone mode the same port under the name localhost is the standalone
 // previews' site (standalone/server.ts), an origin apart from the UI's.
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -23,6 +24,7 @@ import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
 import { deleteRequest, readRequests } from './requests.js';
 import { saveRule } from './rules.js';
+import { snapshotPolicy } from './snapshotPage.js';
 import { capped, MAX_STILL_BYTES, type StillKind } from './stills.js';
 import { understandMessage } from './understand.js';
 import { verbRoutes } from './verbs.js';
@@ -128,7 +130,10 @@ function target(params: Params) {
   return { page: params.page!, component: params.component!, iteration: params.iteration! };
 }
 
-function contentSecurityPolicy(port: number, devUrl: string): string {
+/** The sections a frame may ask for, as the backend reads them. */
+const COMPOSED_SECTIONS = /^[a-z0-9][a-z0-9-]*:iteration-\d+(,[a-z0-9][a-z0-9-]*:iteration-\d+)*$/;
+
+function contentSecurityPolicy(port: number, devUrl: string, sandbox: string | null): string {
   const sockets = localOrigins(port).map(origin => origin.replace('http:', 'ws:'));
   return [
     "default-src 'self'",
@@ -137,7 +142,7 @@ function contentSecurityPolicy(port: number, devUrl: string): string {
     "img-src 'self' blob: data:",
     "font-src 'self'",
     `connect-src 'self' ${sockets.join(' ')}`,
-    `frame-src ${new URL(devUrl).origin}`,
+    `frame-src 'self' ${new URL(devUrl).origin}${sandbox ? ` ${sandbox}` : ''}`,
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -155,7 +160,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
   const shotKey = imageKey(token);
 
   const routes: Route[] = [
-    route('GET', '/api/state', async () => ({ ...(await studio.state()), shotKey })),
+    route('GET', '/api/state', async () => ({
+      ...(await studio.state()),
+      shotKey,
+      sandbox: studio.sandboxOrigin
+    })),
     route('POST', '/api/agents/default', async request => {
       await studio.setDefaultAgent((await readBody(request)).agent ?? null);
       return studio.state();
@@ -474,6 +483,40 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
    * A web sketch's still, carried from storage for the page's <img>, which the CSP keeps on this
    * origin. The address names an iteration, never a link: anything else is answered 404.
    */
+  /** A page's web sketches, in a frame: to the sandbox, by the link only the backend gives. */
+  function composedPage(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
+    const match = /^\/api\/pages\/([a-z0-9][a-z0-9-]*)\/composed$/.exec(url.pathname);
+    if (!match || request.method !== 'GET') return false;
+    if (!sameToken(url.searchParams.get('key') ?? undefined, shotKey)) {
+      sendJson(response, 401, { error: 'UNAUTHORIZED' });
+      return true;
+    }
+    const sections = url.searchParams.get('sections') ?? '';
+    if (!COMPOSED_SECTIONS.test(sections)) {
+      response.writeHead(404).end();
+      return true;
+    }
+    if (studio.snapshotMode && url.searchParams.get('source') === 'snapshots') {
+      const nonce = randomBytes(16).toString('base64url');
+      const html = studio.snapshotPage(match[1]!, sections, shotKey, nonce);
+      if (!html) response.writeHead(404).end();
+      else
+        response
+          .writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'content-security-policy': snapshotPolicy(nonce),
+            'cache-control': 'no-store'
+          })
+          .end(html);
+      return true;
+    }
+    void studio.composedPage(match[1]!, sections).then(link => {
+      if (!link) response.writeHead(404).end();
+      else response.writeHead(302, { location: link, 'cache-control': 'no-store' }).end();
+    });
+    return true;
+  }
+
   function remoteStill(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
     const match =
       /^\/api\/stills\/remote\/([^/]+)\/([^/]+)\/([^/]+)\/(desktop|desktop-half|tablet|phone)$/.exec(
@@ -545,7 +588,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     };
     if (extension === '.html') {
       headers['cache-control'] = 'no-store';
-      headers['content-security-policy'] = contentSecurityPolicy(port, studio.devUrl);
+      headers['content-security-policy'] = contentSecurityPolicy(
+        port,
+        studio.devUrl,
+        studio.sandboxOrigin
+      );
     } else if (pathname.startsWith('/assets/')) {
       // The UI's bundler names these by their content.
       headers['cache-control'] = 'public, max-age=31536000, immutable';
@@ -577,11 +624,12 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }
     if (screenshot(request, response, url)) return;
     if (remoteStill(request, response, url)) return;
+    if (composedPage(request, response, url)) return;
     if (pathname.startsWith('/api/')) {
       void api(request, response, pathname);
       return;
     }
-    page(request, response, pathname);
+    void studio.sandboxKnown().finally(() => page(request, response, pathname));
   });
 
   // The built-in terminal: only this page, only with the token, offered as the subprotocol.

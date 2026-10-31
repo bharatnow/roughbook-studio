@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROUGH_DIR } from '../../repo/root.js';
 import {
+  COMPOSE_PARAM,
   CONTEXT_SENTINEL,
   MARKER_ELEMENT,
   MARKERS_PARAM,
@@ -188,7 +189,8 @@ export function wrap(Original: Component, sections: Section[]): Component {
     inheritAttrs: false,
     setup(_props, { attrs, slots }) {
       const url = useRequestURL();
-      if (!LOOPBACK.test(url.hostname)) return () => h(Original, attrs, slots);
+      // A composition has its own markers: one in another would measure as nothing, and Pick twice.
+      if (!LOOPBACK.test(url.hostname) || url.searchParams.has("${COMPOSE_PARAM}")) return () => h(Original, attrs, slots);
       const around = inject(SWAPPED, null);
       const key = keyFor(sections, url.pathname);
       const markers = url.searchParams.get("${MARKERS_PARAM}") !== "0";

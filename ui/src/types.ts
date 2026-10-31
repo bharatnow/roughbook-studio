@@ -98,6 +98,8 @@ export type StudioState = {
   activity?: import('./activity').Activity;
   /** What a card's <img> puts in a screenshot's address, since it cannot send the token. */
   shotKey?: string;
+  /** Where web sketches run, once the backend has said. */
+  sandbox?: string | null;
 };
 
 /** What changed in rough/ since the page last asked, numbered by the server. */

@@ -200,7 +200,7 @@ export const next: Recipe = {
   // 7: the registries type each iteration's default export as unknown, so a baseline of a component
   // with required props passes the app's type check (B6).
   // 8: next.config's block turns Turbopack's development cache off (B7b, decision 67).
-  version: 8,
+  version: 9,
   setupNotes: SETUP_NOTES,
   appDir: detectAppDir,
   environment(link): RepoEnvironment {

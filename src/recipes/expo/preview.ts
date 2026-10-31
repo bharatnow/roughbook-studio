@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listFixtures, listIterations } from '../../repo/iterations.js';
 import { ROUGH_DIR } from '../../repo/root.js';
+import { COMPOSE_PARAM, MARKER_ELEMENT, PICK_PARAM, SECTION_ATTRIBUTE } from '../context.js';
+import { LIVE_FUNCTION } from '../live.js';
 
 export const PREVIEW_ROUTE = 'rough-preview';
 export const REGISTRY_FILE = 'preview-registry.ts';
@@ -48,23 +50,161 @@ export function dependsOn(repo: string, name: string): boolean {
 }
 
 /**
+ * A page's composition on the route (B6, decisions 46 and 54), on the web target of a mapped repo:
+ * at the page's key with ?${COMPOSE_PARAM}=<component>:<iteration>,…, each section with its fixture,
+ * in order, inside one Preview, each in the in-page view's marker, in a root as tall as they are. All
+ * of it stays in the route's one file: every file in the folder would be a route of its own.
+ *
+ * The shared script fixes the window heights a page's styles name. A React Native section reads the
+ * window from JavaScript or fills it with flex: 1, so the page answers those here. react-native-web
+ * refuses Dimensions.set in a browser, and reads visualViewport on its resize event, so the device's
+ * height goes in there, and Dimensions and useWindowDimensions report it; the root is at least that
+ * tall, so a flex: 1 section has a screen to fill. A section can keep what Dimensions.get said (the
+ * React Compiler memoizes it), so when the height is not the one it read, the sections mount again.
+ */
+const COMPOSITION_FUNCTIONS = `
+type Section = { key: string; marker: string };
+
+/** The sections an address asks for, in order; none for one that names no page. */
+function sectionsOf(page: string, composed: string): Section[] {
+  const sections = composed.split(",").filter(Boolean);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(page) || sections.length > 30) return [];
+  return sections.map((section) => {
+    const [component = "", iteration = ""] = section.split(":");
+    return { key: \`\${page}/\${component}/\${iteration}\`, marker: \`\${page}/\${component}\` };
+  });
+}
+
+const live = ${LIVE_FUNCTION};
+
+/** The height the canvas says the device has, which the page's own window reads from then on, and how often it changed. */
+function useDeviceHeight() {
+  const [device, setDevice] = useState<{ height?: number; turn: number }>({ turn: 0 });
+  useLayoutEffect(() => {
+    const visual = window.visualViewport;
+    const hear = (event: MessageEvent) => {
+      if (event.source !== window.parent || event.data?.roughbook !== "viewport") return;
+      const told = Number(event.data.height);
+      if (!(told > 0)) return;
+      const changed = Dimensions.get("window").height !== told;
+      if (visual) {
+        Object.defineProperty(visual, "height", { configurable: true, get: () => told });
+        visual.dispatchEvent(new Event("resize"));
+      }
+      setDevice((now) => ({ height: told, turn: now.turn + (changed ? 1 : 0) }));
+    };
+    window.addEventListener("message", hear);
+    return () => {
+      window.removeEventListener("message", hear);
+      if (visual) Reflect.deleteProperty(visual, "height");
+    };
+  }, []);
+  return device;
+}
+
+/** With ?${PICK_PARAM}=1, a click posts { roughbook: "section", key } to the frame instead of following the page. */
+function usePick() {
+  useLayoutEffect(() => {
+    if (new URLSearchParams(window.location.search).get("${PICK_PARAM}") !== "1") return;
+    const pick = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const section = event.target instanceof Element ? event.target.closest("[${SECTION_ATTRIBUTE}]") : null;
+      const key = section?.getAttribute("${SECTION_ATTRIBUTE}");
+      if (key) window.parent.postMessage({ roughbook: "section", key }, "*");
+    };
+    document.addEventListener("click", pick, true);
+    return () => document.removeEventListener("click", pick, true);
+  }, []);
+}
+
+/** The sections themselves, inside the boundary, so one that throws as it loads fails the page's preview. */
+function Sections({ sections }: { sections: Section[] }) {
+  const Preview = registry.Preview ?? Bare;
+  return (
+    <Preview>
+      {sections.map((section) =>
+        createElement(
+          "${MARKER_ELEMENT}",
+          { key: section.key, "${SECTION_ATTRIBUTE}": section.marker, style: { display: "contents" } },
+          createElement(registry.loaders[section.key]!().default, registry.fixtures[section.key]?.() ?? {}),
+        ),
+      )}
+    </Preview>
+  );
+}
+
+/** A page's sections as one page, as tall as they are, not a screen the size of the window. */
+function Composed({ id, sections, scheme, dir, lang }: { id: string; sections: Section[]; scheme: string; dir: "ltr" | "rtl"; lang?: string }) {
+  const { height, turn } = useDeviceHeight();
+  usePick();
+  useLayoutEffect(live, []);
+  // Expo's page holds the body to the window, and this page runs past it outside a canvas.
+  useLayoutEffect(() => {
+    const body = document.body.style;
+    const before = body.overflow;
+    body.overflow = "auto";
+    return () => {
+      body.overflow = before;
+    };
+  }, []);
+  return (
+    <div
+      data-roughbook-variant
+      dir={dir}
+      lang={lang}
+      className={scheme === "dark" ? "dark" : undefined}
+      style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 1000, display: "flex", flexDirection: "column", minHeight: height, colorScheme: scheme }}
+    >
+      <Boundary id={id}>
+        <Sections key={turn} sections={sections} />
+        <Ready id={id} />
+      </Boundary>
+    </div>
+  );
+}
+`;
+
+/** Answers an address asking for a composition, on the web target; each failure as a missing iteration's. */
+const COMPOSITION_BRANCH = `  if (composed !== undefined) {
+    const sections = sectionsOf(key, composed);
+    const gone = sections.find((section) => !registry.loaders[section.key]);
+    const why = !sections.length
+      ? "No iteration at this key."
+      : gone
+        ? \`There is no iteration \${gone.key} in this repo.\`
+        : Platform.OS !== "web"
+          ? "A page's composition shows on the web target."
+          : null;
+    if (why) return <Missing id={id} why={why} />;
+    return (
+      <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+        <Composed id={id} sections={sections} scheme={scheme} dir={dir} lang={lang} />
+      </ThemeProvider>
+    );
+  }
+`;
+
+/**
  * The route, its imports climbing from <app>/rough-preview/ to the repo root. With `splash`, the
  * app has expo-splash-screen, whose screen its root layout keeps up until the layout's own content
- * hides it; the route shows without that content, so it hides the screen itself.
+ * hides it; the route shows without that content, so it hides the screen itself. With `compose`, a
+ * mapped repo's, it renders a page's composition too; a repo that maps nothing keeps the route it had.
  */
 export function previewRoute(
   appDir: string,
-  options: { splash?: boolean } = {}
+  options: { splash?: boolean; compose?: boolean } = {}
 ): { file: string; content: string } {
   const up = '../'.repeat(appDir.split('/').length + 1);
+  const compose = options.compose === true;
   return {
     file: previewRouteFile(appDir),
     content: `// ${MARKER}. Development only, not committed (see .gitignore).
 // Renders one iteration from ${ROUGH_DIR}/ inside this app's root layout, fonts and theme: on the web
 // target in the Roughbook studio's frame, and on a device or simulator for final review.
 import { DarkTheme, DefaultTheme, ThemeProvider, useLocalSearchParams } from "expo-router";
-import { Component, useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { Appearance, Platform, StyleSheet, Text, View } from "react-native";${
+import { Component, ${compose ? 'createElement, ' : ''}useEffect, ${compose ? 'useLayoutEffect, useState, ' : ''}useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { Appearance, ${compose ? 'Dimensions, ' : ''}Platform, StyleSheet, Text, View } from "react-native";${
       options.splash ? '\nimport * as SplashScreen from "expo-splash-screen";' : ''
     }
 // The registry holds the iterations only under __DEV__, which a production bundle folds to nothing,
@@ -134,7 +274,7 @@ function Shown({ registry, id }: { registry: Registry; id: string }) {
     </Preview>
   );
 }
-
+${compose ? COMPOSITION_FUNCTIONS : ''}
 export default function RoughPreview() {
   const params = useLocalSearchParams<Record<string, string | string[]>>();
   const one = (name: string) => {
@@ -145,7 +285,13 @@ export default function RoughPreview() {
   // The variant the studio asks for in the address (the preview contract, point 2).
   const scheme = one("roughbook-scheme") === "dark" ? "dark" : "light";
   const dir = one("roughbook-dir") === "rtl" ? "rtl" : "ltr";
-  const lang = one("roughbook-lang")?.replace(/[^A-Za-z0-9-]/g, "") || undefined;
+  const lang = one("roughbook-lang")?.replace(/[^A-Za-z0-9-]/g, "") || undefined;${
+    compose
+      ? `
+  const composed = one("${COMPOSE_PARAM}");
+  const id = composed === undefined ? key : \`\${key}/composition\`;`
+      : ''
+  }
   useEffect(() => {
     if (Platform.OS === "web") {
       document.documentElement.style.colorScheme = scheme;
@@ -168,10 +314,10 @@ export default function RoughPreview() {
   }
   // Answers this machine only, so a dev server reachable on the network shows nothing from ${ROUGH_DIR}/ (point 5).
   if (Platform.OS === "web" && typeof window !== "undefined" && !LOOPBACK.test(window.location.hostname)) {
-    return <Missing id={key} why="The preview answers this machine only." />;
+    return <Missing id={${compose ? 'id' : 'key'}} why="The preview answers this machine only." />;
   }
   if (!mounted) return null;
-  if (!registry.loaders[key]) return <Missing id={key} why={\`There is no iteration \${key} in this repo.\`} />;
+${compose ? COMPOSITION_BRANCH : ''}  if (!registry.loaders[key]) return <Missing id={key} why={\`There is no iteration \${key} in this repo.\`} />;
   return (
     <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
       <View style={[styles.root, { direction: dir }]}>

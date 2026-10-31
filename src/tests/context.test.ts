@@ -29,7 +29,7 @@ import {
   renderContextList,
   viewName
 } from '../recipes/laravel/context.js';
-import { PREVIEW_ROUTE, ROUTE_FILE } from '../recipes/laravel/preview.js';
+import { COMPOSED_ROUTE, PREVIEW_ROUTE, ROUTE_FILE } from '../recipes/laravel/preview.js';
 import {
   CONTEXT_MODULES,
   CONTEXT_KEYS,
@@ -642,7 +642,7 @@ if (roughbookExists("app/rough-preview/context/loader.cjs")) {
     assert.equal(planned.summary, 'Update the in-page view’s rule.');
     assert.equal(planned.after, current);
     assert.equal(undoNextConfig(current), CONFIG);
-    assert.equal(next.version, 8);
+    assert.equal(next.version, 9);
   });
 
   it('writes the cache setting for Next.js 16.1 and later alone, by the version the app has (review finding 14)', async () => {
@@ -817,7 +817,7 @@ describe('the Laravel switch', () => {
     const repo = await bladeRepo();
     const plan = planPrep(repo, { link: LINK, recipe: laravel });
     const route = plan.changes.find(change => change.file === ROUTE_FILE)!;
-    assert.equal(route.after, `${PREVIEW_ROUTE}${CONTEXT_BLOCK}`);
+    assert.equal(route.after, `${COMPOSED_ROUTE}${CONTEXT_BLOCK}`);
     assert.equal(
       plan.changes.find(change => change.file === SECTION_TEMPLATE)?.after,
       SECTION_FILE
@@ -859,7 +859,7 @@ describe('the Laravel switch', () => {
     }
     if (!php) return t.skip('PHP is not on the PATH');
     const repo = await tempDir('roughbook-context-');
-    write(repo, 'route.php', `${PREVIEW_ROUTE}${CONTEXT_BLOCK}`);
+    write(repo, 'route.php', `${COMPOSED_ROUTE}${CONTEXT_BLOCK}`);
     write(repo, 'section.php', SECTION_FILE);
     for (const file of ['route.php', 'section.php']) {
       assert.match(

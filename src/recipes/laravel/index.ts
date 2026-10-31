@@ -25,6 +25,7 @@ import {
 } from './context.js';
 import { discoverLaravel } from './discover.js';
 import {
+  COMPOSED_ROUTE,
   ENTRY,
   FIXTURE,
   PREVIEW_ROUTE,
@@ -40,11 +41,11 @@ const PORT = 8000;
 const PRODUCTION_PORT = 8001;
 
 /**
- * The route file as the recipe writes it: for a mapped app, with the in-page view's switch after
- * the route (B5). A repo that maps nothing gets the route it had before.
+ * The route file as the recipe writes it: for a mapped app, with a page's composition (B6) and the
+ * in-page view's switch after the route (B5). A repo that maps nothing gets the route it had before.
  */
 export function routeFile(repo: string): string {
-  return hasMapFile(repo) ? `${PREVIEW_ROUTE}${CONTEXT_BLOCK}` : PREVIEW_ROUTE;
+  return hasMapFile(repo) ? `${COMPOSED_ROUTE}${CONTEXT_BLOCK}` : PREVIEW_ROUTE;
 }
 
 /** The files the in-page view adds beside the route, for a mapped app. */
@@ -235,7 +236,8 @@ export const laravel: Recipe = {
   id: 'laravel',
   name: 'Laravel with Blade',
   // 2: the in-page view's switch after the route, and its marker beside it (brownfield B5).
-  version: 2,
+  // 3: the route renders a mapped page's composition, with Pick and the shared live script (B6).
+  version: 3,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link, os?: EnvironmentOs): RepoEnvironment {
@@ -304,12 +306,14 @@ export const laravel: Recipe = {
   discover: discoverLaravel,
   pointer: bladePointer,
   fromApp: bladeFromApp,
+  composes: true,
   setupFiles: repo => [ROUTE_FILE, ...contextFiles(repo)],
   contextPreview: {
     files: repo => contextFiles(repo),
     edits: () => [],
     generated: [CONTEXT_LIST],
     missing: repo => [
+      // The block is the one from version 3, so a route from before the composition counts as well.
       ...(read(repo, ROUTE_FILE)?.includes(CONTEXT_BLOCK) ? [] : [ROUTE_FILE]),
       ...(read(repo, SECTION_TEMPLATE) === null ? [SECTION_TEMPLATE] : [])
     ],

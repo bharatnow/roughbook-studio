@@ -22,6 +22,7 @@ import {
   type ReactNode
 } from 'react';
 import { iterationPath, post, promotePath } from './api';
+import { composedSrc, pageParts, snapshotPageSrc, webPageSrc } from './composition';
 import { describe, useStudio } from './data';
 import { emptyHostActions, firstComponent, requestPageList } from './empty-host';
 import { completeFeaturesOf, switchCompleteFeatures } from './features';
@@ -120,6 +121,9 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
   const devUrl = state?.devUrl ?? 'http://localhost:3000';
   // The preview's path comes from the repo's environment, whatever the stack.
   const previewTemplate = state?.environment.preview ?? '/rough-preview/{key}';
+  const snapshots = state?.environment.mode === 'snapshot' && Boolean(state.shotKey);
+  const composes = snapshots || Boolean(project?.local.composeTemplate);
+  const webPages = Boolean(state?.sandbox && state.shotKey);
   const completeFeatures = completeFeaturesOf(state);
   const backdrop = useStoredBackdrop();
   // Generate directions is offered only once the project has a component to generate in.
@@ -164,6 +168,26 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
       backdrop,
       previewSrc: ({ page, component, iteration }) =>
         `${devUrl}${previewTemplate.replaceAll('{key}', `${page}/${component}/${iteration}`)}`,
+      // The canvas runs each page here as it does on the web, the repo's sections on the app and
+      // web sketches on the sandbox; those of one page that cannot share a frame come as parts.
+      ...(composes || webPages
+        ? {
+            pagePreviewSrc: ({
+              page,
+              sections
+            }: Parameters<NonNullable<UiHost['pagePreviewSrc']>>[0]) => {
+              const current = projectRef.current;
+              if (!current) return null;
+              return pageParts(page, sections, {
+                here: new Set(current.local.iterations),
+                local: snapshots
+                  ? list => snapshotPageSrc(page, list, state?.shotKey ?? '')
+                  : composedSrc(current, devUrl, page),
+                web: webPages ? list => webPageSrc(page, list, state?.shotKey ?? '') : null
+              });
+            }
+          }
+        : {}),
       actions: {
         selectIteration: form =>
           decide(
@@ -325,7 +349,11 @@ export function StudioUiHost({ children }: { children: ReactNode }) {
   }, [
     backdrop,
     completeFeatures,
+    composes,
+    snapshots,
+    webPages,
     devUrl,
+    state?.shotKey,
     firstPage,
     firstSlug,
     previewTemplate,

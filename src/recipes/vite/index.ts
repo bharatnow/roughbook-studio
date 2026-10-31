@@ -24,7 +24,7 @@ import {
 import { moduleFromApp, modulePointer } from '../modules/pointer.js';
 import { discoverVite } from './discover.js';
 import { hasMapFile } from '../../map/file.js';
-import { CONTEXT_SENTINEL, swapAddress } from '../context.js';
+import { COMPOSE_PARAM, CONTEXT_SENTINEL, swapAddress } from '../context.js';
 import {
   CONTEXT_MODULES,
   contextFiles,
@@ -146,7 +146,8 @@ repo's root, an extra HTML entry Vite serves in development and never builds (vi
 index.html alone, so nothing from rough/ reaches dist/: gate: build), its script
 rough/${ENTRY_SCRIPT}, which loads the iteration named by ?key=<page>/<component>/<iteration> through
 import.meta.glob with its ${FIXTURE} as props, inside rough/preview.tsx (the app's providers and global
-stylesheet), posts the ready and error messages, applies the variant asked for and answers this
+stylesheet), renders a page's composition for ?key=<page>&${COMPOSE_PARAM}=<component>:<iteration>,…,
+posts the ready and error messages, applies the variant asked for and answers this
 machine only, and an @source line for rough/ where the app uses Tailwind 4. Vite's hot reload shows a
 changed iteration (reload: app). Start from that setup; change it only where this app needs it: a
 multi-page app whose vite.config lists every HTML file as a build input must leave ${PAGE} out, an app
@@ -159,7 +160,8 @@ export const vite: Recipe = {
   // 2: rough/tsconfig.json leaves out the kept bases of forks from the app (brownfield B4).
   // 3: the in-page view's plugin and wrapper, and vite.config's edit (brownfield B5b).
   // 5: the plugin stays out of Vitest, Storybook and vite preview (review finding 12).
-  version: 5,
+  // 6: the preview page renders a page's composition, with Pick, and the canvas's live script.
+  version: 6,
   setupNotes: SETUP_NOTES,
   appDir: () => null,
   environment(link): RepoEnvironment {
@@ -216,6 +218,7 @@ export const vite: Recipe = {
   discover: discoverVite,
   pointer: modulePointer({ entry: ENTRY, fixture: FIXTURE }),
   fromApp: moduleFromApp({ entry: ENTRY, fixture: FIXTURE }),
+  composes: true,
   setupFiles: repo => [
     ...new Set([
       PAGE,
@@ -234,7 +237,12 @@ export const vite: Recipe = {
         .filter(file => !fs.existsSync(path.join(repo, ...file.split('/'))));
       const config = viteConfigFile(repo);
       const text = config ? read(repo, config) : null;
-      return text !== null && undoViteConfig(text) === null ? [...absent, config!] : absent;
+      // A preview page's script from before compositions: setup --upgrade brings it forward.
+      const script = read(repo, `${ROUGH_DIR}/${ENTRY_SCRIPT}`);
+      const behind =
+        script !== null && !script.includes(COMPOSE_PARAM) ? [`${ROUGH_DIR}/${ENTRY_SCRIPT}`] : [];
+      const pending = [...absent, ...behind];
+      return text !== null && undoViteConfig(text) === null ? [...pending, config!] : pending;
     },
     address: (address, swap, options) => swapAddress(address, { swap, ...options }),
     sentinel: CONTEXT_SENTINEL,

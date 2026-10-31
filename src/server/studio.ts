@@ -53,7 +53,22 @@ import {
   picturesDir,
   sharePagePictures
 } from '../pictures/share.js';
+import { readSnapshotSections, snapshotPage } from './snapshotPage.js';
 import { imageFileSize, RemoteStills, type StillKind, type StillsView } from './stills.js';
+
+/** How long the first page waits to hear where web sketches run. */
+const SANDBOX_ASK_MS = 1500;
+
+/** An address's origin, or null when it is not a web address. */
+function originOf(address: unknown): string | null {
+  if (typeof address !== 'string') return null;
+  try {
+    const { origin, protocol } = new URL(address);
+    return protocol === 'https:' || protocol === 'http:' ? origin : null;
+  } catch {
+    return null;
+  }
+}
 import { answerPictures, describeAnswerError } from '../pictures/answer.js';
 import { clearMapPictures, MAP_PICTURES_PAGE, takeMapPictures } from '../pictures/mapPictures.js';
 import {
@@ -597,7 +612,14 @@ export class LocalStudio {
 
   constructor(private readonly options: LocalStudioOptions) {
     this.remoteStills = new RemoteStills(
-      () => this.options.api.stills(this.options.link.orgId, this.options.link.project),
+      async () => {
+        const read = await this.options.api.stills(
+          this.options.link.orgId,
+          this.options.link.project
+        );
+        this.sandboxOrigin = originOf(read.sandbox);
+        return read;
+      },
       url => this.options.api.openLink(url)
     );
     this.terminals = options.pty.ok ? new Terminals(options.pty.pty) : null;
@@ -1109,6 +1131,40 @@ export class LocalStudio {
     this.cache.invalidate();
   }
 
+  /**
+   * Where web sketches run, once the backend has said, which the page's policy has to name. Asked
+   * before the first page goes out, and never holding it up for long.
+   */
+  sandboxOrigin: string | null = null;
+
+  async sandboxKnown(): Promise<void> {
+    if (this.sandboxOrigin) return;
+    const wait = new Promise(done => setTimeout(done, SANDBOX_ASK_MS));
+    await Promise.race([this.stills().catch(() => null), wait]);
+  }
+
+  /** A page of a snapshot stack, its sections as their rendered images; null if any is not here. */
+  snapshotPage(page: string, value: string, imageKey: string, nonce: string): string | null {
+    const sections = readSnapshotSections(value);
+    if (!sections) return null;
+    const environment = this.environment;
+    const shots = screenshotSet(environment.viewports, []).flatMap(shot => {
+      const viewport = environment.viewports.find(item => item.name === shot.viewport);
+      return viewport ? [{ name: shot.name, width: viewport.width }] : [];
+    });
+    return snapshotPage({ page, sections, shots, imageKey, nonce });
+  }
+
+  /** The sandbox's link for a page's web sketches, or null where they cannot be built. */
+  async composedPage(page: string, sections: string): Promise<string | null> {
+    const { orgId, project } = this.options.link;
+    const view = await this.options.api
+      .compositionPreview(orgId, project, page, sections)
+      .catch(() => null);
+    if (view?.status !== 'ready' || !view.url) return null;
+    return originOf(view.url) === this.sandboxOrigin ? view.url : null;
+  }
+
   /** The canvas's full-height stills: the web sketches' through this server, and this repo's own. */
   async stills(fresh = false): Promise<StillsView> {
     const remote = await this.remoteStills.current(fresh);
@@ -1213,7 +1269,7 @@ export class LocalStudio {
       map: this.mapView(),
       // A page's compositions (B6), and where a composed preview is asked, where the recipe composes.
       compositions: this.compositionsView(),
-      composeTemplate: composedAddress(environment, '{page}', []),
+      composeTemplate: composedAddress(this.previewEnvironment(), '{page}', []),
       inPage,
       // What the in-page view covers on this stack, beside In its page (decision 44).
       inPageNote: inPage ? (recipeFor(this.environment.recipe)?.contextPreview?.note ?? null) : null
@@ -1384,7 +1440,6 @@ export class LocalStudio {
 
   /** The compositions in rough/, newest of each page last, for the canvas and their own view. */
   private compositionsView(): CompositionView[] {
-    const environment = this.environment;
     return listCompositions(this.repoRoot).map(kept => {
       let savedAt: string | null = null;
       try {
@@ -1403,7 +1458,7 @@ export class LocalStudio {
         parent: kept.composition.parent,
         sections: kept.composition.sections,
         savedAt,
-        address: composedAddress(environment, kept.page, kept.composition.sections),
+        address: composedAddress(this.previewEnvironment(), kept.page, kept.composition.sections),
         pictures: PICTURE_KINDS.filter(kind => fs.existsSync(this.disk(`${pictures}/${kind}.webp`)))
       };
     });

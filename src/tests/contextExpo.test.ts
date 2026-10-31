@@ -569,7 +569,7 @@ describe('metro.config’s edit', () => {
 
 describe('the Expo switch in the setup', () => {
   it('is planned for a mapped repo only, behind a new version, with its files listed for doctor and uninstall', async () => {
-    assert.equal(expo.version, 5);
+    assert.equal(expo.version, 6);
     const repo = await expoRepo();
     const link = expo.contextPreview!;
     assert.deepEqual(

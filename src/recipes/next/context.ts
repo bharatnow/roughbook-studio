@@ -24,6 +24,7 @@ import { ROUGH_DIR } from '../../repo/root.js';
 import { read, type PrepChange } from '../../repo/plan.js';
 import {
   CONTEXT_SENTINEL,
+  COMPOSE_PARAM,
   MARKER_ELEMENT,
   MARKERS_PARAM,
   PICK_PARAM,
@@ -182,7 +183,8 @@ export function wrap<P extends Record<string, unknown>>(id: string, Original: Co
       shown = swap;
       body = createElement(Iteration, { load: loaders[swap] as Load, props });
     }
-    if (at.search.get("${MARKERS_PARAM}") === "0") return body;
+    // A composition has its own markers: one in another would measure as nothing, and Pick twice.
+    if (at.search.get("${MARKERS_PARAM}") === "0" || at.search.has("${COMPOSE_PARAM}")) return body;
     const swappedProp = shown ? { "${SWAPPED_ATTRIBUTE}": shown } : {};
     return createElement("${MARKER_ELEMENT}", { ...swappedProp, ...${MARKER_PROPS} }, body, createElement(Pick));
   }
@@ -211,7 +213,8 @@ export function wrap<P extends Record<string, unknown>>(id: string, Original: Co
     const keys = modules[id];
     const here = typeof window === "undefined" ? null : window.location;
     if (!keys?.length || !here || !LOOPBACK.test(here.hostname)) return createElement(Original, props);
-    if (new URLSearchParams(here.search).get("${MARKERS_PARAM}") === "0") return createElement(Original, props);
+    const search = new URLSearchParams(here.search);
+    if (search.get("${MARKERS_PARAM}") === "0" || search.has("${COMPOSE_PARAM}")) return createElement(Original, props);
     const key = keyFor(keys, here.pathname);
     return createElement("${MARKER_ELEMENT}", ${MARKER_PROPS}, createElement(Original, props), createElement(Pick));
   }

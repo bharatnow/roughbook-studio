@@ -5,29 +5,45 @@
 // 404 and 500 and posts the contract's messages, and is rendered again on every request, so a
 // change shows when the frame reloads.
 //
+// A whole page is at /rough-preview/<page>/ with its sections in the query, each section:iteration:
+// one document holding each section in order, ready to run on the canvas (see composedPage).
+//
 // Who may ask: it listens on 127.0.0.1 alone and answers only its own names for it, and every
 // request carries its token (in the address, or as a bearer token) unless the browser marks it as
 // the preview page's own (Sec-Fetch-Site: same-origin), which no other site can do. In the local
 // UI it is the studio's own port under the name localhost, an origin of its own, so an iteration's
 // code never reaches the UI's page or its token.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { MAX_SECTIONS } from '../compositions/composition.js';
 import { STANDALONE_PREVIEW } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
+import { COMPOSE_PARAM, PICK_PARAM } from '../recipes/context.js';
 import { STANDALONE_ENTRIES, standaloneRenderer } from '../recipes/standalone/index.js';
 import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { bearerToken, newToken, sameToken } from '../server/security.js';
 import { contentType, siteFile } from './files.js';
-import { FILES_DIR, errorPage, fixtureScript, standalonePage, variantOf } from './page.js';
-import type { PageFile } from './types.js';
+import {
+  FILES_DIR,
+  composedPage,
+  errorPage,
+  fixtureScript,
+  standalonePage,
+  variantOf
+} from './page.js';
+import type { ComposeSection, PageFile } from './types.js';
 
 /** The query parameter that carries the token in a preview's address. */
 export const TOKEN_PARAM = 'roughbook-token';
 
 const PREFIX = STANDALONE_PREVIEW.slice(0, STANDALONE_PREVIEW.indexOf('{key}'));
+
+/** How many characters of a composition's hash name its files. */
+const COMPOSED_NAME = 16;
 
 /** The preview path, with the token, that the frame, the screenshots and doctor ask. */
 export function standaloneTemplate(token: string): string {
@@ -86,6 +102,21 @@ function readFixture(
       message: `${name} does not read as JSON: ${error instanceof Error ? error.message : String(error)}`
     };
   }
+}
+
+/** The sections a composition's parameter names, or null unless every one is well formed. */
+function namedSections(text: string): { component: string; iteration: string }[] | null {
+  const parts = text.split(',').filter(Boolean);
+  if (!parts.length || parts.length > MAX_SECTIONS) return null;
+  const sections = parts.map(part => {
+    const [component = '', iteration = '', extra] = part.split(':');
+    return { component, iteration, whole: extra === undefined };
+  });
+  return sections.every(
+    item => item.whole && SLUG.test(item.component) && ITERATION.test(item.iteration)
+  )
+    ? sections.map(({ component, iteration }) => ({ component, iteration }))
+    : null;
 }
 
 export function createStandaloneHandler(options: StandaloneOptions): StandaloneHandler {
@@ -168,6 +199,75 @@ export function createStandaloneHandler(options: StandaloneOptions): StandaloneH
     };
   }
 
+  /** A page's composition: 404 for a section that is not there, 500 for one that cannot be shown. */
+  async function composed(
+    response: ServerResponse,
+    url: URL,
+    page: string,
+    asked: string,
+    head: boolean
+  ): Promise<void> {
+    const id = `${page}/composition`;
+    const refuse = (status: 404 | 500, message: string) =>
+      sendPage(response, status, errorPage(id, status, message), head);
+    const named = SLUG.test(page) ? namedSections(asked) : null;
+    if (!named) {
+      return refuse(
+        404,
+        `There is no composition ${id} in this repo: a page's composition is /rough-preview/<page>/?${COMPOSE_PARAM}=<component>:iteration-NN,... with at most ${MAX_SECTIONS} sections.`
+      );
+    }
+    const environment = options.environment();
+    const sections: ComposeSection[] = [];
+    for (const { component, iteration } of named) {
+      const key = `${page}/${component}/${iteration}`;
+      const dir = path.join(
+        options.repoRoot,
+        ...iterationDir(page, component, iteration).split('/')
+      );
+      if (!fs.existsSync(path.join(dir, environment.entry))) {
+        return refuse(404, `There is no iteration ${key} in this repo.`);
+      }
+      const fixture = readFixture(dir, environment);
+      if (!fixture.ok) return refuse(500, `${key}: ${fixture.message}`);
+      sections.push({ component, dir, sitePath: `${PREFIX}${key}/`, fixture: fixture.value });
+    }
+    const renderer = standaloneRenderer(environment.entry);
+    if (!renderer) {
+      return refuse(
+        500,
+        `Standalone previews show ${STANDALONE_ENTRIES}; ${environment.entry} is neither.`
+      );
+    }
+    // Under a name of its own, so two compositions of a page open at once keep their own files.
+    const name = createHash('sha256').update(asked).digest('hex').slice(0, COMPOSED_NAME);
+    const shown = await renderer.composePage({
+      repoRoot: options.repoRoot,
+      environment,
+      page,
+      sections,
+      filesPath: `${PREFIX}${page}/${FILES_DIR}/${name}/`,
+      filesLink: `./${FILES_DIR}/${name}/`
+    });
+    if (!shown.ok) return refuse(500, shown.message);
+    built.set(`${page}/${FILES_DIR}/${name}`, shown.files);
+    sendPage(
+      response,
+      200,
+      composedPage({
+        page,
+        markup: shown.markup,
+        head: shown.head,
+        bodyAttributes: shown.bodyAttributes,
+        stylesheets: environment.stylesheets,
+        variant: variantOf(url.searchParams),
+        readyOn: shown.readyOn,
+        pick: url.searchParams.get(PICK_PARAM) === '1'
+      }),
+      head
+    );
+  }
+
   async function preview(response: ServerResponse, url: URL, head: boolean): Promise<void> {
     const parts = url.pathname.slice(PREFIX.length).split('/');
     let decoded: string[];
@@ -175,6 +275,25 @@ export function createStandaloneHandler(options: StandaloneOptions): StandaloneH
       decoded = parts.map(decodeURIComponent);
     } catch {
       decoded = [];
+    }
+    // A composition's own files, which its page asks for after it.
+    if (decoded[1] === FILES_DIR && SLUG.test(decoded[0] ?? '')) {
+      const found = built.get(decoded.slice(0, 3).join('/'))?.[decoded.slice(3).join('/')];
+      if (!found) return text(response, 404, 'Not found.');
+      return sendFile(response, found.type, found.bytes, head);
+    }
+    const asked = url.searchParams.get(COMPOSE_PARAM);
+    if (asked !== null && decoded.length && decoded.length <= 2 && !decoded[1]) {
+      // Its files are linked relative to it, so its address ends with a slash, as an iteration's.
+      if (decoded.length === 1) {
+        response.writeHead(308, {
+          location: `${PREFIX}${parts[0]}/${url.search}`,
+          'cache-control': 'no-store'
+        });
+        response.end();
+        return;
+      }
+      return composed(response, url, decoded[0] ?? '', asked, head);
     }
     const [page = '', component = '', iteration = '', ...rest] = decoded;
     const key = `${page}/${component}/${iteration}`;
