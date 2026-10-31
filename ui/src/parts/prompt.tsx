@@ -3,6 +3,7 @@ import {
   PromptBar,
   composerChoices,
   composerLabel,
+  composerParts,
   formatKeys,
   useMac,
   type Reading,
@@ -121,6 +122,7 @@ export function StudioPrompt({
       choices
     }),
     choices,
+    ...composerParts(canvas.input.sections, at),
     current: at.page ? { page: at.page, component: at.component, iteration: at.iteration } : null,
     onChoose: onSelect
   };
