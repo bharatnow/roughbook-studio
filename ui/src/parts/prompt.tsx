@@ -283,7 +283,7 @@ export function StudioPrompt({
       }}
       target={target}
       chip={
-        <div className="flex flex-wrap items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {current === 'fork' && complete !== false ? (
             <button
               type="button"
