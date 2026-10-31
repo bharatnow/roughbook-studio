@@ -8,7 +8,8 @@ import {
   type Reading,
   type ReadingsInput,
   type ReadingsOutcome,
-  type ReadingsReply
+  type ReadingsReply,
+  type Understand
 } from '@roughbook/ui';
 import { focusForKey } from '@roughbook/ui/canvas';
 import { Eraser, SlidersHorizontal } from 'lucide-react';
@@ -21,6 +22,7 @@ import { completeFeaturesOf } from '../features';
 import { forkPrompt } from '../fork-prompt';
 import { currentMode, promptModes } from '../prompt-modes';
 import type { Launched, RunView, StudioState } from '../types';
+import { understandFrom } from '../understand';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 /** A run's directions at most, as the run panel allowed. */
@@ -51,6 +53,9 @@ export function partsOf(key: string | null) {
  * With the session's readingsDefault on (A6 of ROUGHBOOK-APPLE-PLAN.md), New shows three readings
  * of the words first, from `POST /api/readings`, which sends the backend only the words; "Make
  * these" starts one run per reading, its label as the direction and its idea as the hypothesis.
+ *
+ * With the account reachable, Send first asks `POST /api/understand` what the words mean (I1 of
+ * the chat audit); signed out or offline it is left out, and the free rules stand alone.
  */
 export function StudioPrompt({
   canvas,
@@ -116,6 +121,7 @@ export function StudioPrompt({
       choices
     }),
     choices,
+    current: at.page ? { page: at.page, component: at.component, iteration: at.iteration } : null,
     onChoose: onSelect
   };
 
@@ -231,11 +237,15 @@ export function StudioPrompt({
   if (!state) return null;
   // The session's choice, read from /me; an older backend leaves it off.
   const readingsDefault = (state as StudioState & { readingsDefault?: boolean }).readingsDefault;
+  const understand: Understand | undefined = state.online
+    ? understandFrom({ page: at.page, component: at.component, iteration }, post)
+    : undefined;
   return (
     <PromptBar
       readingsDefault={readingsDefault === true}
       planReadings={planReadings}
       makeReadings={makeReadings}
+      understand={understand}
       key={field.key}
       action={send}
       modes={modes}

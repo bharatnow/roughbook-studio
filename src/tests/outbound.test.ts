@@ -407,6 +407,79 @@ describe('outbound requests: a path typed into the words of a run', () => {
   });
 });
 
+describe('outbound requests: the understand call (I1 of the chat audit)', () => {
+  it('sends only the typed words with paths as stand-ins, the mode and the slugs', async () => {
+    const { StudioApi } = await import('../api/client.js');
+    const { understandMessage } = await import('../server/understand.js');
+    const root = await tempDir('roughbook-outbound-understand-');
+    const repo = path.join(root, 'client-app');
+    const file = path.join(repo, 'src-stray.ts');
+    fs.mkdirSync(path.join(repo, 'rough', 'home', 'hero', 'iteration-01'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, 'rough', 'home', 'hero', 'iteration-01', 'index.tsx'),
+      ITERATION_SOURCE
+    );
+    fs.writeFileSync(file, STRAY_EDIT);
+
+    const backend = fakeFetch(() =>
+      ok({
+        read: true,
+        intent: 'chat',
+        target: null,
+        targetName: null,
+        directions: [],
+        instructions: '',
+        assumptions: [],
+        confidence: 'high',
+        question: null,
+        reply: 'Hello.',
+        requestId: 'r1',
+        credits: 1,
+        upToCredits: 0
+      })
+    );
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+
+    // A page that sent more than it should: the repo's path and its code.
+    await understandMessage(
+      { api, link: { orgId: ORG, project: 'site' } },
+      {
+        repoRoot: repo,
+        source: ITERATION_SOURCE,
+        stray: STRAY_EDIT,
+        words: `like "${file}" please`,
+        mode: 'new',
+        page: 'home',
+        component: 'hero'
+      }
+    );
+
+    assert.deepEqual(
+      backend.requests.map(request => request.body),
+      [
+        {
+          words: 'like "[local path 1]" please',
+          mode: 'new',
+          page: 'home',
+          component: 'hero'
+        }
+      ]
+    );
+    assert.equal(new URL(backend.requests[0]!.url).pathname, `/v1/api/studio${PROJECT}/understand`);
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 5
+    });
+  });
+});
+
 describe('outbound requests: the readings call (A6 of the Apple plan)', () => {
   it('sends only the typed text, the readings kept and the one to replace', async () => {
     const { StudioApi } = await import('../api/client.js');

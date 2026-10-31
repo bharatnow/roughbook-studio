@@ -19,6 +19,7 @@ import {
 } from './security.js';
 import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
+import { understandMessage } from './understand.js';
 import { verbRoutes } from './verbs.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
 
@@ -247,6 +248,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     // A component's readings (A6 of the Apple plan): the typed words go, nothing from the repo.
     route('POST', '/api/readings', async request =>
       planReadings(studio.readingsSource, await readBody(request))
+    ),
+    // What a message means (I1 of the chat audit): the typed words go, with paths as stand-ins.
+    route('POST', '/api/understand', async request =>
+      understandMessage(studio.readingsSource, await readBody(request))
     ),
     // What Roughbook learned about the designer and this brand (A10 of the Apple plan), and Forget:
     // only the sentence's scope and id go to the backend.

@@ -69,6 +69,8 @@ export type StudioState = {
   webUrl: string | null;
   /** Whether the prompt opens on readings, from the account's /me (A6). */
   readingsDefault?: boolean;
+  /** Whether the account answered; signed out, offline or an older server reads nothing. */
+  online?: boolean;
   /**
    * The account's Complete features switch (A7), from /studio/me or as last kept offline. Missing
    * from an older studio server, which reads as on.

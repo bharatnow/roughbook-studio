@@ -927,10 +927,12 @@ export class LocalStudio {
     ]);
     let webUrl: string | null = null;
     let readingsDefault = false;
+    let online = false;
     // Offline, the switch as last read; never read, on, as an older host reads it (decision 12).
     let completeFeatures = settings.completeFeatures ?? true;
     try {
       const me = await api.me();
+      online = true;
       webUrl = me.webUrl ?? null;
       readingsDefault = me.readingsDefault ?? false;
       completeFeatures = me.user.completeFeatures ?? true;
@@ -958,6 +960,8 @@ export class LocalStudio {
       webUrl,
       // Whether the prompt opens on readings (A6), as the account's /me says.
       readingsDefault,
+      // Whether the account answered: signed out or offline, the prompt reads nothing (I1).
+      online,
       // The Complete features switch (A7), for the local UI's host.
       completeFeatures,
       terminal: pty.ok ? { builtin: true } : { builtin: false, reason: pty.reason },

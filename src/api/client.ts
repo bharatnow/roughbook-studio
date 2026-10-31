@@ -80,6 +80,32 @@ export type ReadingQuestion = {
 /** What the readings call answers. */
 export type ReadingsReply = { readings: Reading[]; question: ReadingQuestion | null };
 
+/** What the understand call sends: the typed words, the prompt's mode and the selection's slugs. */
+export type UnderstandBody = {
+  words: string;
+  mode: 'new' | 'fork' | 'refine';
+  page?: string;
+  component?: string;
+  iteration?: string;
+};
+
+/** What the understand call answers, as @roughbook/ui's `Understanding`. */
+export type UnderstandReply = {
+  read: boolean;
+  intent: 'make' | 'change' | 'judge' | 'ask' | 'instruct' | 'chat' | 'unclear';
+  target: { page: string; component: string | null; iteration: string | null } | null;
+  targetName: string | null;
+  directions: string[];
+  instructions: string;
+  assumptions: string[];
+  confidence: 'high' | 'low';
+  question: { text: string; options: string[] } | null;
+  reply: string | null;
+  requestId: string | null;
+  credits: number;
+  upToCredits: number;
+};
+
 /**
  * A sentence Roughbook learned from a person's or a brand's choices (A10 of the Apple plan), as
  * @roughbook/ui's `LearnedSentence`: the choices behind it are codes, never anyone's words.
@@ -393,6 +419,14 @@ export class StudioApi {
     body: ReadingsBody
   ): Promise<ReadingsReply> {
     return this.request('POST', `${componentPath(orgId, project, page, component)}/readings`, body);
+  }
+
+  /**
+   * What a message in the prompt means (I1 of the chat audit): the typed words, the mode and the
+   * selection's slugs go up. Nothing from the repo goes with them.
+   */
+  understand(orgId: string, project: string, body: UnderstandBody): Promise<UnderstandReply> {
+    return this.request('POST', `${projectPath(orgId, project)}/understand`, body);
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */

@@ -173,6 +173,7 @@ describe('/api/state and the Complete features switch', () => {
         const state = await local.call('GET', '/api/state');
         assert.equal(state.status, 200);
         assert.equal(state.json.data.completeFeatures, on);
+        assert.equal(state.json.data.online, true);
         assert.equal((await readSettings(local.configDir)).completeFeatures, on);
         assert.deepEqual(sent(fake), []);
       } finally {
@@ -197,7 +198,9 @@ describe('/api/state and the Complete features switch', () => {
     const local = await localServer(fake);
     try {
       assert.equal((await readSettings(local.configDir)).completeFeatures, null);
-      assert.equal((await local.call('GET', '/api/state')).json.data.completeFeatures, true);
+      const offline = (await local.call('GET', '/api/state')).json.data;
+      assert.equal(offline.completeFeatures, true);
+      assert.equal(offline.online, false);
       await saveSettings(local.configDir, { completeFeatures: false });
       assert.equal((await local.call('GET', '/api/state')).json.data.completeFeatures, false);
     } finally {
