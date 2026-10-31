@@ -13,7 +13,7 @@ import { ITERATION, SLUG } from '../repo/iterations.js';
 export type StillsView = Pick<StillsRead, 'pending' | 'items'>;
 
 /** One of a web sketch's pictures: the half-width one is what a small canvas loads first. */
-export type StillKind = 'desktop' | 'desktop-half' | 'phone';
+export type StillKind = 'desktop' | 'desktop-half' | 'tablet' | 'phone';
 
 /** A picture larger than this is not a still. */
 export const MAX_STILL_BYTES = 16 * 1024 * 1024;
@@ -161,6 +161,11 @@ export class RemoteStills {
           half: half ? hold(key, 'desktop-half', half) : null,
           ...desktopSize
         };
+      }
+      const tabletLink = usable(entry?.tablet?.url);
+      const tabletSize = measured(entry?.tablet?.width, entry?.tablet?.height);
+      if (tabletLink && tabletSize) {
+        item.tablet = { url: hold(key, 'tablet', tabletLink), ...tabletSize };
       }
       const phoneLink = usable(entry?.phone?.url);
       const phoneSize = measured(entry?.phone?.width, entry?.phone?.height);

@@ -64,6 +64,7 @@ export type AppView = {
 /** An iteration's full-height pictures, at addresses on the local server. */
 export type StillEntry = {
   desktop: { url: string; half: string | null; width: number; height: number } | null;
+  tablet?: { url: string; width: number; height: number } | null;
   phone: { url: string; width: number; height: number } | null;
 };
 

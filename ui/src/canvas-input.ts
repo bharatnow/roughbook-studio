@@ -164,7 +164,7 @@ function stillUrl(url: string, shotKey: string | undefined): string {
 /** An iteration's full-height stills as a card takes them; null until it has one. */
 function cardStill(entry: StillEntry | undefined, shotKey: string | undefined) {
   if (!entry) return null;
-  const { desktop, phone } = entry;
+  const { desktop, tablet, phone } = entry;
   return {
     desktop: desktop && {
       src: stillUrl(desktop.url, shotKey),
@@ -172,6 +172,14 @@ function cardStill(entry: StillEntry | undefined, shotKey: string | undefined) {
       width: desktop.width,
       height: desktop.height
     },
+    ...(tablet && {
+      tablet: {
+        src: stillUrl(tablet.url, shotKey),
+        half: null,
+        width: tablet.width,
+        height: tablet.height
+      }
+    }),
     phone: phone && {
       src: stillUrl(phone.url, shotKey),
       half: null,

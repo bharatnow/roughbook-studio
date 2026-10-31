@@ -178,6 +178,7 @@ export const PAGE_PICTURE_KINDS: readonly PictureKind[] = ['page-desktop', 'page
 /** An iteration's full-height pictures, for the canvas (P3 of the composite plan). */
 export type StillEntry = {
   desktop: { url: string; half: string | null; width: number; height: number } | null;
+  tablet?: { url: string; width: number; height: number } | null;
   phone: { url: string; width: number; height: number } | null;
 };
 

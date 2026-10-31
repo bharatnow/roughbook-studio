@@ -476,7 +476,7 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
    */
   function remoteStill(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
     const match =
-      /^\/api\/stills\/remote\/([^/]+)\/([^/]+)\/([^/]+)\/(desktop|desktop-half|phone)$/.exec(
+      /^\/api\/stills\/remote\/([^/]+)\/([^/]+)\/([^/]+)\/(desktop|desktop-half|tablet|phone)$/.exec(
         url.pathname
       );
     if (!match || request.method !== 'GET') return false;
