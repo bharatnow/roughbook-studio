@@ -393,6 +393,17 @@ describe('outbound requests: a path typed into the words of a run', () => {
     });
   });
 
+  it('sends a stand-in for a path in the instructions', async () => {
+    const typedPath = 'C:\\Users\\dana\\client-app\\src\\hero.tsx';
+    const { backend } = await typed({
+      kind: 'generate',
+      directions: [{ direction: 'Quiet' }],
+      instructions: `Keep ${typedPath}`
+    });
+    const body = backend.requests[0]!.body as { instructions?: string };
+    assert.equal(body.instructions, 'Keep [local path 1]');
+  });
+
   it('sends the repo’s own path as a stand-in too', async () => {
     const root = await tempDir('roughbook-outbound-own-');
     const own = path.join(root, 'client-app', 'src', 'hero.tsx');

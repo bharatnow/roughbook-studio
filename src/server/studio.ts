@@ -336,12 +336,17 @@ export type RunBody = {
   cols?: number;
   rows?: number;
 } & (
-  | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
+  | {
+      kind: 'generate';
+      directions: { direction: string; hypothesis?: string }[];
+      instructions?: unknown;
+    }
   | {
       kind: 'fork';
       parent: string;
       intent?: { remain?: unknown; change?: unknown };
       radical?: boolean;
+      instructions?: unknown;
     }
   /** A web sketch ported into this repo's stack: a pull run (F7 of the frameworks plan). */
   | { kind: 'pull'; sketch: string }
@@ -352,10 +357,12 @@ export type RunBody = {
       intent: string;
       observationIds?: string[];
       preserve?: string;
+      instructions?: unknown;
     }
 );
 
 const KEEP_LINES = 300;
+const MAX_INSTRUCTIONS = 2000;
 const ASSET_CACHE_MS = 5 * 60_000;
 const ASSET_CACHE_BYTES = 64 * 1024 * 1024;
 
@@ -411,6 +418,17 @@ function text(value: unknown, what: string, max = 2000): string {
     throw new BadRequest(`${what} is missing or too long.`);
   }
   return value.trim();
+}
+
+/** A run's instructions (I3 of the chat audit), left out when there are none. */
+function instructionsField(value: unknown): { instructions?: string } {
+  const instructions = typeof value === 'string' ? value.trim() : '';
+  if (instructions.length > MAX_INSTRUCTIONS) {
+    throw new BadRequest(
+      `Say the instructions in ${MAX_INSTRUCTIONS} characters or fewer; this is ${instructions.length}.`
+    );
+  }
+  return instructions ? { instructions } : {};
 }
 
 function optionalText(value: unknown, what: string, max = 20_000): string | undefined {
@@ -2431,7 +2449,8 @@ export class LocalStudio {
             ...(typeof item?.hypothesis === 'string' && item.hypothesis.trim()
               ? { hypothesis: text(item.hypothesis, 'The hypothesis', 1000) }
               : {})
-          }))
+          })),
+          ...instructionsField(body.instructions)
         };
       }
       case 'fork':
@@ -2442,6 +2461,7 @@ export class LocalStudio {
           return {
             kind: 'fork',
             parent: body.parent,
+            ...instructionsField(body.instructions),
             ...forkFields({
               change: typeof body.intent?.change === 'string' ? body.intent.change : null,
               remain: Array.isArray(remain)
@@ -2472,7 +2492,8 @@ export class LocalStudio {
           ...(observationIds.length ? { observationIds } : {}),
           ...(typeof body.preserve === 'string' && body.preserve.trim()
             ? { preserve: body.preserve.trim().slice(0, 2000) }
-            : {})
+            : {}),
+          ...instructionsField(body.instructions)
         };
       }
       default:

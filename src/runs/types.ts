@@ -54,7 +54,12 @@ export type StartRunRequest = {
   /** The repo's stack tokens, kept on the iteration so ratings compare by stack (F7). */
   stack?: string[];
 } & (
-  | { kind: 'generate'; directions: { direction: string; hypothesis?: string }[] }
+  | {
+      kind: 'generate';
+      directions: { direction: string; hypothesis?: string }[];
+      /** The designer's words for this batch, kept with each iteration and in its prompt (I3). */
+      instructions?: string;
+    }
   | {
       kind: 'fork';
       parent: string;
@@ -62,6 +67,7 @@ export type StartRunRequest = {
       intent?: ForkIntent;
       /** A clean start: an empty folder, with what the parent was and what reviews said. */
       radical?: boolean;
+      instructions?: string;
     }
   /** The sketch's files are a read-only reference beside the component; the agent rebuilds it. */
   | { kind: 'pull'; sketch: string }
@@ -72,6 +78,7 @@ export type StartRunRequest = {
       intent: string;
       observationIds?: string[];
       preserve?: string;
+      instructions?: string;
     }
 );
 

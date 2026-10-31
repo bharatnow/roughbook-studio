@@ -22,6 +22,8 @@ const REPLY: UnderstandReply = {
   confidence: 'high',
   question: null,
   reply: null,
+  rule: null,
+  ruleScope: null,
   requestId: null,
   credits: 1,
   upToCredits: 0
@@ -81,7 +83,8 @@ describe('understand route', () => {
         instructions: `See ${standIn}`,
         assumptions: [`You meant ${standIn}`],
         question: { text: `Is it ${standIn}?`, options: [standIn, 'No'] },
-        reply: `Read ${standIn}`
+        reply: `Read ${standIn}`,
+        rule: `Never use ${standIn}`
       })
     );
     const reply = await understandMessage(from, { words: `like ${PATH} please`, mode: 'refine' });
@@ -92,6 +95,13 @@ describe('understand route', () => {
     assert.deepEqual(reply.assumptions, [`You meant ${PATH}`]);
     assert.deepEqual(reply.question, { text: `Is it ${PATH}?`, options: [PATH, 'No'] });
     assert.equal(reply.reply, `Read ${PATH}`);
+    assert.equal(reply.rule, `Never use ${PATH}`);
+  });
+
+  it('reads an older backend that says nothing of a rule as no rule', async () => {
+    const { rule: _rule, ...older } = REPLY;
+    const { source: from } = source(() => ok(older));
+    assert.equal((await understandMessage(from, { words: 'calm', mode: 'new' })).rule, null);
   });
 
   it('drops whatever else the page sent', () => {

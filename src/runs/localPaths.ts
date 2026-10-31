@@ -127,6 +127,14 @@ export function redactRunRequest(request: StartRunRequest): {
   paths: LocalPaths;
 } {
   const { texts, rebuild } = typedWords(request);
-  const redacted = redactLocalPaths(texts);
-  return { request: rebuild(redacted.texts), paths: redacted.paths };
+  const instructions = 'instructions' in request ? request.instructions : undefined;
+  const redacted = redactLocalPaths([...texts, instructions ?? '']);
+  const rebuilt = rebuild(redacted.texts.slice(0, -1));
+  return {
+    request:
+      instructions === undefined
+        ? rebuilt
+        : ({ ...rebuilt, instructions: redacted.texts.at(-1)! } as StartRunRequest),
+    paths: redacted.paths
+  };
 }

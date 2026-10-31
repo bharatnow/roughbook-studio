@@ -146,6 +146,44 @@ describe('redacting a run request', () => {
     assert.equal(refine.preserve, '[local path 2]');
   });
 
+  it('covers instructions on a batch, a fork with no intent and a refinement', () => {
+    const generate = redactRunRequest({
+      ...base,
+      kind: 'generate',
+      directions: [{ direction: `Like ${path}` }],
+      instructions: `Keep ${path} and ~/brand/type.css`
+    });
+    assert.deepEqual(generate.request, {
+      ...base,
+      kind: 'generate',
+      directions: [{ direction: 'Like [local path 1]' }],
+      instructions: 'Keep [local path 1] and [local path 2]'
+    });
+    assert.equal(generate.paths.size, 2);
+    const fork = redactRunRequest({
+      ...base,
+      kind: 'fork',
+      parent: 'iteration-01',
+      instructions: `Keep ${path}`
+    });
+    assert.deepEqual(fork.request, {
+      ...base,
+      kind: 'fork',
+      parent: 'iteration-01',
+      instructions: 'Keep [local path 1]'
+    });
+    assert.equal(fork.paths.get('[local path 1]'), path);
+    const refine = redactRunRequest({
+      ...base,
+      kind: 'refine',
+      parent: 'iteration-01',
+      preset: 'custom',
+      intent: 'Tighten',
+      instructions: `Keep ${path}`
+    });
+    assert.equal((refine.request as { instructions?: string }).instructions, 'Keep [local path 1]');
+  });
+
   it('leaves a request with no typed words as it is', () => {
     const request: StartRunRequest = { ...base, kind: 'pull', sketch: 'iteration-02' };
     assert.deepEqual(redactRunRequest(request), { request, paths: new Map() });

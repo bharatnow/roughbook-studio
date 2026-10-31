@@ -101,10 +101,24 @@ export type UnderstandReply = {
   confidence: 'high' | 'low';
   question: { text: string; options: string[] } | null;
   reply: string | null;
+  /** For `instruct` (I3): the standing rule in plain words, and where it would apply. */
+  rule: string | null;
+  ruleScope: 'component' | 'project' | null;
   requestId: string | null;
   credits: number;
   upToCredits: number;
 };
+
+/** What saving a lasting rule sends (I3 of the chat audit): the rule, its scope and the slugs. */
+export type SaveRuleBody = {
+  text: string;
+  scope: 'component' | 'project';
+  page?: string;
+  component?: string;
+};
+
+/** What saving a lasting rule answers. */
+export type SaveRuleReply = { saved: true; scope: SaveRuleBody['scope']; count: number };
 
 /**
  * A sentence Roughbook learned from a person's or a brand's choices (A10 of the Apple plan), as
@@ -427,6 +441,11 @@ export class StudioApi {
    */
   understand(orgId: string, project: string, body: UnderstandBody): Promise<UnderstandReply> {
     return this.request('POST', `${projectPath(orgId, project)}/understand`, body);
+  }
+
+  /** Saves a lasting rule on a component or the project (I3 of the chat audit); editors only. */
+  saveRule(orgId: string, project: string, body: SaveRuleBody): Promise<SaveRuleReply> {
+    return this.request('POST', `${projectPath(orgId, project)}/rules`, body);
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */

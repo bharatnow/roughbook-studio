@@ -15,6 +15,8 @@ export const NOT_READ: Understanding = {
   confidence: 'low',
   question: null,
   reply: null,
+  rule: null,
+  ruleScope: null,
   requestId: null,
   credits: 0,
   upToCredits: 0

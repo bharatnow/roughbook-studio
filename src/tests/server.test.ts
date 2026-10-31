@@ -578,6 +578,17 @@ describe('the local server', () => {
     });
     assert.equal(unattended.status, 400);
     assert.match(unattended.json.message, /ANTHROPIC_API_KEY/);
+
+    const long = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      mode: 'interactive',
+      kind: 'generate',
+      directions: [{ direction: 'Quiet' }],
+      instructions: 'x'.repeat(2001)
+    });
+    assert.equal(long.status, 400);
+    assert.match(long.json.message, /instructions/i);
   });
 
   it("joins a run's terminal over a socket with the token, scrollback first", async () => {

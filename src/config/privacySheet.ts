@@ -9,7 +9,7 @@ import { readSettings, saveSettings } from './settings.js';
 export const PRIVACY_SHEET = [
   'What Roughbook keeps, and what it does not:',
   '  Kept: the brief and context you give a project, each iteration’s record (its name, direction and how its checks went), reviews and decisions, and the project’s pictures once someone says yes.',
-  '  Words: what your team types for a run stays with the project until it is deleted, and you can delete your own. They are never shown to client reviewers, no model is trained on them, and they never feed a prompt on their own.',
+  '  Words: what your team types for a run stays with the project until it is deleted, and you can delete your own. They are never shown to client reviewers and no model is trained on them. Instructions typed for an iteration are kept with it and go into its prompt, and a saved rule goes into every later prompt for its component or project until it is removed.',
   '  Not kept: your code, your file names or paths, or the code your agent writes from a prompt. A path you type is swapped for a stand-in before your words are sent. Your agent works on this machine, with your own account.',
   '  Learned: short sentences about your taste and each brand’s, from your picks and ratings. They are used only as context for your requests, no model is trained on them, and you can forget any one of them.'
 ] as const;

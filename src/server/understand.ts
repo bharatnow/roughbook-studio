@@ -18,7 +18,7 @@ export type UnderstandSource = { api: StudioApi; link: { orgId: string; project:
 export type ParsedUnderstand = { body: UnderstandBody; paths: LocalPaths };
 
 /** A selection's slug, or nothing: a message may be sent with nothing selected. */
-function slug(value: unknown, what: string): string | undefined {
+export function slug(value: unknown, what: string): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string' || !value.trim() || value.length > MAX_SLUG) {
     throw new BadRequest(`The selected ${what} cannot be read.`);
@@ -70,7 +70,9 @@ function restored(reply: UnderstandReply, paths: LocalPaths): UnderstandReply {
       text: back(reply.question.text),
       options: reply.question.options.map(back)
     },
-    reply: reply.reply === null ? null : back(reply.reply)
+    reply: reply.reply === null ? null : back(reply.reply),
+    // An older backend leaves it out.
+    rule: reply.rule ? back(reply.rule) : null
   };
 }
 

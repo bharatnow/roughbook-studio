@@ -491,6 +491,7 @@ export function IterationScreen({
           <IterationInspector
             direction={iteration.direction}
             hypothesis={iteration.hypothesis}
+            instructions={iteration.instructions}
             latestReview={latestReview}
             rating={describeRating(rating)}
             decision={iterationStatusLabel(decisionOf(iteration.status))}

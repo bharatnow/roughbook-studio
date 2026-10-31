@@ -4,6 +4,7 @@ import {
   composerChoices,
   composerLabel,
   composerParts,
+  fitDirections,
   formatKeys,
   useMac,
   type Reading,
@@ -22,6 +23,7 @@ import { describe, useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
 import { forkPrompt } from '../fork-prompt';
 import { currentMode, promptModes } from '../prompt-modes';
+import { saveRuleFrom } from '../save-rule';
 import type { Launched, RunView, StudioState } from '../types';
 import { understandFrom } from '../understand';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
@@ -56,7 +58,9 @@ export function partsOf(key: string | null) {
  * these" starts one run per reading, its label as the direction and its idea as the hypothesis.
  *
  * With the account reachable, Send first asks `POST /api/understand` what the words mean (I1 of
- * the chat audit); signed out or offline it is left out, and the free rules stand alone.
+ * the chat audit); signed out or offline it is left out, and the free rules stand alone. A lasting
+ * rule it finds is saved through `POST /api/rules`, and the Instructions field's words go with the
+ * run (I3), through the same stand-ins as a direction.
  */
 export function StudioPrompt({
   canvas,
@@ -129,6 +133,7 @@ export function StudioPrompt({
 
   async function send(form: FormData) {
     const text = String(form.get('directions') ?? '');
+    const typed = String(form.get('instructions') ?? '').trim();
     const lines = text
       .split(/\r?\n/)
       .map(line => line.trim())
@@ -148,14 +153,17 @@ export function StudioPrompt({
       if (directions.length > MAX_DIRECTIONS) {
         return refuse(`Up to ${MAX_DIRECTIONS} directions at a time.`);
       }
+      // A direction past the backend's limit keeps its start; the rest joins the instructions.
+      const words = fitDirections(directions, typed);
       body = {
         page: at.page,
         component: at.component,
         kind: 'generate',
-        directions: directions.map(direction => ({
+        directions: words.directions.map(direction => ({
           direction,
           ...(tests ? { hypothesis: tests } : {})
-        }))
+        })),
+        ...(words.instructions ? { instructions: words.instructions } : {})
       };
     } else if (current === 'fork') {
       const fork = forkPrompt(text, cleanStart);
@@ -165,7 +173,8 @@ export function StudioPrompt({
         component: at.component,
         kind: 'fork',
         parent: iteration,
-        ...fork.fields
+        ...fork.fields,
+        ...(typed ? { instructions: typed } : {})
       };
     } else {
       if (!lines.length) return refuse(`Say how ${iteration} should change.`);
@@ -175,7 +184,8 @@ export function StudioPrompt({
         kind: 'refine',
         parent: iteration,
         preset: 'custom',
-        intent: text.trim()
+        intent: text.trim(),
+        ...(typed ? { instructions: typed } : {})
       };
     }
     if (!(await launch(body))) {
@@ -242,12 +252,20 @@ export function StudioPrompt({
   const understand: Understand | undefined = state.online
     ? understandFrom({ page: at.page, component: at.component, iteration }, post)
     : undefined;
+  const saveRule = state.online
+    ? saveRuleFrom(
+        { page: at.page, component: at.component, name: frame?.name ?? null },
+        post,
+        describe
+      )
+    : undefined;
   return (
     <PromptBar
       readingsDefault={readingsDefault === true}
       planReadings={planReadings}
       makeReadings={makeReadings}
       understand={understand}
+      saveRule={saveRule}
       key={field.key}
       action={send}
       modes={modes}

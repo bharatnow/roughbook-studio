@@ -109,6 +109,8 @@ export type Iteration = {
   parent: string | null;
   direction: string;
   hypothesis: string;
+  /** The words typed for this iteration; an older backend leaves them out. */
+  instructions?: string;
   tags: string[];
   methods: string[];
   metaMissing: boolean;
