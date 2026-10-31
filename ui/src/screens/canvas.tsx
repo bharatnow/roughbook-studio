@@ -810,6 +810,7 @@ function StudioCanvasView({
       <Canvas
         key={composite ? 'composite' : 'rows'}
         composite={composite}
+        canKeep
         input={canvas.input}
         label={`${project.tree.name} canvas`}
         project={project.tree.slug}
