@@ -16,6 +16,7 @@ import type {
   Page,
   ProjectView,
   RunView,
+  StillsView,
   StudioState,
   TerminalInfo
 } from './types';
@@ -23,6 +24,8 @@ import type {
 type StudioData = {
   state: StudioState | null;
   project: ProjectView | null;
+  /** The canvas's full-height stills; null until read, and the canvas draws without them. */
+  stills: StillsView | null;
   runs: RunView[];
   terminals: TerminalInfo[];
   /** The runs and terminals have been read once, so a session seen after is a new one. */
@@ -64,6 +67,7 @@ function usePageVisible(): boolean {
 export function StudioDataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StudioState | null>(null);
   const [project, setProject] = useState<ProjectView | null>(null);
+  const [stills, setStills] = useState<StillsView | null>(null);
   const [runs, setRuns] = useState<RunView[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [runsReady, setRunsReady] = useState(false);
@@ -78,15 +82,28 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /** `fresh` when the designer came back to the page, so the server asks the backend again. */
-  const refreshProject = useCallback(async (fresh = false) => {
+  /** Never holds the project up, and a failed read leaves the stills that were there. */
+  const refreshStills = useCallback(async (fresh: boolean) => {
     try {
-      setProject(await get<ProjectView>(fresh ? '/api/project?fresh' : '/api/project'));
-      setProblem(null);
-    } catch (error) {
-      setProblem(describe(error));
+      setStills(await get<StillsView>(fresh ? '/api/stills?fresh' : '/api/stills'));
+    } catch {
+      // The next tick tries again; the project read reports the problem.
     }
   }, []);
+
+  /** `fresh` when the designer came back to the page, so the server asks the backend again. */
+  const refreshProject = useCallback(
+    async (fresh = false) => {
+      void refreshStills(fresh);
+      try {
+        setProject(await get<ProjectView>(fresh ? '/api/project?fresh' : '/api/project'));
+        setProblem(null);
+      } catch (error) {
+        setProblem(describe(error));
+      }
+    },
+    [refreshStills]
+  );
 
   const refreshRuns = useCallback(async () => {
     try {
@@ -179,6 +196,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     () => ({
       state,
       project,
+      stills,
       runs,
       terminals,
       runsReady,
@@ -191,6 +209,7 @@ export function StudioDataProvider({ children }: { children: ReactNode }) {
     [
       state,
       project,
+      stills,
       runs,
       terminals,
       runsReady,

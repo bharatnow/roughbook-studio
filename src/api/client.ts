@@ -27,6 +27,7 @@ import type {
   PictureKind,
   SetupPrompt,
   SketchFile,
+  StillsRead,
   StoredPicture
 } from './types.js';
 
@@ -391,6 +392,24 @@ export class StudioApi {
     );
     if (response.ok) return Buffer.from(await response.arrayBuffer());
     throw await readError(response);
+  }
+
+  /** The project's full-height stills: signed links to its web sketches' pictures, with sizes. */
+  stills(orgId: string, project: string): Promise<StillsRead> {
+    return this.request('GET', `${projectPath(orgId, project)}/stills`);
+  }
+
+  /** Opens a signed link the backend gave: storage's, so it gets no token and no redirect. */
+  async openLink(url: string): Promise<Response> {
+    try {
+      return await (this.config.fetch ?? fetch)(url, {
+        headers: { accept: 'image/*' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000)
+      });
+    } catch (error) {
+      throw new OfflineError(this.config.server, error);
+    }
   }
 
   link(orgId: string, body: LinkBody): Promise<LinkResult> {

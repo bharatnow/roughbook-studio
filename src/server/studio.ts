@@ -53,6 +53,7 @@ import {
   picturesDir,
   sharePagePictures
 } from '../pictures/share.js';
+import { imageFileSize, RemoteStills, type StillKind, type StillsView } from './stills.js';
 import { answerPictures, describeAnswerError } from '../pictures/answer.js';
 import { clearMapPictures, MAP_PICTURES_PAGE, takeMapPictures } from '../pictures/mapPictures.js';
 import {
@@ -276,6 +277,8 @@ export type CompositionView = {
 /** What `POST /api/adopt` answers: what it made, or the question "Adopt all" asks first. */
 export type AdoptAnswer =
   { ask: { question: string; count: number } } | { lines: string[]; written: string[] };
+
+const widestFirst = (a: { width: number }, b: { width: number }) => b.width - a.width;
 
 /** How long after the last write to an iteration its screenshots are taken again. */
 const RESHOT_AFTER_MS = 5000;
@@ -569,6 +572,7 @@ export class LocalStudio {
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
   private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
+  private readonly remoteStills: RemoteStills;
   /**
    * The project's pictures answer as last read or given here (decision 25 of the Apple plan):
    * null while nobody has answered; undefined until the project has been read. Kept apart from
@@ -592,6 +596,10 @@ export class LocalStudio {
   private restQueued = false;
 
   constructor(private readonly options: LocalStudioOptions) {
+    this.remoteStills = new RemoteStills(
+      () => this.options.api.stills(this.options.link.orgId, this.options.link.project),
+      url => this.options.api.openLink(url)
+    );
     this.terminals = options.pty.ok ? new Terminals(options.pty.pty) : null;
     this.outbox = outboxFor(options.context.repoRoot);
     this.standalone = createStandaloneHandler({
@@ -1101,12 +1109,79 @@ export class LocalStudio {
     this.cache.invalidate();
   }
 
+  /** The canvas's full-height stills: the web sketches' through this server, and this repo's own. */
+  async stills(fresh = false): Promise<StillsView> {
+    const remote = await this.remoteStills.current(fresh);
+    return { pending: remote.pending, items: { ...remote.items, ...this.localStills() } };
+  }
+
+  /** A web sketch's picture, when the backend gave a link for it. */
+  remoteStill(key: string, kind: StillKind) {
+    return this.remoteStills.open(key, kind);
+  }
+
+  /** Each iteration here with a picture, at the widest desktop viewport and the first phone one. */
+  private localStills(): StillsView['items'] {
+    const environment = this.environment;
+    const { viewports, variants } = environment;
+    const set = screenshotSet(viewports, variants);
+    const shotAt = (viewport: { name: string } | undefined) =>
+      set.find(shot => shot.viewport === viewport?.name)?.name ?? null;
+    const desktop = shotAt(viewports.filter(item => !item.mobile).sort(widestFirst)[0]);
+    const phone = shotAt(viewports.find(item => item.mobile));
+    const items: StillsView['items'] = {};
+    for (const key of this.iterationsHere()) {
+      const [page, component, iteration] = key.split('/') as [string, string, string];
+      const target = { page, component, iteration };
+      const wide = this.localStill(target, 'desktop', desktop);
+      const narrow = this.localStill(target, 'phone', phone);
+      if (!wide && !narrow) continue;
+      items[key] = {
+        desktop: wide ? { ...wide, half: null } : null,
+        phone: narrow
+      };
+    }
+    return items;
+  }
+
+  /**
+   * An iteration's still: its full-length picture where one was taken, otherwise (pictures off, or
+   * not taken yet) the viewport's screenshot. `at` asks again for a picture taken again.
+   */
+  private localStill(target: ReviewTarget, kind: 'desktop' | 'phone', shot: string | null) {
+    const { page, component, iteration } = target;
+    const full = this.disk(`${picturesDir(target)}/${kind}.webp`);
+    const file = fs.existsSync(full)
+      ? full
+      : shot
+        ? this.disk(screenshotPath(page, component, iteration, shot))
+        : null;
+    if (!file || !fs.existsSync(file)) return null;
+    const size = imageFileSize(file);
+    if (!size) return null;
+    const at = Math.round(fs.statSync(file).mtimeMs).toString(36);
+    const route = file === full ? `pictures/${kind}` : `screenshots/${shot}`;
+    return { url: `/api/iterations/${page}/${component}/${iteration}/${route}?at=${at}`, ...size };
+  }
+
+  /** An iteration's full-length picture, when it has one. */
+  stillPictureFile(target: ReviewTarget, kind: 'desktop' | 'phone'): string | null {
+    this.assertIteration(target);
+    const file = this.disk(`${picturesDir(target)}/${kind}.webp`);
+    return fs.existsSync(file) ? file : null;
+  }
+
+  /** This repo's iterations, without the ones made only to picture the map. */
+  private iterationsHere(): string[] {
+    return listIterations(this.repoRoot, this.environment.entry).filter(
+      key => !key.startsWith(`${MAP_PICTURES_PAGE}/`)
+    );
+  }
+
   /** The iterations in this repo and their screenshots, read from disk on every ask. */
   private local() {
     const environment = this.environment;
-    const iterations = listIterations(this.repoRoot, environment.entry).filter(
-      key => !key.startsWith(`${MAP_PICTURES_PAGE}/`)
-    );
+    const iterations = this.iterationsHere();
     const screenshots: Record<string, string[]> = {};
     const screenshotsAt: Record<string, string> = {};
     const names = screenshotSet(environment.viewports, environment.variants).map(shot => shot.name);

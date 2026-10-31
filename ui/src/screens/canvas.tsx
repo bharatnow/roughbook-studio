@@ -179,7 +179,7 @@ function StudioCanvasView({
   focus: CanvasFocus;
   session?: string;
 }) {
-  const { runs, terminals, runsReady, refresh, changes } = useStudio();
+  const { runs, stills, terminals, runsReady, refresh, changes } = useStudio();
   /** What the canvas's own actions said, beside its controls. */
   const said = useLine();
   const hostLine = useHostLine();
@@ -205,14 +205,15 @@ function StudioCanvasView({
   const shownFilter = useDeferredValue(filter);
 
   // Read again every few seconds while a run is open; drawn again only when something changed.
-  const signature = JSON.stringify([project, runs, state.shotKey, shownFilter]);
+  const signature = JSON.stringify([project, runs, state.shotKey, shownFilter, stills?.items]);
   const canvas: StudioCanvas = useMemo(
     () =>
       studioCanvasInput(project.tree, runs, project.local, {
         shotKey: state.shotKey,
-        filter: shownFilter
+        filter: shownFilter,
+        stills: stills?.items
       }),
-    // The signature stands for all four.
+    // The signature stands for all five.
     [signature]
   );
 

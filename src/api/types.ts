@@ -175,6 +175,20 @@ export const PICTURE_KINDS: readonly PictureKind[] = ['thumbnail', 'desktop', 'p
 /** The pictures of an iteration in its page (B5), where its recipe has the in-page view. */
 export const PAGE_PICTURE_KINDS: readonly PictureKind[] = ['page-desktop', 'page-phone'];
 
+/** An iteration's full-height pictures, for the canvas (P3 of the composite plan). */
+export type StillEntry = {
+  desktop: { url: string; half: string | null; width: number; height: number } | null;
+  phone: { url: string; width: number; height: number } | null;
+};
+
+/** `GET …/stills`: the project's signed picture links, by `<page>/<component>/<iteration>`. */
+export type StillsRead = {
+  expiresAt: string;
+  /** How many are still being made. */
+  pending: number;
+  items: Record<string, StillEntry>;
+};
+
 /** `PUT …/pictures/:kind`: what the backend kept, after re-encoding it. */
 export type StoredPicture = { kind: PictureKind; width: number; height: number; updatedAt: string };
 

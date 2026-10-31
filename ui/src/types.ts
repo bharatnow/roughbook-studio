@@ -61,6 +61,15 @@ export type AppView = {
   fault: string | null;
 };
 
+/** An iteration's full-height pictures, at addresses on the local server. */
+export type StillEntry = {
+  desktop: { url: string; half: string | null; width: number; height: number } | null;
+  phone: { url: string; width: number; height: number } | null;
+};
+
+/** `GET /api/stills`, by `<page>/<component>/<iteration>`. */
+export type StillsView = { pending: number; items: Record<string, StillEntry> };
+
 export type StudioState = {
   version: string;
   project: { orgId: string; slug: string };

@@ -17,6 +17,43 @@ function cardsOf(canvas: StudioCanvas, page: string, component: string) {
   return new Map(frame.cards.map(card => [card.id, card]));
 }
 
+describe('the full-height stills on the cards', () => {
+  const stills = {
+    'home/hero/iteration-01': {
+      desktop: { url: '/api/x/desktop?at=1', half: null, width: 1280, height: 2000 },
+      phone: { url: '/api/x/phone', width: 390, height: 1800 }
+    },
+    'about/team/iteration-02': {
+      desktop: { url: '/api/y/desktop', half: '/api/y/half?v=2', width: 1280, height: 900 },
+      phone: null
+    }
+  };
+  const stillOf = (card: unknown) => (card as { still?: unknown }).still;
+  const canvas = studioCanvasInput(PROJECT.tree, RUNS, PROJECT.local, { stills, shotKey: 'k 1' });
+
+  it('gives each card its stills, with the image key in every address', () => {
+    assert.deepEqual(stillOf(cardsOf(canvas, 'home', 'hero').get('iteration-01')), {
+      desktop: { src: '/api/x/desktop?at=1&key=k%201', half: null, width: 1280, height: 2000 },
+      phone: { src: '/api/x/phone?key=k%201', half: null, width: 390, height: 1800 }
+    });
+    assert.deepEqual(stillOf(cardsOf(canvas, 'about', 'team').get('iteration-02')), {
+      desktop: {
+        src: '/api/y/desktop?key=k%201',
+        half: '/api/y/half?v=2&key=k%201',
+        width: 1280,
+        height: 900
+      },
+      phone: null
+    });
+  });
+
+  it('says a card has none yet, and says nothing when the read did not come', () => {
+    assert.equal(stillOf(cardsOf(canvas, 'home', 'hero').get('iteration-02')), null);
+    const without = studioCanvasInput(PROJECT.tree, RUNS, PROJECT.local);
+    assert.ok(!('still' in cardsOf(without, 'home', 'hero').get('iteration-01')!));
+  });
+});
+
 describe("the studio's canvas input", () => {
   const canvas = studioCanvasInput(PROJECT.tree, RUNS, PROJECT.local);
   const hero = cardsOf(canvas, 'home', 'hero');

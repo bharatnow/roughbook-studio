@@ -5,6 +5,8 @@
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { WebSocketServer } from 'ws';
 import { ApiError, OfflineError, describeError } from '../api/errors.js';
 import type { AssetScope } from '../api/types.js';
@@ -21,6 +23,7 @@ import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
 import { deleteRequest, readRequests } from './requests.js';
 import { saveRule } from './rules.js';
+import { capped, MAX_STILL_BYTES, type StillKind } from './stills.js';
 import { understandMessage } from './understand.js';
 import { verbRoutes } from './verbs.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
@@ -164,6 +167,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     // ?fresh when the designer came back to the page, so it shows what changed meanwhile.
     route('GET', '/api/project', request =>
       studio.project(new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.has('fresh'))
+    ),
+    // The canvas's full-height stills, at addresses on this server; ?fresh as for the project.
+    route('GET', '/api/stills', request =>
+      studio.stills(new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.has('fresh'))
     ),
     route('GET', '/api/runs', () => studio.runs()),
     route('POST', '/api/runs', async request =>
@@ -416,7 +423,11 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     const composed = /^\/api\/compositions\/([^/]+)\/([^/]+)\/pictures\/([a-z][a-z0-9-]*)$/.exec(
       url.pathname
     );
-    if ((!match && !mapped && !composed) || request.method !== 'GET') return false;
+    // An iteration's full-length picture, the canvas's still (P3 of the composite plan).
+    const full = /^\/api\/iterations\/([^/]+)\/([^/]+)\/([^/]+)\/pictures\/(desktop|phone)$/.exec(
+      url.pathname
+    );
+    if ((!match && !mapped && !composed && !full) || request.method !== 'GET') return false;
     const key = url.searchParams.get('key') ?? undefined;
     if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {
       sendJson(response, 401, { error: 'UNAUTHORIZED' });
@@ -424,14 +435,19 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }
     let file: string | null = null;
     try {
-      file = composed
-        ? studio.compositionPictureFile(composed[1]!, composed[2]!, composed[3]!)
-        : mapped
-          ? studio.mapShotFile(mapped[1] as 'page' | 'component', mapped[2]!, mapped[3]!)
-          : studio.screenshotFile(
-              { page: match![1]!, component: match![2]!, iteration: match![3]! },
-              match![4]!
-            );
+      file = full
+        ? studio.stillPictureFile(
+            { page: full[1]!, component: full[2]!, iteration: full[3]! },
+            full[4] as 'desktop' | 'phone'
+          )
+        : composed
+          ? studio.compositionPictureFile(composed[1]!, composed[2]!, composed[3]!)
+          : mapped
+            ? studio.mapShotFile(mapped[1] as 'page' | 'component', mapped[2]!, mapped[3]!)
+            : studio.screenshotFile(
+                { page: match![1]!, component: match![2]!, iteration: match![3]! },
+                match![4]!
+              );
     } catch {
       file = null;
     }
@@ -451,6 +467,48 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       ...headers
     });
     fs.createReadStream(file).pipe(response);
+    return true;
+  }
+
+  /**
+   * A web sketch's still, carried from storage for the page's <img>, which the CSP keeps on this
+   * origin. The address names an iteration, never a link: anything else is answered 404.
+   */
+  function remoteStill(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
+    const match =
+      /^\/api\/stills\/remote\/([^/]+)\/([^/]+)\/([^/]+)\/(desktop|desktop-half|phone)$/.exec(
+        url.pathname
+      );
+    if (!match || request.method !== 'GET') return false;
+    const key = url.searchParams.get('key') ?? undefined;
+    if (!sameToken(bearerToken(request), token) && !sameToken(key, shotKey)) {
+      sendJson(response, 401, { error: 'UNAUTHORIZED' });
+      return true;
+    }
+    void (async () => {
+      const still = await studio.remoteStill(
+        `${match[1]}/${match[2]}/${match[3]}`,
+        match[4] as StillKind
+      );
+      if (!still) {
+        response.writeHead(404).end();
+        return;
+      }
+      response.writeHead(200, {
+        'content-type': still.type,
+        // The address carries the build's mark, so a rebuilt picture is a new address.
+        'cache-control': 'private, max-age=3600',
+        'x-content-type-options': 'nosniff'
+      });
+      await pipeline(
+        Readable.fromWeb(still.body as Parameters<typeof Readable.fromWeb>[0]),
+        capped(MAX_STILL_BYTES),
+        response
+      );
+    })().catch(() => {
+      if (response.headersSent) response.destroy();
+      else response.writeHead(502).end();
+    });
     return true;
   }
 
@@ -518,6 +576,7 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       return;
     }
     if (screenshot(request, response, url)) return;
+    if (remoteStill(request, response, url)) return;
     if (pathname.startsWith('/api/')) {
       void api(request, response, pathname);
       return;

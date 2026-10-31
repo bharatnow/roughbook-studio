@@ -23,7 +23,7 @@ import {
 } from '@roughbook/ui/map-list';
 import type { RatingSummary } from '@roughbook/ui';
 import { iterationPath } from './api.ts';
-import type { Iteration, MapView, ProjectView, RunView } from './types.ts';
+import type { Iteration, MapView, ProjectView, RunView, StillEntry } from './types.ts';
 
 /** What the toolbar and the palette need to know about a card, by its key. */
 export type StudioCardFacts = {
@@ -155,6 +155,32 @@ function pictureUrl(path: string, shotKey: string | undefined, at: string | null
   return text ? `${path}?${text}` : path;
 }
 
+/** A still's address from the server, with the image key an <img> needs. */
+function stillUrl(url: string, shotKey: string | undefined): string {
+  if (!shotKey) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}key=${encodeURIComponent(shotKey)}`;
+}
+
+/** An iteration's full-height stills as a card takes them; null until it has one. */
+function cardStill(entry: StillEntry | undefined, shotKey: string | undefined) {
+  if (!entry) return null;
+  const { desktop, phone } = entry;
+  return {
+    desktop: desktop && {
+      src: stillUrl(desktop.url, shotKey),
+      half: desktop.half && stillUrl(desktop.half, shotKey),
+      width: desktop.width,
+      height: desktop.height
+    },
+    phone: phone && {
+      src: stillUrl(phone.url, shotKey),
+      half: null,
+      width: phone.width,
+      height: phone.height
+    }
+  };
+}
+
 /** The iteration's number, from its id. */
 function numberOf(id: string): number {
   return Number(/(\d+)$/.exec(id)?.[1] ?? 0);
@@ -163,7 +189,9 @@ function numberOf(id: string): number {
 /**
  * The canvas for this repo. `runs` are the local server's, newest first; `local` says which
  * iterations are in rough/ and which have screenshots. `shotKey` is the server's key for a card's
- * picture, which cannot send the token; `ratings`, by card key, order the rated sort where read.
+ * picture, which cannot send the token; `ratings`, by card key, order the rated sort where read;
+ * `stills`, by `<page>/<component>/<iteration>`, are the local server's read, and without them the
+ * cards say nothing of stills.
  */
 export function studioCanvasInput(
   project: ProjectView['tree'],
@@ -172,12 +200,14 @@ export function studioCanvasInput(
   {
     shotKey,
     ratings = {},
-    filter
+    filter,
+    stills
   }: {
     shotKey?: string;
     ratings?: Record<string, RatingSummary>;
     /** The "In the app" filter (decision 66), the canvas's own: nothing of it is stored. */
     filter?: InAppFilter;
+    stills?: Record<string, StillEntry>;
   } = {}
 ): StudioCanvas {
   const here = new Set(local.iterations);
@@ -266,7 +296,8 @@ export function studioCanvasInput(
         decision: decisionOf(iteration.status),
         generated: !pending,
         rating: ratings[key]?.average ?? null,
-        ...(baseline ? { inApp: true } : {})
+        ...(baseline ? { inApp: true } : {}),
+        ...(stills ? { still: cardStill(stills[`${where}/${iteration.id}`], shotKey) } : {})
       });
     }
 
@@ -293,7 +324,8 @@ export function studioCanvasInput(
         beside: run.parent,
         from: run.parent,
         decision: 'draft',
-        generated: false
+        generated: false,
+        ...(stills ? { still: null } : {})
       });
     }
 
@@ -343,7 +375,8 @@ export function studioCanvasInput(
       from: null,
       decision: 'draft',
       generated: true,
-      inApp: true
+      inApp: true,
+      ...(stills ? { still: null } : {})
     };
     return { id: component.slug, name: component.name, href: `/${page}`, cards: [card] };
   };
