@@ -80,6 +80,21 @@ export type ReadingQuestion = {
 /** What the readings call answers. */
 export type ReadingsReply = { readings: Reading[]; question: ReadingQuestion | null };
 
+/** Which page of the project's record to read. */
+export type RequestsQuery = { limit: number; cursor?: string };
+
+/** A line of the record: what this repo reads of it, and the rest for the page to read. */
+export type RequestLine = {
+  id: string;
+  words: string;
+  reply: string | null;
+  runIds: string[];
+  [field: string]: unknown;
+};
+
+/** One page of the record; `next` is null on the last. */
+export type RequestsPage = { requests: RequestLine[]; next: string | null };
+
 /** What the understand call sends: the typed words, the prompt's mode and the selection's slugs. */
 export type UnderstandBody = {
   words: string;
@@ -441,6 +456,24 @@ export class StudioApi {
    */
   understand(orgId: string, project: string, body: UnderstandBody): Promise<UnderstandReply> {
     return this.request('POST', `${projectPath(orgId, project)}/understand`, body);
+  }
+
+  /**
+   * A page of the project's record, newest first (C6 of the composer audit). The studio's lines hold
+   * stand-ins for its paths; `next` is the backend's own cursor. Only the page's place goes up.
+   */
+  requests(orgId: string, project: string, page: RequestsQuery): Promise<RequestsPage> {
+    const query = new URLSearchParams({ limit: String(page.limit) });
+    if (page.cursor) query.set('cursor', page.cursor);
+    return this.request('GET', `${projectPath(orgId, project)}/requests?${query}`);
+  }
+
+  /** Deletes one's own line; the backend refuses anyone else's. */
+  deleteRequest(orgId: string, project: string, id: string): Promise<{ deleted: true }> {
+    return this.request(
+      'DELETE',
+      `${projectPath(orgId, project)}/requests/${encodeURIComponent(id)}`
+    );
   }
 
   /** Saves a lasting rule on a component or the project (I3 of the chat audit); editors only. */

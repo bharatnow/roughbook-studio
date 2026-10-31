@@ -24,14 +24,23 @@ export const NOT_READ: Understanding = {
 
 type Selection = { page: string | null; component: string | null; iteration: string | null };
 
-/** The prompt's reader for this selection; `post` is the local server's call. */
+/**
+ * The prompt's reader for this selection; `post` is the local server's call. `onKept` hears of a
+ * message that left a line in the record, which the history then reads at once.
+ */
 export function understandFrom(
   selection: Selection,
-  post: (path: string, body: unknown) => Promise<unknown>
+  post: (path: string, body: unknown) => Promise<unknown>,
+  onKept?: () => void
 ): Understand {
   return async input => {
     try {
-      return (await post('/api/understand', { ...selection, ...input })) as Understanding;
+      const reading = (await post('/api/understand', {
+        ...selection,
+        ...input
+      })) as Understanding;
+      if (reading.requestId) onKept?.();
+      return reading;
     } catch {
       return NOT_READ;
     }

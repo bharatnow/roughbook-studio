@@ -18,6 +18,20 @@ describe('the prompt reader', () => {
     assert.deepEqual(posted, [['/api/understand', { ...SELECTED, words: 'hello', mode: 'new' }]]);
   });
 
+  it('says when a message left a line, and only then', async () => {
+    let kept = 0;
+    const answers = [{ ...NOT_READ, requestId: 'line-1' }, NOT_READ];
+    const understand = understandFrom(
+      SELECTED,
+      async () => answers.shift(),
+      () => (kept += 1)
+    );
+    await understand({ words: 'hello', mode: 'new' });
+    assert.equal(kept, 1);
+    await understand({ words: 'hello', mode: 'new' });
+    assert.equal(kept, 1);
+  });
+
   it('answers the failed read when the call fails, charging nothing', async () => {
     const understand = understandFrom(SELECTED, async () => {
       throw new Error('offline');

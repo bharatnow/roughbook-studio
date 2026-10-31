@@ -7,6 +7,7 @@ import { StudioApi } from '../api/client.js';
 import { outboxFor } from '../api/outbox.js';
 import { readRepoLink, renderRepoLink, type RepoLink } from '../repo/link.js';
 import { applyChecks, headlineAppearsIn, importsFromRough } from '../runs/checks.js';
+import { readKeptPaths } from '../runs/keptPaths.js';
 import { finishRun, inScope, isMine, startRuns } from '../runs/lifecycle.js';
 import { PLACEHOLDER_INDEX } from '../recipes/next/placeholder.js';
 import { createSlot, finishingSection, handoffLine, isPlaceholder } from '../runs/slots.js';
@@ -136,6 +137,27 @@ describe('whose change', () => {
 });
 
 describe('starting runs', () => {
+  it('keeps what a stand-in stood for by each run, and sends only the stand-in', async () => {
+    const typed = 'C:\\client-app\\hero.tsx';
+    const { repo, api, requests } = await setup([
+      started('iteration-03', RUN_A),
+      started('iteration-04', RUN_B)
+    ]);
+    await startRuns(repo, api, LINK, {
+      ...GENERATE,
+      directions: [{ direction: `Like ${typed}` }, { direction: 'Loud' }]
+    });
+    assert.equal(JSON.stringify(requests[0]!.body).includes('client-app'), false);
+    const kept = { '[local path 1]': typed };
+    assert.deepEqual(await readKeptPaths(repo), { [RUN_A]: kept, [RUN_B]: kept });
+  });
+
+  it('keeps nothing for words with no path', async () => {
+    const { repo, api } = await setup([started('iteration-03', RUN_A)]);
+    await startRuns(repo, api, LINK, GENERATE);
+    assert.deepEqual(await readKeptPaths(repo), {});
+  });
+
   it('sends the skills rough/roughbook.json names with every run, and only skill names', async () => {
     const { repo, api, requests } = await setup([started('iteration-03', RUN_A)]);
     const skills = ['design-taste-frontend', 'impeccable'];

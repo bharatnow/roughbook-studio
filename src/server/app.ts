@@ -19,6 +19,7 @@ import {
 } from './security.js';
 import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
+import { deleteRequest, readRequests } from './requests.js';
 import { saveRule } from './rules.js';
 import { understandMessage } from './understand.js';
 import { verbRoutes } from './verbs.js';
@@ -252,7 +253,17 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     ),
     // What a message means (I1 of the chat audit): the typed words go, with paths as stand-ins.
     route('POST', '/api/understand', async request =>
-      understandMessage(studio.readingsSource, await readBody(request))
+      understandMessage(studio.requestsSource, await readBody(request))
+    ),
+    // The project's record (C6 of the composer audit): a cursor or a line's id goes, nothing else.
+    route('GET', '/api/requests', request =>
+      readRequests(
+        studio.requestsSource,
+        new URL(request.url ?? '/', 'http://127.0.0.1').searchParams.get('cursor')
+      )
+    ),
+    route('POST', '/api/requests/:id/delete', (_request, params) =>
+      deleteRequest(studio.requestsSource, params.id!)
     ),
     // A lasting rule (I3 of the chat audit): the rule, its scope and the slugs go, never a path.
     route('POST', '/api/rules', async request =>

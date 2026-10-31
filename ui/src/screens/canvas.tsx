@@ -1,4 +1,5 @@
 import {
+  COMPOSER_AT_REST,
   Canvas,
   Button,
   HelpTag,
@@ -15,6 +16,7 @@ import {
   useUiHost,
   type CanvasControls,
   type CanvasView,
+  type ComposerState,
   type VerbId
 } from '@roughbook/ui';
 import {
@@ -68,6 +70,7 @@ import { Missing } from '../parts/missing';
 import { PROMPT_FIELD, useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
 import { RefineSheet } from '../parts/refine';
+import { StudioTranscript } from '../parts/transcript';
 import { HowFarMenu, NOT_THIS_REASONS, NotThisMenu, useRunVerb } from '../parts/verb-run';
 import { WhoseChangesSheet, useRunOps, type RunOps } from '../parts/run-card';
 import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
@@ -367,6 +370,11 @@ function StudioCanvasView({
   const [launched, setLaunched] = useState<Launched | null>(null);
   const [promptMode, setPromptMode] = useState('new');
   const [pulling, setPulling] = useState<string | null>(null);
+  /** What the composer's button says, from the transcript's record. */
+  const [buttonState, setButtonState] = useState<ComposerState>(COMPOSER_AT_REST);
+  const [questionWaits, setQuestionWaits] = useState(false);
+  /** Messages that left a line in the record, which is then read at once. */
+  const [keptLines, setKeptLines] = useState(0);
   /** Not this's "Other…" and the palette's Not this: the card. */
   const [notThis, setNotThis] = useState<string | null>(null);
 
@@ -783,6 +791,8 @@ function StudioCanvasView({
         }
       }}
       onLaunched={setLaunched}
+      onQuestion={setQuestionWaits}
+      onLineKept={() => setKeptLines(count => count + 1)}
       onRefineOptions={() => {
         const at = partsOf(selection);
         if (at.page && at.component && at.iteration) {
@@ -825,6 +835,28 @@ function StudioCanvasView({
         actions={actions}
         prompt={prompt}
         promptFieldId={PROMPT_FIELD}
+        composerState={state.online ? buttonState : undefined}
+        composerQuestion={questionWaits}
+        // Signed out or offline, the panel is the prompt alone. A new run is a new line to read.
+        transcript={
+          state.online
+            ? open => (
+                <StudioTranscript
+                  key={project.tree.slug}
+                  project={project.tree.slug}
+                  open={open}
+                  sections={canvas.input.sections}
+                  selection={selection}
+                  fresh={keptLines + runs.length}
+                  onSelectCard={key => {
+                    // A line may name a card this canvas does not show.
+                    if (canvas.cards[key]) controls.current?.select(key);
+                  }}
+                  onState={setButtonState}
+                />
+              )
+            : undefined
+        }
         onToggleCompare={toggleCompare}
         cardView={cardView}
         onCardViewChange={next => {

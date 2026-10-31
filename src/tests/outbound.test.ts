@@ -563,3 +563,75 @@ describe('outbound requests: the readings call (A6 of the Apple plan)', () => {
     });
   });
 });
+
+describe('outbound requests: the history (C6 of the composer audit)', () => {
+  it('send no path, though the page shows the real one', async () => {
+    const { StudioApi } = await import('../api/client.js');
+    const { BadRequest } = await import('../server/studio.js');
+    const { deleteRequest, readRequests } = await import('../server/requests.js');
+    const { understandMessage } = await import('../server/understand.js');
+    const root = await tempDir('roughbook-outbound-history-');
+    const repo = path.join(root, 'client-app');
+    fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+    const typed = path.join(repo, 'src', 'hero.tsx');
+    fs.writeFileSync(typed, ITERATION_SOURCE);
+    const line = '22222222-2222-4222-8222-222222222222';
+    const standIn = '[local path 1]';
+    let stored = '';
+
+    const backend = fakeFetch(request => {
+      if (request.method === 'DELETE') return ok({ deleted: true });
+      if (request.method === 'GET') {
+        return ok({
+          requests: [{ id: line, words: stored, reply: `Read ${standIn}`, runIds: [] }],
+          next: null
+        });
+      }
+      stored = (request.body as { words: string }).words;
+      return ok({
+        read: true,
+        intent: 'chat',
+        target: null,
+        targetName: null,
+        directions: [],
+        instructions: '',
+        assumptions: [],
+        confidence: 'high',
+        question: null,
+        reply: `Read ${standIn}`,
+        rule: null,
+        ruleScope: null,
+        requestId: line,
+        credits: 1,
+        upToCredits: 0
+      });
+    });
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+    const source = { api, link: { orgId: ORG, project: 'site' }, repoRoot: repo };
+
+    await understandMessage(source, { words: `like ${typed}`, mode: 'new' });
+    assert.equal(stored, `like ${standIn}`);
+
+    // The page has the real path; nothing it can send next takes it back out.
+    const { requests } = await readRequests(source, null);
+    assert.equal(requests[0]!.words, `like ${typed}`);
+    assert.equal(requests[0]!.reply, `Read ${typed}`);
+    await assert.rejects(readRequests(source, typed), BadRequest);
+    await assert.rejects(deleteRequest(source, typed), BadRequest);
+    await deleteRequest(source, line);
+
+    assert.deepEqual(
+      backend.requests.map(request => request.method),
+      ['POST', 'GET', 'DELETE']
+    );
+    for (const request of backend.requests) {
+      assert.equal(JSON.stringify(request).includes('client-app'), false, request.url);
+    }
+    assertCarriesNoRepoContent(backend.requests, { repo, root, minimumLines: 5 });
+  });
+});

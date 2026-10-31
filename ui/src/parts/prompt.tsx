@@ -71,7 +71,9 @@ export function StudioPrompt({
   onStarted,
   onLaunched,
   onRefineOptions,
-  onSelect
+  onSelect,
+  onQuestion,
+  onLineKept
 }: {
   canvas: StudioCanvas;
   selection: string | null;
@@ -86,6 +88,10 @@ export function StudioPrompt({
   onRefineOptions: () => void;
   /** Selects a component on the canvas, chosen from the context chip. */
   onSelect: (key: string) => void;
+  /** Whether a question waits for an answer, for the composer's button. */
+  onQuestion: (waiting: boolean) => void;
+  /** A message left a line in the record. */
+  onLineKept: () => void;
 }) {
   const { state } = useStudio();
   const mac = useMac();
@@ -250,7 +256,7 @@ export function StudioPrompt({
   // The session's choice, read from /me; an older backend leaves it off.
   const readingsDefault = (state as StudioState & { readingsDefault?: boolean }).readingsDefault;
   const understand: Understand | undefined = state.online
-    ? understandFrom({ page: at.page, component: at.component, iteration }, post)
+    ? understandFrom({ page: at.page, component: at.component, iteration }, post, onLineKept)
     : undefined;
   const saveRule = state.online
     ? saveRuleFrom(
@@ -266,6 +272,7 @@ export function StudioPrompt({
       makeReadings={makeReadings}
       understand={understand}
       saveRule={saveRule}
+      onQuestion={onQuestion}
       key={field.key}
       action={send}
       modes={modes}

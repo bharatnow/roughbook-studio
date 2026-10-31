@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { StudioApi, type UnderstandReply } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
+import { readKeptPaths } from '../runs/keptPaths.js';
 import { BadRequest } from '../server/studio.js';
 import { parseUnderstand, understandMessage, type UnderstandSource } from '../server/understand.js';
-import { fakeFetch, ok, refused } from './helpers.js';
+import { fakeFetch, ok, refused, tempDir } from './helpers.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const PATH = 'C:\\client-app\\src\\hero.tsx';
@@ -96,6 +97,22 @@ describe('understand route', () => {
     assert.deepEqual(reply.question, { text: `Is it ${PATH}?`, options: [PATH, 'No'] });
     assert.equal(reply.reply, `Read ${PATH}`);
     assert.equal(reply.rule, `Never use ${PATH}`);
+  });
+
+  it('keeps the paths of a message that left a line, for the history', async () => {
+    const line = '22222222-2222-4222-8222-222222222222';
+    const repoRoot = await tempDir('roughbook-understand-');
+    const kept = source(() => ok({ ...REPLY, requestId: line }));
+    await understandMessage({ ...kept.source, repoRoot }, { words: `like ${PATH}`, mode: 'new' });
+    assert.deepEqual(await readKeptPaths(repoRoot), { [line]: { '[local path 1]': PATH } });
+
+    const drawn = await tempDir('roughbook-understand-');
+    const none = source();
+    await understandMessage(
+      { ...none.source, repoRoot: drawn },
+      { words: `like ${PATH}`, mode: 'new' }
+    );
+    assert.deepEqual(await readKeptPaths(drawn), {});
   });
 
   it('reads an older backend that says nothing of a rule as no rule', async () => {

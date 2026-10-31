@@ -29,6 +29,7 @@ import {
   recordChildren
 } from './base.js';
 import { checkIteration, importsFromRough } from './checks.js';
+import { keepLocalPaths } from './keptPaths.js';
 import { redactRunRequest, restoreLocalPaths } from './localPaths.js';
 import {
   assertTarget,
@@ -172,6 +173,13 @@ export async function startRuns(
       );
     }
   }
+
+  // The record holds the stand-ins; this machine keeps what they stood for, to show in the history.
+  await keepLocalPaths(
+    repoRoot,
+    started.map(run => run.runId),
+    paths
+  );
 
   options.beforeSlots?.(started);
   // Before the slots, so writing them counts as the runs' own change.

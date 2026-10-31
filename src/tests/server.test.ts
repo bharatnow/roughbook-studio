@@ -22,6 +22,7 @@ import { renderRepoLink, type RepoLink } from '../repo/link.js';
 import { handoffLine } from '../runs/slots.js';
 import { listRuns, saveRun } from '../runs/store.js';
 import type { StartedRun } from '../runs/types.js';
+import { keepLocalPaths } from '../runs/keptPaths.js';
 import { createLocalServer } from '../server/app.js';
 import {
   FIRST_WAIT_MS,
@@ -59,6 +60,8 @@ const SKETCH_INDEX = {
   content:
     'import { motion } from "motion/react";\n\nexport default function Hero() {\n  return <motion.img className="w-full" src="/api/files/project/site/hero.png" alt="" />;\n}\n'
 };
+
+const LINE = '22222222-2222-4222-8222-222222222222';
 
 const ITERATION_SOURCE = `export default function Hero() {
   const lockup = 'server-test lockup 41b7, only in this repo';
@@ -383,7 +386,17 @@ describe('the local server', () => {
         'GET',
         new RegExp(`^${PROJECT}/files/library/mark\\.svg$`),
         () => ({ status: 200, text: '<svg/>' })
-      ]
+      ],
+      [
+        'GET',
+        new RegExp(`^${PROJECT}/requests$`),
+        () =>
+          ok({
+            requests: [{ id: LINE, words: 'Like [local path 1]', reply: null, runIds: [] }],
+            next: null
+          })
+      ],
+      ['DELETE', new RegExp(`^${PROJECT}/requests/${LINE}$`), () => ok({ deleted: true })]
     ];
     backend = fakeFetch(request => {
       const route = new URL(request.url).pathname.replace('/v1/api/studio', '');
@@ -506,6 +519,23 @@ describe('the local server', () => {
 
     const page = await raw(port, 'GET', '/', { host: `localhost:${port}` });
     assert.equal(page.status, 503, 'no UI is built in the tests');
+  });
+
+  it('reads the record with the paths it holds, and deletes a line', async () => {
+    const typed = 'C:\\client-app\\hero.tsx';
+    await keepLocalPaths(repo, [LINE], new Map([['[local path 1]', typed]]));
+    const read = await api('GET', '/api/requests');
+    assert.equal(read.status, 200);
+    assert.equal(read.json.data.requests[0].words, `Like ${typed}`);
+    assert.equal((await api('GET', '/api/requests?cursor=a%2Fb')).status, 400);
+
+    const gone = await api('POST', `/api/requests/${LINE}/delete`);
+    assert.deepEqual(gone.json.data, { deleted: true });
+    assert.equal((await api('POST', '/api/requests/not-a-line/delete')).status, 400);
+    assert.equal(
+      (await api('GET', '/api/requests')).json.data.requests[0].words.includes('C:'),
+      false
+    );
   });
 
   it("serves the linked project's and library's asset files to the dev server, once each", async () => {

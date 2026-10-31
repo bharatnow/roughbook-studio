@@ -3,6 +3,7 @@
 // path in the words leaves as a stand-in, and comes back in the answer, so a direction the page
 // starts a run from still says what was typed. Nothing is written here.
 import type { StudioApi, UnderstandBody, UnderstandReply } from '../api/client.js';
+import { keepLocalPaths } from '../runs/keptPaths.js';
 import { redactLocalPaths, restoreLocalPaths, type LocalPaths } from '../runs/localPaths.js';
 import { BadRequest } from './studio.js';
 
@@ -11,8 +12,12 @@ const MAX_WORDS = 4000;
 const MAX_SLUG = 200;
 const MODES: readonly string[] = ['new', 'fork', 'refine'] satisfies UnderstandBody['mode'][];
 
-/** What the route needs from the studio: the client and the linked project. */
-export type UnderstandSource = { api: StudioApi; link: { orgId: string; project: string } };
+/** What the route needs from the studio: the client, the linked project, and the repo to keep in. */
+export type UnderstandSource = {
+  api: StudioApi;
+  link: { orgId: string; project: string };
+  repoRoot?: string;
+};
 
 /** The body the backend takes, and the paths its stand-ins hold. */
 export type ParsedUnderstand = { body: UnderstandBody; paths: LocalPaths };
@@ -76,12 +81,17 @@ function restored(reply: UnderstandReply, paths: LocalPaths): UnderstandReply {
   };
 }
 
-/** Asks the backend what the message means; its refusals pass on as ApiErrors. */
+/**
+ * Asks the backend what the message means; its refusals pass on as ApiErrors. A message it kept a
+ * line for has that line's paths kept here, so the history can show them.
+ */
 export async function understandMessage(
   source: UnderstandSource,
   body: Record<string, unknown>
 ): Promise<UnderstandReply> {
   const { body: request, paths } = parseUnderstand(body);
-  const { api, link } = source;
-  return restored(await api.understand(link.orgId, link.project, request), paths);
+  const { api, link, repoRoot } = source;
+  const reply = await api.understand(link.orgId, link.project, request);
+  if (repoRoot && reply.requestId) await keepLocalPaths(repoRoot, [reply.requestId], paths);
+  return restored(reply, paths);
 }

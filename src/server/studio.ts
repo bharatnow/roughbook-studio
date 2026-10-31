@@ -27,6 +27,7 @@ import {
 } from '../commands/shared.js';
 import { PRIVACY_SHEET } from '../config/privacySheet.js';
 import type { ReadingsSource } from './readings.js';
+import type { RequestsSource } from './requests.js';
 import { localOrigin, readSettings, saveSettings } from '../config/settings.js';
 import {
   ENVIRONMENT_FILE,
@@ -1026,6 +1027,11 @@ export class LocalStudio {
   /** The client and the linked project, for the readings route (src/server/readings.ts). */
   get readingsSource(): ReadingsSource {
     return { api: this.options.api, link: this.options.link };
+  }
+
+  /** The same and the repo, whose kept paths the record's stand-ins are read against. */
+  get requestsSource(): RequestsSource {
+    return { ...this.readingsSource, repoRoot: this.repoRoot };
   }
 
   /** The local UI showed its privacy sheet: kept beside the CLI's flag, and never shown again. */
