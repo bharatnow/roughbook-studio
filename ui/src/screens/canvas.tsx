@@ -1,5 +1,4 @@
 import {
-  useCompositeSwitch,
   COMPOSER_AT_REST,
   Canvas,
   Button,
@@ -192,7 +191,6 @@ function StudioCanvasView({
   const verbRunner = useRunVerb();
   const runApp = useAppCommands();
   const controls = useRef<CanvasControls | null>(null);
-  const composite = useCompositeSwitch();
   const runOps = useRef<{ runId: string; ops: RunOps } | null>(null);
 
   // The "In the app" filter narrows the canvas as it does the app's pages (decision 66); the
@@ -808,8 +806,6 @@ function StudioCanvasView({
   return (
     <div data-studio-canvas className="flex min-h-0 flex-1 flex-col">
       <Canvas
-        key={composite ? 'composite' : 'rows'}
-        composite={composite}
         canKeep
         input={canvas.input}
         label={`${project.tree.name} canvas`}
