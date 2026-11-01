@@ -1,4 +1,13 @@
 import {
+  ACTION_LINES,
+  ActionMenu,
+  HOW_FAR,
+  SelectionToolbar,
+  VERB_KEYS,
+  type ActionRow
+} from '@roughbook/ui';
+import { HOW_FAR_WORDS } from '../commands';
+import {
   Button,
   GENERATION_STATE_LABELS,
   HelpTip,
@@ -28,7 +37,6 @@ import {
   useUiHost
 } from '@roughbook/ui';
 import { Check } from 'lucide-react';
-import type { ReactElement } from 'react';
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
 import { describe, findComponent, useStudio } from '../data';
@@ -42,7 +50,7 @@ import { OutputLine, useLine } from '../parts/output-line';
 import { useRatings } from '../parts/ratings';
 import { RefineSheet, useReviews } from '../parts/refine';
 import { RunCard } from '../parts/run-card';
-import { HowFarMenu, NotThisMenu, useRunVerb } from '../parts/verb-run';
+import { NotThisMenu, useRunVerb } from '../parts/verb-run';
 import type { AppView, SnapshotView } from '../types';
 
 /**
@@ -144,14 +152,6 @@ function useSnapshotState(
  * The app's state, asked again often while it starts or is down, so the frame's progress moves,
  * and rarely once it answers.
  */
-
-/** A dimmed control keeps its reason in a help tag, not a title (the shell-style ratchet). */
-function withReason(
-  reason: string | null | undefined,
-  control: ReactElement<{ 'aria-describedby'?: string }>
-) {
-  return reason ? <HelpTag text={reason}>{control}</HelpTag> : control;
-}
 
 /**
  * The app's state, and `trouble`: Turbopack's lost lazy import (B7b), from the app's log or from a
@@ -377,44 +377,7 @@ export function IterationScreen({
         selected={selected}
         viewports={null}
         extraActions={
-          <>
-            <RatingForm
-              project={project.tree.slug}
-              page={page}
-              component={component}
-              iterationId={id}
-              rating={rating}
-            />
-            {verbs.served('polish')
-              ? withReason(
-                  notMade ?? waiting,
-                  <Button
-                    type="button"
-                    disabled={Boolean(notMade ?? waiting)}
-                    onClick={() => void goTo('polish')}
-                  >
-                    {VERB_LABELS.polish}
-                  </Button>
-                )
-              : null}
-            {verbs.served('not-this') ? (
-              <NotThisMenu
-                disabled={waiting}
-                onReason={reason =>
-                  void verbs.run('not-this', verbTarget, { reasonPreset: reason })
-                }
-                onOther={() => setRejectOpen(true)}
-              />
-            ) : (
-              <Button type="button" onClick={() => setRejectOpen(true)}>
-                {VERB_LABELS['not-this']}
-              </Button>
-            )}
-            {completeFeaturesOf(state) ? (
-              <Button type="button" onClick={() => setRefineOpen(true)}>
-                Refine
-              </Button>
-            ) : null}
+          <span data-stage-review>
             <ReviewButton
               target={target}
               reviews={reviews}
@@ -423,30 +386,108 @@ export function IterationScreen({
               refineHref={`${base}/${id}?refine=1`}
               variant="toolbar"
             />
-          </>
+          </span>
         }
-        lead={
-          <>
-            {verbs.served('more')
-              ? withReason(
-                  notMade ?? waiting,
-                  <Button
-                    type="button"
-                    disabled={Boolean(notMade ?? waiting)}
-                    onClick={() => void goTo('more')}
-                  >
-                    {VERB_LABELS.more}
-                  </Button>
-                )
-              : null}
-            {verbs.served('different') ? (
-              <HowFarMenu
-                disabled={notMade ?? waiting}
-                onChoose={howFar => void goTo('different', { howFar })}
+        lead={own => {
+          const make = notMade ?? waiting;
+          const makeRow = (verb: 'more' | 'polish'): ActionRow[] =>
+            verbs.served(verb)
+              ? [
+                  {
+                    id: verb,
+                    verb,
+                    label: VERB_LABELS[verb],
+                    line: ACTION_LINES[verb],
+                    keys: VERB_KEYS[verb],
+                    disabled: make,
+                    onSelect: () => void goTo(verb)
+                  }
+                ]
+              : [];
+          return (
+            <SelectionToolbar
+              label={`${iteration.name} actions`}
+              className="border-0 bg-transparent p-0 shadow-none"
+              end={
+                <span data-verb="not-this" className="contents">
+                  {verbs.served('not-this') ? (
+                    <NotThisMenu
+                      disabled={waiting}
+                      onReason={reason =>
+                        void verbs.run('not-this', verbTarget, { reasonPreset: reason })
+                      }
+                      onOther={() => setRejectOpen(true)}
+                    />
+                  ) : (
+                    <Button type="button" onClick={() => setRejectOpen(true)}>
+                      {VERB_LABELS['not-this']}
+                    </Button>
+                  )}
+                </span>
+              }
+            >
+              <ActionMenu
+                label="Make new"
+                rows={[
+                  ...makeRow('more'),
+                  ...(verbs.served('different')
+                    ? [
+                        {
+                          id: 'different',
+                          verb: 'different',
+                          label: VERB_LABELS.different,
+                          line: ACTION_LINES.different,
+                          keys: VERB_KEYS.different,
+                          disabled: make,
+                          choices: HOW_FAR.map(howFar => ({
+                            label: HOW_FAR_WORDS[howFar],
+                            onSelect: () => void goTo('different', { howFar })
+                          }))
+                        }
+                      ]
+                    : []),
+                  ...makeRow('polish'),
+                  ...(completeFeaturesOf(state)
+                    ? [
+                        {
+                          id: 'refine',
+                          label: 'Refine',
+                          line: ACTION_LINES.refine,
+                          onSelect: () => setRefineOpen(true)
+                        }
+                      ]
+                    : [])
+                ]}
               />
-            ) : null}
-          </>
-        }
+              <ActionMenu
+                label="Feedback"
+                rows={[
+                  {
+                    id: 'review',
+                    label: 'Review',
+                    line: ACTION_LINES.review,
+                    onSelect: () =>
+                      document.querySelector<HTMLElement>('[data-stage-review] button')?.click()
+                  },
+                  {
+                    id: 'rate',
+                    label: 'Rate',
+                    node: (
+                      <RatingForm
+                        project={project.tree.slug}
+                        page={page}
+                        component={component}
+                        iterationId={id}
+                        rating={rating}
+                      />
+                    )
+                  }
+                ]}
+              />
+              <ActionMenu label={null} rows={own} />
+            </SelectionToolbar>
+          );
+        }}
         status={
           <OutputLine
             line={newest(
@@ -473,7 +514,7 @@ export function IterationScreen({
                   Picked
                 </>
               ) : (
-                VERB_LABELS['pick-this']
+                'Keep'
               )}
             </Button>
           ) : (
@@ -481,9 +522,10 @@ export function IterationScreen({
               type="button"
               kind="primary"
               disabled={Boolean(waiting)}
+              data-verb="pick-this"
               onClick={() => void verbs.run('pick-this', verbTarget)}
             >
-              {VERB_LABELS['pick-this']}
+              Keep
             </Button>
           )
         }

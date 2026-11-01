@@ -742,7 +742,9 @@ function StudioCanvasView({
 
   function actions(item: CanvasItem, where?: { keeps: boolean }): ReactNode {
     const all = selectionActions(canvas, item.key, selState).filter(
-      action => action.toolbar && !action.disabled
+      // A section's alternates are on its shelf, and in the palette.
+      action =>
+        action.toolbar && !action.disabled && !(action.id === 'fold' && item.kind === 'frame')
     );
     if (!all.length) return null;
     const run = canvas.cards[item.key]?.run ?? null;
