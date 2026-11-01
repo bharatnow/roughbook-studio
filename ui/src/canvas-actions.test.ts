@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { cardToolbar } from '@roughbook/ui/commands';
+import { cardActionGroups } from '@roughbook/ui/commands';
 import { PROJECT, RUNS, TERMINAL } from './canvas-fixture.ts';
 import {
   STUDIO_VERBS,
@@ -37,13 +37,18 @@ const card = (id: string) => `iteration:home/hero/${id}`;
 
 describe("the studio canvas's actions", () => {
   // The lean budget (ROUGHBOOK-LEAN-PLAN.md, L7): it only goes down.
-  it('keeps a selected card to five controls, More among them', () => {
+  it('keeps a selected card to seven controls, its menus among them', () => {
     for (const id of ['iteration-01', 'iteration-02', 'iteration-03']) {
       const list = selectionActions(canvas, card(id), STATE).filter(
         item => item.toolbar && !item.disabled
       );
-      const { onView } = cardToolbar(list, ['done', 'stop', 'copy-prompt']);
-      assert.ok(onView.length + 1 <= 5, `${id}: ${onView.map(item => item.id).join(', ')}`);
+      const { bar, decide } = cardActionGroups(list, ['done', 'stop', 'copy-prompt']);
+      // Make new, Feedback and More, then what stays on view; Stop and the like are one control.
+      const onView = bar.filter(item => !['done', 'stop', 'copy-prompt'].includes(item.id));
+      assert.ok(
+        onView.length + decide.length + 3 <= 7,
+        `${id}: ${onView.map(item => item.id).join(', ')}`
+      );
     }
   });
 

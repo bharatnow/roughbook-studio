@@ -1,13 +1,20 @@
 import {
+  ACTION_LINES,
+  ActionMenu,
   COMPOSER_AT_REST,
   Canvas,
   Button,
+  HOW_FAR,
+  VERB_IDS,
+  VERB_KEYS,
+  buttonClasses,
+  cardActionGroups,
+  type ActionRow,
   HelpTag,
   MapList,
   PromotePanel,
   SelectionToolbar,
   openComposer,
-  cardToolbar,
   Sheet,
   SheetFooter,
   cn,
@@ -76,6 +83,7 @@ import { WhoseChangesSheet, useRunOps, type RunOps } from '../parts/run-card';
 import { LaunchResult, useRunChoice, useStartRuns } from '../parts/run-options';
 import { onPageListRequest } from '../empty-host';
 import { addressFor, navigate } from '../router';
+import { HOW_FAR_WORDS } from '../commands';
 import type { Launched, ProjectView, RunView, StudioState } from '../types';
 
 /** What the canvas keeps while the app runs, so it comes back the same from the stage or Compare. */
@@ -705,31 +713,92 @@ function StudioCanvasView({
     );
   }
 
-  function actions(item: CanvasItem): ReactNode {
+  /** An action as a menu's row: what it will do, in a line, and how it runs. */
+  function actionRow(action: StudioAction, item: CanvasItem): ActionRow {
+    const { id, href } = action;
+    const base = {
+      id,
+      label: action.label,
+      line: ACTION_LINES[id],
+      ...(VERB_IDS.includes(id as VerbId) ? { verb: id, keys: VERB_KEYS[id as VerbId] } : {})
+    };
+    if (id === 'different') {
+      return {
+        ...base,
+        choices: HOW_FAR.map(howFar => ({
+          label: HOW_FAR_WORDS[howFar],
+          onSelect: () => void runVerbOn('different', item.key, { howFar })
+        }))
+      };
+    }
+    if (href) {
+      const open = action.external
+        ? () => window.open(href, '_blank', 'noreferrer')
+        : () => navigate(href);
+      return { ...base, onSelect: () => void open() };
+    }
+    return { ...base, onSelect: () => act(id, item.key, action.session) };
+  }
+
+  function actions(item: CanvasItem, where?: { keeps: boolean }): ReactNode {
     const all = selectionActions(canvas, item.key, selState).filter(
       action => action.toolbar && !action.disabled
     );
     if (!all.length) return null;
     const run = canvas.cards[item.key]?.run ?? null;
     const runActions = all.filter(action => RUN_ACTIONS.has(action.id));
-    const { onView, overflow } = cardToolbar(all, [...RUN_ACTIONS]);
-    const items: ReactNode[] = [];
-    for (const action of onView) {
-      if (RUN_ACTIONS.has(action.id)) {
-        if (run && action === runActions[0]) {
-          items.push(<RunButtons key="run" run={run} actions={runActions} opsRef={runOps} />);
-        }
-      } else {
-        items.push(toolbarItem(action, item));
-      }
+    const runButtons =
+      run && runActions.length ? (
+        <RunButtons key="run" run={run} actions={runActions} opsRef={runOps} />
+      ) : null;
+    const { make, feedback, bar, decide, rest } = cardActionGroups(all, [...RUN_ACTIONS]);
+    if (!make.length && !decide.length) {
+      return (
+        <SelectionToolbar key={item.key} label={`${item.name} actions`}>
+          {runButtons}
+          {all
+            .filter(action => !RUN_ACTIONS.has(action.id))
+            .map(action => toolbarItem(action, item))}
+        </SelectionToolbar>
+      );
     }
+    const filled = buttonClasses({ kind: 'primary', tier: 'compact' });
+    const notThis = decide.find(action => action.id === 'not-this');
+    const pick = decide.find(action => action.id === 'pick-this');
+    const use = decide.find(action => action.id === 'use');
+    const press = (action: StudioAction) => (
+      <button
+        key={action.id}
+        type="button"
+        data-verb={action.id}
+        disabled={verbBusy === partsOf(item.key).iteration}
+        onClick={() => act(action.id, item.key, action.session)}
+        className={filled}
+      >
+        {action.id === 'pick-this' ? 'Keep' : action.label}
+      </button>
+    );
     return (
       <SelectionToolbar
         key={item.key}
         label={`${item.name} actions`}
-        overflow={overflow.length ? overflow.map(action => toolbarItem(action, item)) : undefined}
+        end={
+          <>
+            {notThis ? (
+              <span data-verb="not-this" className="contents">
+                {toolbarItem(notThis, item)}
+              </span>
+            ) : null}
+            {use ? press(use) : null}
+            {pick && !where?.keeps ? press(pick) : null}
+          </>
+        }
       >
-        {items}
+        <ActionMenu label="Make new" rows={make.map(action => actionRow(action, item))} />
+        <ActionMenu label="Feedback" rows={feedback.map(action => actionRow(action, item))} />
+        {runButtons}
+        {bar.filter(action => !RUN_ACTIONS.has(action.id)).map(action => toolbarItem(action, item))}
+        <ActionMenu label={null} rows={rest.map(action => actionRow(action, item))} />
       </SelectionToolbar>
     );
   }
