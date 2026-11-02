@@ -15,7 +15,6 @@ import {
   IterationNotesForm,
   PreviewFrame,
   REFINEMENT_PRESETS,
-  RatingForm,
   RejectDrawer,
   ReviewButton,
   SelectConfirmDrawer,
@@ -468,19 +467,6 @@ export function IterationScreen({
                     line: ACTION_LINES.review,
                     onSelect: () =>
                       document.querySelector<HTMLElement>('[data-stage-review] button')?.click()
-                  },
-                  {
-                    id: 'rate',
-                    label: 'Rate',
-                    node: (
-                      <RatingForm
-                        project={project.tree.slug}
-                        page={page}
-                        component={component}
-                        iterationId={id}
-                        rating={rating}
-                      />
-                    )
                   }
                 ]}
               />

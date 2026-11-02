@@ -473,16 +473,6 @@ function record<T>(value: unknown, what: string, valid: (item: unknown) => item 
   return Object.fromEntries(entries) as Record<string, T>;
 }
 
-/** A rating from the local UI: 1 to 5, null or empty for none, undefined when not given. */
-function rating(value: unknown): number | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || value === '') return null;
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) {
-    throw new BadRequest('A rating is a whole number from 1 to 5.');
-  }
-  return value;
-}
-
 const STATUSES = ['draft', 'exploring', 'promising', 'archived'] as const;
 const REVIEW_DECISIONS = ['explore', 'refine', 'select', 'reject'] as const;
 
@@ -492,21 +482,14 @@ export function parseDecision(body: Record<string, unknown>): Decision {
     case 'select':
       return {
         kind: 'select',
-        reason: optionalText(body.reason, 'The reason'),
-        rating: rating(body.rating)
+        reason: optionalText(body.reason, 'The reason')
       };
     case 'reject':
       return {
         kind: 'reject',
         reason: text(body.reason, 'The reason', 500),
-        why: optionalText(body.why, 'Why'),
-        rating: rating(body.rating)
+        why: optionalText(body.why, 'Why')
       };
-    case 'rate': {
-      const given = rating(body.rating);
-      if (given === undefined) throw new BadRequest('The rating is missing.');
-      return { kind: 'rate', rating: given };
-    }
     case 'review': {
       const decision = body.decision;
       if (
@@ -535,8 +518,6 @@ export function parseDecision(body: Record<string, unknown>): Decision {
     }
     case 'notes': {
       const notes = {
-        likes: lines(body.likes, 'Likes'),
-        dislikes: lines(body.dislikes, 'Dislikes'),
         designerNotes:
           body.designerNotes === undefined
             ? undefined
