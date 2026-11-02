@@ -130,6 +130,8 @@ export type PromotionRecord = {
   targets: PromoteTarget[];
   /** Files the studio itself wrote for the promote outside rough/: the assets it copied in. */
   studioWrites: string[];
+  /** It bundles font files, so the files its stack registers them in are in its scope. */
+  fonts?: true;
   promptFile: string;
   /** The branch the change was put on, the one it started from, and the commit it started at. */
   branch: { name: string; from: string | null; commit: string } | null;
@@ -544,6 +546,18 @@ function appFile(file: string): boolean {
   return file !== ROUGH_DIR && !file.startsWith(`${ROUGH_DIR}/`);
 }
 
+/**
+ * Whether a native app's fonts are registered in this file: pubspec.yaml for Flutter, Info.plist
+ * and the Xcode project for SwiftUI, and res/font for Compose.
+ */
+export function registersFonts(family: string, file: string): boolean {
+  const name = file.split('/').pop() ?? '';
+  if (family === 'flutter') return name === 'pubspec.yaml' || name === 'pubspec.lock';
+  if (family === 'swiftui') return name === 'Info.plist' || name === 'project.pbxproj';
+  if (family === 'compose') return /(^|\/)res\/font\/[^/]+$/.test(file);
+  return false;
+}
+
 /** The app files changed since the promote's snapshot, each in its scope or not, as they are now. */
 async function changedSince(
   repoRoot: string,
@@ -567,7 +581,9 @@ async function changedSince(
     .filter(item => appFile(item.path))
     .map(item => ({
       ...item,
-      inScope: scope.has(item.path),
+      inScope:
+        scope.has(item.path) ||
+        (record.fonts === true && registersFonts(environment.family, item.path)),
       sha256: after.files[item.path] ?? null
     }))
     .sort((a, b) => a.path.localeCompare(b.path));

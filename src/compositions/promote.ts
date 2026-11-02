@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
-import type { ProjectTree } from '../api/types.js';
+import type { ProjectTree, PromotionFonts } from '../api/types.js';
 import { hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { BASELINE } from '../map/adopt.js';
@@ -125,6 +125,8 @@ export type PreparedPagePromotion = {
   copied: string[];
   missing: AssetName[];
   branch: PromotionRecord['branch'];
+  /** A native app's fonts; left out by a backend that does not send them. */
+  fonts?: PromotionFonts;
 };
 
 export type PagePromoteOptions = {
@@ -376,6 +378,7 @@ export async function preparePagePromotion(
     how,
     targets,
     studioWrites: copied,
+    ...(promotion.fonts?.bundled.length ? { fonts: true as const } : {}),
     promptFile,
     branch,
     startedAt: (options.now?.() ?? new Date()).toISOString(),
@@ -393,7 +396,8 @@ export async function preparePagePromotion(
     keepsApp,
     copied,
     missing,
-    branch
+    branch,
+    ...(promotion.fonts ? { fonts: promotion.fonts } : {})
   };
 }
 

@@ -7,7 +7,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
-import type { AssetScope, ComponentRecord, Promotion, ProjectTree } from '../api/types.js';
+import type {
+  AssetScope,
+  ComponentRecord,
+  Promotion,
+  PromotionFonts,
+  ProjectTree
+} from '../api/types.js';
 import { ENVIRONMENT_LINE, hasEnvironmentFile, readEnvironment } from '../environment/read.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { readMap } from '../map/file.js';
@@ -285,7 +291,21 @@ export type PreparedPromotion = {
   targets: PromoteTarget[];
   /** The branch it is on, when the designer asked for one. */
   branch: PromotionRecord['branch'];
+  /** A native app's fonts; left out by a backend that does not send them. */
+  fonts?: PromotionFonts;
 };
+
+/** What a promote says of the app's fonts; nothing when the backend sent none. */
+export function describeFonts(fonts: PromotionFonts | undefined): string[] {
+  const lines: string[] = [];
+  if (fonts?.bundled.length) lines.push(`Fonts bundled: ${fonts.bundled.join(', ')}`);
+  if (fonts?.missing.length) {
+    lines.push(
+      `Fonts missing: ${fonts.missing.join(', ')}. Add them in Roughbook; the agent used the closest font for now.`
+    );
+  }
+  return lines;
+}
 
 /** The app's public folder: given, beside the app's package.json, or the project's. */
 export function publicDirFor(
@@ -499,6 +519,7 @@ export async function preparePromotion(
     how,
     targets,
     studioWrites: copied,
+    ...(promotion.fonts?.bundled.length ? { fonts: true as const } : {}),
     promptFile,
     branch,
     startedAt: (options.now?.() ?? new Date()).toISOString(),
@@ -519,6 +540,7 @@ export async function preparePromotion(
     copied,
     missing,
     wroteCopy: promotion.copyMarkdown !== null,
-    copyFile: environment.copy.kind === 'localized' ? environment.copy.file : null
+    copyFile: environment.copy.kind === 'localized' ? environment.copy.file : null,
+    ...(promotion.fonts ? { fonts: promotion.fonts } : {})
   };
 }

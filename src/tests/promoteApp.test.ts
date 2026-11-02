@@ -35,7 +35,7 @@ import {
   recordChildren,
   writeAppSlot
 } from '../runs/base.js';
-import { preparePromotion } from '../runs/promote.js';
+import { describeFonts, preparePromotion } from '../runs/promote.js';
 import {
   commitPromotion,
   declinePromotionCommit,
@@ -44,6 +44,8 @@ import {
   promotionDiff,
   putBackPromoted,
   readPromotion,
+  registersFonts,
+  savePromotion,
   type CommandRunner
 } from '../runs/promotion.js';
 import type { Shots } from '../screenshot/iteration.js';
@@ -594,9 +596,62 @@ describe('a promote on a branch', () => {
     });
     assert.deepEqual(branchArgument(['a/b']), { rest: ['a/b'] });
   });
+
+  it("says a native app's fonts, and nothing when the backend sent none", () => {
+    assert.deepEqual(describeFonts({ bundled: ['Fraunces', 'Inter'], missing: ['Söhne'] }), [
+      'Fonts bundled: Fraunces, Inter',
+      'Fonts missing: Söhne. Add them in Roughbook; the agent used the closest font for now.'
+    ]);
+    assert.deepEqual(describeFonts({ bundled: ['Inter'], missing: [] }), ['Fonts bundled: Inter']);
+    assert.deepEqual(describeFonts({ bundled: [], missing: [] }), []);
+    assert.deepEqual(describeFonts(undefined), []);
+  });
 });
 
 describe('the finish', () => {
+  it('lets a promote that bundles fonts register them, and nothing else', async () => {
+    const { repo, api, outbox, promote } = await forked();
+    await promote();
+    writeBack(repo);
+    await savePromotion(repo, { ...(await readPromotion(repo, PROMOTION))!, fonts: true });
+    write(repo, 'pubspec.yaml', 'flutter:\n  fonts:\n    - family: Inter\n');
+    write(repo, 'lib/plans.ts', 'export const plans = [];\n');
+    const finished = await finishPromotion(
+      repo,
+      api,
+      outbox,
+      environment({ family: 'flutter' }),
+      PROMOTION
+    );
+    assert.deepEqual(finished.result!.outOfScope, ['lib/plans.ts']);
+  });
+
+  it('keeps a font registration out of scope for a promote that bundled none', async () => {
+    const { repo, api, outbox, promote } = await forked();
+    await promote();
+    writeBack(repo);
+    write(repo, 'pubspec.yaml', 'flutter:\n');
+    const finished = await finishPromotion(
+      repo,
+      api,
+      outbox,
+      environment({ family: 'flutter' }),
+      PROMOTION
+    );
+    assert.deepEqual(finished.result!.outOfScope, ['pubspec.yaml']);
+  });
+
+  it('knows where each stack registers its fonts', () => {
+    assert.equal(registersFonts('flutter', 'pubspec.yaml'), true);
+    assert.equal(registersFonts('flutter', 'app/pubspec.yaml'), true);
+    assert.equal(registersFonts('flutter', 'lib/main.dart'), false);
+    assert.equal(registersFonts('swiftui', 'App/Info.plist'), true);
+    assert.equal(registersFonts('swiftui', 'App.xcodeproj/project.pbxproj'), true);
+    assert.equal(registersFonts('compose', 'app/src/main/res/font/inter_400.ttf'), true);
+    assert.equal(registersFonts('compose', 'app/src/main/res/layout/main.xml'), false);
+    assert.equal(registersFonts('react-like', 'pubspec.yaml'), false);
+  });
+
   it('leaves out the files the designer says were theirs, and offers them no revert', async () => {
     const { repo, api, outbox, promote } = await forked();
     await promote();

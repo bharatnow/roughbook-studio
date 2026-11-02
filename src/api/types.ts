@@ -217,6 +217,12 @@ export type PulledSketch = { iteration: string; parent: string; files: SketchFil
 /** One iteration's ratings as this user sees them: their own, the average and how many rated. */
 export type RatingSummary = { mine: number | null; average: number | null; count: number };
 
+/**
+ * What a native app's promote carries: the fonts Roughbook has files for, and the ones it does not.
+ * A backend from before it, or a promote that is not native, leaves it out.
+ */
+export type PromotionFonts = { bundled: string[]; missing: string[] };
+
 /** `POST /orgs/:orgId/projects/:project/promotions`. */
 export type Promotion = {
   promotionId: string;
@@ -256,6 +262,7 @@ export type Promotion = {
   defaults: { componentsDir: string; publicDir: string };
   assets: { scope: AssetScope; file: string; publicUrl: string }[];
   missingAssets: { scope: AssetScope; file: string }[];
+  fonts?: PromotionFonts;
 };
 
 /**
@@ -289,6 +296,7 @@ export type PagePromotion = {
   defaults?: { componentsDir: string; publicDir: string };
   assets: { scope: AssetScope; file: string; publicUrl: string }[];
   missingAssets: { scope: AssetScope; file: string }[];
+  fonts?: PromotionFonts;
 };
 
 /** `POST …/pages/:page/components`: the new section's slug (decision 47). */

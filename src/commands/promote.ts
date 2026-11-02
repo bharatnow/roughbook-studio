@@ -7,6 +7,7 @@ import { readMap } from '../map/file.js';
 import { SLUG } from '../repo/iterations.js';
 import { requireRepoLink } from '../repo/link.js';
 import {
+  describeFonts,
   findComponent,
   iterationToPromote,
   preparePromotion,
@@ -177,6 +178,7 @@ export const promote: Command = {
           `  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`
         );
       }
+      for (const line of describeFonts(started.fonts)) io.out(`  ${line}`);
       io.out(`  Prompt: ${started.promptFile}`);
       prepared = started;
       target = {
@@ -213,6 +215,7 @@ export const promote: Command = {
           `  ! ${asset.file} is not in the ${asset.scope}; the prompt asks for a placeholder.`
         );
       }
+      for (const line of describeFonts(made.fonts)) io.out(`  ${line}`);
       io.out(`  Prompt: ${made.promptFile}`);
       prepared = made;
       target = { page, component, componentName: record.name };
