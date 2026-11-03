@@ -323,6 +323,13 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('POST', '/api/compositions', async request =>
       studio.saveComposition(await readBody(request))
     ),
+    // A version's Rename in the Versions list, and Save version's Undo.
+    route('POST', '/api/compositions/:page/:id/rename', async (request, params) =>
+      studio.renameComposition(params.page!, params.id!, await readBody(request))
+    ),
+    route('POST', '/api/compositions/:page/:id/delete', (_request, params) =>
+      studio.deleteComposition(params.page!, params.id!)
+    ),
     // The promote panel's drift, branch choice, Finish, Revert and commit (B4).
     route('GET', '/api/promote/:page/:component/:iteration', (_request, params) =>
       studio.promotePlan(target(params))

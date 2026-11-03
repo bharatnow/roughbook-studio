@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
+import { ApiError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
 import type { RepoEnvironment } from '../environment/types.js';
 import { BASELINE } from '../map/adopt.js';
@@ -16,6 +17,7 @@ import { syncAfterMap } from '../map/live.js';
 import { refreshMap, type MapResult } from '../map/run.js';
 import type { RepoMap } from '../map/types.js';
 import {
+  picturesDir,
   shareCompositionPictures,
   type PictureReport,
   type PictureShot
@@ -26,6 +28,7 @@ import { ITERATION, SLUG, iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { ROUGH_DIR } from '../repo/root.js';
 import { headCommit } from '../runs/base.js';
+import { listPromotions } from '../runs/promotion.js';
 import { recordOwnWritesForOpenRuns } from '../runs/snapshot.js';
 import { iterationHash } from '../screenshot/iteration.js';
 import {
@@ -42,10 +45,13 @@ import {
 import {
   COMPOSITIONS_DIR,
   COMPOSITION_FILE,
+  childCompositions,
   compositionDir,
   missingSections,
   pageFilesProblem,
   readComposition,
+  removeComposition,
+  renameKeptComposition,
   writeComposition
 } from './store.js';
 
@@ -210,6 +216,94 @@ export async function saveComposition(
     composition,
     plan: planComposition(current, sections)
   };
+}
+
+/** A version's name, as the backend takes it: short text the designer typed. */
+export const MAX_VERSION_NAME = 80;
+
+/** Why a version cannot be deleted, in words: what depends on it. */
+export const VERSION_HAS_CHILDREN =
+  "This version can't be deleted: another version was made from it.";
+export const VERSION_PROMOTED = "This version can't be deleted: it was promoted into the app.";
+
+/** A kept composition, or why not, in words. */
+function keptOrThrow(repoRoot: string, page: string, id: string) {
+  if (!SLUG.test(page) || !COMPOSITION_ID.test(id)) {
+    throw new Error(`${page}/${id} is not a page's version.`);
+  }
+  const kept = readComposition(repoRoot, page, id);
+  if (!kept) {
+    throw new Error(
+      `${id} is not one of ${page}'s versions in this repo (${ROUGH_DIR}/${page}/${COMPOSITIONS_DIR}/).`
+    );
+  }
+  return kept;
+}
+
+/**
+ * Renames a saved composition, a version in the Versions list: on the backend, then its
+ * composition.json. Throws in words before anything is asked when the name is empty or too long.
+ */
+export async function renameComposition(
+  repoRoot: string,
+  api: StudioApi,
+  link: RepoLink,
+  input: { page: string; id: string; name: string }
+): Promise<{ page: string; id: string; name: string }> {
+  const { page, id } = input;
+  const kept = keptOrThrow(repoRoot, page, id);
+  const name = input.name.trim();
+  if (!name) throw new Error('Name the version.');
+  if (name.length > MAX_VERSION_NAME) {
+    throw new Error(`A version's name holds at most ${MAX_VERSION_NAME} characters.`);
+  }
+  if (name === kept.composition.name) return { page, id, name };
+  await api.renameComposition(link.orgId, link.project, page, id, name);
+  const file = `${compositionDir(page, id)}/${COMPOSITION_FILE}`;
+  await renameKeptComposition(repoRoot, page, id, name);
+  await recordOwnWritesForOpenRuns(repoRoot, [file]);
+  return { page, id, name };
+}
+
+/**
+ * Deletes a saved composition, as Save version's Undo does: refused in words, before anything is
+ * asked, when another version was made from it or it was promoted here; then on the backend, which
+ * refuses the same for what it knows; then its folder and its pictures here.
+ */
+export async function deleteComposition(
+  repoRoot: string,
+  api: StudioApi,
+  link: RepoLink,
+  input: { page: string; id: string }
+): Promise<{ page: string; id: string }> {
+  const { page, id } = input;
+  keptOrThrow(repoRoot, page, id);
+  if (childCompositions(repoRoot, page, id).length) throw new Error(VERSION_HAS_CHILDREN);
+  const promoted = (await listPromotions(repoRoot)).some(
+    record =>
+      record.page === page && record.component === COMPOSITIONS_DIR && record.iteration === id
+  );
+  if (promoted) throw new Error(VERSION_PROMOTED);
+  try {
+    await api.deleteComposition(link.orgId, link.project, page, id);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'COMPOSITION_HAS_CHILDREN') {
+      throw new Error(VERSION_HAS_CHILDREN);
+    }
+    if (error instanceof ApiError && error.code === 'COMPOSITION_PROMOTED') {
+      throw new Error(VERSION_PROMOTED);
+    }
+    // Gone from the backend already: its folder goes too, or the next save's number would find it.
+    if (!(error instanceof ApiError && error.code === 'COMPOSITION_NOT_FOUND')) throw error;
+  }
+  const files = removeComposition(repoRoot, page, id);
+  fs.rmSync(toDisk(repoRoot, picturesDir({ page, composition: id })), {
+    recursive: true,
+    force: true
+  });
+  // Gone again, so open runs' Done does not count them as removed.
+  await recordOwnWritesForOpenRuns(repoRoot, files);
+  return { page, id };
 }
 
 /**

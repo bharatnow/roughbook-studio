@@ -2,8 +2,9 @@
 // `rough/<page>/compositions/composition-NN/`, its name, parent and sections in
 // `composition.json`, and the page's files as they were when it was saved in `.base/` beside it,
 // under their repository paths, with `.base/base.json` naming them, their hashes and the commit
-// (decision 31's format). Both are committed with rough/; a composition never changes once saved.
-// The checks, the run snapshot, the watcher and the pictures leave `.base/` out, as they do an
+// (decision 31's format). Both are committed with rough/; a composition's sections and base never
+// change once saved, though its name may (the Versions list's Rename), and Save version's Undo
+// removes it whole. The checks, the run snapshot, the watcher and the pictures leave `.base/` out, as they do an
 // iteration's (`isBasePath`), and nothing of it reaches the server.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -130,6 +131,58 @@ export function listCompositions(repoRoot: string, page?: string): KeptCompositi
     }
   }
   return found.sort((a, b) => a.page.localeCompare(b.page) || a.number - b.number);
+}
+
+/** The page's compositions made from this one: each names it as its parent. */
+export function childCompositions(repoRoot: string, page: string, id: string): KeptComposition[] {
+  return listCompositions(repoRoot, page).filter(item => item.composition.parent === id);
+}
+
+/**
+ * A kept composition with a new name (the Versions list's Rename): its composition.json written
+ * whole, its sections and parent as they were. Throws in words when it is not in this repo.
+ */
+export async function renameKeptComposition(
+  repoRoot: string,
+  page: string,
+  id: string,
+  name: string
+): Promise<KeptComposition> {
+  const kept = readComposition(repoRoot, page, id);
+  if (!kept) throw new Error(`${compositionDir(page, id)} is not in this repo.`);
+  const composition: Composition = { ...kept.composition, name };
+  await writeJsonAtomic(
+    toDisk(repoRoot, `${compositionDir(page, id)}/${COMPOSITION_FILE}`),
+    composition
+  );
+  return { ...kept, composition };
+}
+
+/** Every file in a folder, repo-relative with forward slashes. */
+function filesIn(repoRoot: string, relative: string): string[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(toDisk(repoRoot, relative), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries.flatMap(entry =>
+    entry.isDirectory()
+      ? filesIn(repoRoot, `${relative}/${entry.name}`)
+      : [`${relative}/${entry.name}`]
+  );
+}
+
+/**
+ * Removes a kept composition's folder, composition.json and `.base/` both (Save version's Undo).
+ * The files it held, repo-relative, so open runs can forget them; none when it was not here.
+ */
+export function removeComposition(repoRoot: string, page: string, id: string): string[] {
+  if (!SLUG.test(page) || !COMPOSITION_ID.test(id)) return [];
+  const relative = compositionDir(page, id);
+  const files = filesIn(repoRoot, relative);
+  fs.rmSync(toDisk(repoRoot, relative), { recursive: true, force: true });
+  return files;
 }
 
 /** A composition's `.base/base.json`, or null when it has none or it cannot be read. */

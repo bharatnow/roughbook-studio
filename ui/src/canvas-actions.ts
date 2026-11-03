@@ -54,7 +54,8 @@ export type SelectionActionId =
   | 'fold'
   | 'adopt'
   | 'in-page'
-  | 'compose';
+  | 'save-version'
+  | 'versions';
 
 export type CanvasWideActionId =
   | 'prompt'
@@ -299,24 +300,22 @@ export function selectionActions(
             }
           ]
         : []),
-      // A page's composition (B6): the app's own order to start from, on the baselines.
+      // A version of the page (B6, decided 3 November 2026): one click saves the page as the
+      // canvas shows it; the Versions list opens and renames them.
       ...(state.composable?.includes(page)
-        ? [{ id: 'compose' as const, label: 'Compose', toolbar: true, href: `/${page}/compose` }]
+        ? [
+            { id: 'save-version' as const, label: 'Save version', toolbar: true },
+            ...(entry.section.compositions.length
+              ? [{ id: 'versions' as const, label: 'Versions', toolbar: true }]
+              : [])
+          ]
         : []),
       ...(onServer ? webAction(state, page, 'Open on the web') : [])
     ];
   }
   if (entry.kind === 'composition') {
     const { composition } = entry;
-    return [
-      { id: 'open', label: 'Open', toolbar: true, href: composition.href, keys: 'Enter' },
-      {
-        id: 'compose',
-        label: 'Edit as new',
-        toolbar: true,
-        href: `/${page}/compose?from=${composition.id}`
-      }
-    ];
+    return [{ id: 'open', label: 'Open', toolbar: true, href: composition.href, keys: 'Enter' }];
   }
   const component = entry.frame.id;
   const picks = picksIn(state.compare, page, component);

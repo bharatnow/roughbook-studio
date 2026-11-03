@@ -6,11 +6,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  childCompositions,
   compositionDir,
   listCompositions,
   missingSections,
   readComposition,
   readPageBase,
+  removeComposition,
+  renameKeptComposition,
   writeComposition
 } from '../compositions/store.js';
 import type { MapPage } from '../map/types.js';
@@ -95,6 +98,51 @@ describe("a page's compositions in rough/", () => {
     assert.deepEqual(listCompositions(repo, 'about'), []);
     // Not an iteration of a component named compositions.
     assert.deepEqual(listIterations(repo, 'index.tsx'), []);
+  });
+
+  it('renames a kept composition, finds its children, and removes it whole', async () => {
+    const repo = await tempDir();
+    write(repo, 'app/page.tsx', PAGE_SOURCE);
+    const composition = {
+      name: '3 Nov, 14:05',
+      parent: null,
+      sections: [{ component: 'hero', iteration: 'iteration-00' }]
+    };
+    await writeComposition(repo, HOME, 'composition-01', composition, null);
+    await writeComposition(
+      repo,
+      HOME,
+      'composition-02',
+      { ...composition, parent: 'composition-01' },
+      null
+    );
+    const renamed = await renameKeptComposition(repo, 'home', 'composition-01', 'Hero first');
+    assert.deepEqual(renamed.composition, { ...composition, name: 'Hero first' });
+    assert.deepEqual(readComposition(repo, 'home', 'composition-01')!.composition, {
+      ...composition,
+      name: 'Hero first'
+    });
+    await assert.rejects(
+      renameKeptComposition(repo, 'home', 'composition-09', 'x'),
+      /rough\/home\/compositions\/composition-09 is not in this repo/
+    );
+    assert.deepEqual(
+      childCompositions(repo, 'home', 'composition-01').map(item => item.id),
+      ['composition-02']
+    );
+    assert.deepEqual(childCompositions(repo, 'home', 'composition-02'), []);
+
+    assert.deepEqual(removeComposition(repo, 'home', 'composition-02').sort(), [
+      'rough/home/compositions/composition-02/.base/app/page.tsx',
+      'rough/home/compositions/composition-02/.base/base.json',
+      'rough/home/compositions/composition-02/composition.json'
+    ]);
+    assert.equal(fs.existsSync(path.join(repo, 'rough/home/compositions/composition-02')), false);
+    assert.deepEqual(removeComposition(repo, 'home', 'composition-02'), []);
+    assert.deepEqual(removeComposition(repo, '../home', 'composition-01'), []);
+    // Its number may be saved again.
+    await writeComposition(repo, HOME, 'composition-02', composition, null);
+    assert.equal(readComposition(repo, 'home', 'composition-02')!.composition.name, '3 Nov, 14:05');
   });
 
   it('refuses a page whose file is gone, writing nothing', async () => {

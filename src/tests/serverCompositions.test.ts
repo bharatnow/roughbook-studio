@@ -75,11 +75,23 @@ describe("the local server's compositions", () => {
   before(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'roughbook-server-compositions-'));
     repo = await homeApp(root);
+    let numbered = 0;
     backend = fakeFetch((request: RecordedRequest) => {
       const route = `${request.method} ${new URL(request.url).pathname.replace('/v1/api/studio', '')}`;
       if (route === `GET ${PROJECT}`) return ok(TREE);
       if (route === `POST ${PROJECT}/pages/home/compositions`) {
-        return ok({ id: 'composition-01', number: 1 }, 201);
+        numbered += 1;
+        return ok({ id: `composition-0${numbered}`, number: numbered }, 201);
+      }
+      const one = /^(PATCH|DELETE) .*\/pages\/home\/compositions\/(composition-\d+)$/.exec(route);
+      if (one?.[1] === 'PATCH') {
+        return ok({ id: one[2], name: (request.body as { name: string }).name });
+      }
+      if (one?.[1] === 'DELETE') {
+        // The backend knows of a promote this repo does not.
+        return one[2] === 'composition-03'
+          ? refused('COMPOSITION_PROMOTED', 409)
+          : ok({ deleted: true });
       }
       if (route === `POST ${PROJECT}/pages/home/components`) {
         return ok({ slug: 'press-quotes', name: 'Press quotes' }, 201);
@@ -258,5 +270,82 @@ describe("the local server's compositions", () => {
     const moved = await call('GET', '/api/promote/home/compositions/composition-01');
     assert.deepEqual(moved.json.data.drift, { state: 'merge', files: ['app/page.tsx'] });
     assert.equal((await call('GET', '/api/promote/home/compositions/notes')).status, 400);
+  });
+
+  it('renames a version, and deletes one nothing depends on, as Save version’s Undo', async () => {
+    write(repo, 'app/page.tsx', HOME_SOURCE);
+    const sections = [
+      { component: 'hero', iteration: 'iteration-00' },
+      { component: 'features', iteration: 'iteration-00' }
+    ];
+    const child = await call('POST', '/api/compositions', {
+      page: 'home',
+      name: '3 Nov, 14:05',
+      parent: 'composition-01',
+      sections
+    });
+    assert.equal(child.status, 200, JSON.stringify(child.json));
+    assert.equal(child.json.data.id, 'composition-02');
+
+    // Rename: the typed name alone goes, and composition.json keeps it.
+    const renamed = await call('POST', '/api/compositions/home/composition-01/rename', {
+      name: '  Hero first '
+    });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
+    assert.deepEqual(renamed.json.data, { page: 'home', id: 'composition-01', name: 'Hero first' });
+    const patch = backend.requests.find(request => request.method === 'PATCH')!;
+    assert.ok(patch.url.endsWith(`${PROJECT}/pages/home/compositions/composition-01`));
+    assert.deepEqual(patch.body, { name: 'Hero first' });
+    const kept = JSON.parse(
+      fs.readFileSync(
+        path.join(repo, 'rough/home/compositions/composition-01/composition.json'),
+        'utf8'
+      )
+    );
+    assert.equal(kept.name, 'Hero first');
+    assert.equal(kept.sections.length, 4);
+    const blank = await call('POST', '/api/compositions/home/composition-01/rename', { name: ' ' });
+    assert.equal(blank.status, 400);
+    assert.equal(blank.json.message, 'Name the version.');
+    assert.equal(backend.requests.filter(request => request.method === 'PATCH').length, 1);
+
+    // Another version was made from composition-01: refused in words, nothing asked.
+    const parent = await call('POST', '/api/compositions/home/composition-01/delete');
+    assert.equal(parent.status, 400);
+    assert.equal(
+      parent.json.message,
+      "This version can't be deleted: another version was made from it."
+    );
+    assert.ok(!backend.requests.some(request => request.method === 'DELETE'));
+
+    // The child goes, on the backend and from rough/, its pictures with it.
+    const undone = await call('POST', '/api/compositions/home/composition-02/delete');
+    assert.equal(undone.status, 200, JSON.stringify(undone.json));
+    assert.deepEqual(undone.json.data, { page: 'home', id: 'composition-02' });
+    const deleted = backend.requests.filter(request => request.method === 'DELETE');
+    assert.equal(deleted.length, 1);
+    assert.ok(deleted[0]!.url.endsWith(`${PROJECT}/pages/home/compositions/composition-02`));
+    assert.equal(fs.existsSync(path.join(repo, 'rough/home/compositions/composition-02')), false);
+    assert.equal(
+      fs.existsSync(path.join(repo, 'rough/.screenshots/.compositions/home/composition-02')),
+      false
+    );
+    const listed = (await call('GET', '/api/project')).json.data.local.compositions;
+    assert.deepEqual(
+      listed.map((item: { id: string; name: string }) => [item.id, item.name]),
+      [['composition-01', 'Hero first']]
+    );
+
+    // What the backend knows depends on it is said in words, and the folder stays.
+    const promoted = await call('POST', '/api/compositions', { page: 'home', sections });
+    assert.equal(promoted.json.data.id, 'composition-03');
+    const refusedDelete = await call('POST', '/api/compositions/home/composition-03/delete');
+    assert.equal(refusedDelete.status, 400);
+    assert.equal(
+      refusedDelete.json.message,
+      "This version can't be deleted: it was promoted into the app."
+    );
+    assert.ok(fs.existsSync(path.join(repo, 'rough/home/compositions/composition-03')));
+    assert.equal((await call('POST', '/api/compositions/home/notes/delete')).status, 400);
   });
 });

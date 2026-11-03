@@ -70,18 +70,12 @@ describe("the studio's addresses", () => {
     assert.equal(addressFor('folded:home/hero'), '#/home/hero');
   });
 
-  it("opens a page's composition editor and a composition's own view (B6)", () => {
-    assert.deepEqual(parseRoute('#/home/compose'), { screen: 'compose', page: 'home', from: null });
-    assert.deepEqual(parseRoute('#/home/compose?from=composition-02'), {
-      screen: 'compose',
-      page: 'home',
-      from: 'composition-02'
-    });
-    assert.deepEqual(parseRoute('#/home/compose?from=../x'), {
-      screen: 'compose',
-      page: 'home',
-      from: null
-    });
+  it("opens the retired builder's links on the canvas, and a composition's own view (B6)", () => {
+    // Save version is one click on the canvas now, so the builder's old links open the page there.
+    const page = { screen: 'canvas', focus: { kind: 'page', page: 'home' } };
+    assert.deepEqual(parseRoute('#/home/compose'), page);
+    assert.deepEqual(parseRoute('#/home/compose?from=composition-02'), page);
+    assert.deepEqual(parseRoute('#/home/compose?from=../x'), page);
     assert.deepEqual(parseRoute('#/home/compositions/composition-02'), {
       screen: 'composition',
       page: 'home',

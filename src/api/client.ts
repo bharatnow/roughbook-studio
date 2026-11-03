@@ -277,6 +277,37 @@ export class StudioApi {
     return this.request('POST', `${pagePath(orgId, project, page)}/compositions`, body);
   }
 
+  /** Renames a saved composition, a version in the Versions list: its new name alone. */
+  renameComposition(
+    orgId: string,
+    project: string,
+    page: string,
+    composition: string,
+    name: string
+  ): Promise<unknown> {
+    return this.request(
+      'PATCH',
+      `${pagePath(orgId, project, page)}/compositions/${encodeURIComponent(composition)}`,
+      { name }
+    );
+  }
+
+  /**
+   * Deletes a saved composition, as Save version's Undo does. The backend refuses one another
+   * names as its parent (409 COMPOSITION_HAS_CHILDREN) or one a studio promoted.
+   */
+  deleteComposition(
+    orgId: string,
+    project: string,
+    page: string,
+    composition: string
+  ): Promise<{ deleted: true }> {
+    return this.request(
+      'DELETE',
+      `${pagePath(orgId, project, page)}/compositions/${encodeURIComponent(composition)}`
+    );
+  }
+
   /** A local iteration's reviews, oldest first. */
   reviews(
     orgId: string,
@@ -524,7 +555,7 @@ export class StudioApi {
   }
 
   async request<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: RequestBody,
     options: RequestOptions = {}
@@ -536,7 +567,7 @@ export class StudioApi {
   }
 
   private async send(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body: RequestBody | ImageBody | undefined,
     options: RequestOptions,

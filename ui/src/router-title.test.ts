@@ -38,7 +38,8 @@ describe("the studio's tab titles", () => {
       title('#/home/hero/iterations/compare?ids=iteration-01,iteration-02'),
       'Compare Hero · Home · Acme / Roughbook studio'
     );
-    assert.equal(title('#/home/compose'), 'Composition · Home · Acme / Roughbook studio');
+    // The retired builder's address is the page on the canvas.
+    assert.equal(title('#/home/compose'), 'Home · Acme / Roughbook studio');
     assert.equal(
       title('#/home/compositions/composition-02'),
       'Composition 02 · Home · Acme / Roughbook studio'

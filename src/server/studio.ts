@@ -129,7 +129,9 @@ import {
 } from '../compositions/promote.js';
 import {
   composedAddress,
+  deleteComposition,
   makeSection,
+  renameComposition,
   saveComposition,
   shareComposition
 } from '../compositions/save.js';
@@ -561,6 +563,8 @@ export class LocalStudio {
     fault: null
   };
   private readonly reshots = new Map<string, NodeJS.Timeout>();
+  /** A saved composition's pictures being taken, by `<page>/<id>`, which its Undo waits for. */
+  private readonly picturing = new Map<string, Promise<void>>();
   /** Snapshot images per key, as the last render left them; rendering while the command runs. */
   private readonly snapshotStates = new Map<string, SnapshotView>();
   /** The changed keys waiting to be rendered, in snapshot mode. */
@@ -1446,8 +1450,9 @@ export class LocalStudio {
   }
 
   /**
-   * The composition editor's Save (B6): numbered by the backend, written with the page's base, its
-   * composed preview's pictures taken after, where the recipe composes and the app is running.
+   * The canvas's Save version (B6): the page as the canvas shows it, numbered by the backend,
+   * written with the page's base, its composed preview's pictures taken after, where the recipe
+   * composes and the app is running.
    */
   async saveComposition(body: Record<string, unknown>) {
     const page = typeof body.page === 'string' ? body.page : '';
@@ -1476,7 +1481,11 @@ export class LocalStudio {
       ...(parent ? { parent } : {})
     });
     this.projectChanged();
-    void this.pictureComposition(page, saved.id);
+    const key = `${page}/${saved.id}`;
+    const pictures = this.pictureComposition(page, saved.id).finally(() =>
+      this.picturing.delete(key)
+    );
+    this.picturing.set(key, pictures);
     // A new section is named as it was made, which only the project knows.
     const { tree } = await this.project().catch(() => ({ tree: null }));
     return {
@@ -1484,6 +1493,38 @@ export class LocalStudio {
       number: saved.number,
       lines: describePlan(saved.plan, sectionNames(readMap(this.repoRoot)?.map ?? null, tree, page))
     };
+  }
+
+  /** A version's Rename in the Versions list: its new name, on the backend and in rough/. */
+  async renameComposition(page: string, id: string, body: Record<string, unknown>) {
+    if (!SLUG.test(page) || !COMPOSITION_ID.test(id)) {
+      throw new BadRequest('Name a page and one of its versions.');
+    }
+    if (typeof body.name !== 'string') throw new BadRequest('name is the version’s new name.');
+    const { api, link } = this.options;
+    const renamed = await renameComposition(this.repoRoot, api, link, {
+      page,
+      id,
+      name: body.name
+    });
+    this.projectChanged();
+    return renamed;
+  }
+
+  /**
+   * Save version's Undo: the version just saved, deleted on the backend and from rough/, once its
+   * pictures are taken, so none are left behind. Refused in words when something depends on it.
+   */
+  async deleteComposition(page: string, id: string) {
+    if (!SLUG.test(page) || !COMPOSITION_ID.test(id)) {
+      throw new BadRequest('Name a page and one of its versions.');
+    }
+    await this.picturing.get(`${page}/${id}`);
+    const { api, link } = this.options;
+    const deleted = await deleteComposition(this.repoRoot, api, link, { page, id });
+    this.projectChanged();
+    this.changes.note(`${page}/${COMPOSITIONS_DIR}/${id}${IMAGES}`);
+    return deleted;
   }
 
   /** A composition's pictures, after it is saved: none where the app does not answer. */

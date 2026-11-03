@@ -71,7 +71,8 @@ import { newest, verbLine, type Line } from '../output';
 import { BriefSheet } from '../parts/brief';
 import { OutputLine, useLine } from '../parts/output-line';
 import { useChrome } from '../parts/chrome';
-import { canCompose } from '../composition';
+import { canCompose, pageVersions } from '../composition';
+import { VersionsSheet, useSaveVersion } from '../parts/versions';
 import { usePromotePlan } from '../parts/promote-plan';
 import { Missing } from '../parts/missing';
 import { PROMPT_FIELD, useAppCommands } from '../parts/palette';
@@ -386,6 +387,21 @@ function StudioCanvasView({
   const [keptLines, setKeptLines] = useState(0);
   /** Not this's "Other…" and the palette's Not this: the card. */
   const [notThis, setNotThis] = useState<string | null>(null);
+  /** The page whose Versions list is open. */
+  const [versionsOf, setVersionsOf] = useState<string | null>(null);
+  const saveVersion = useSaveVersion(refresh);
+
+  /**
+   * Save version (decided 3 November 2026): the page as the canvas shows it, whatever the "In the
+   * app" filter hides, in one click.
+   */
+  function savePageVersion(page: string) {
+    const whole = studioCanvasInput(project.tree, runs, project.local, {
+      shotKey: state.shotKey,
+      stills: stills?.items
+    });
+    void saveVersion.save(whole, page);
+  }
 
   function promptFor(next: string) {
     setPromptMode(next);
@@ -549,6 +565,12 @@ function StudioCanvasView({
       case 'adopt-all':
         void adopt({ all: true });
         return;
+      case 'save-version':
+        if (at.page) savePageVersion(at.page);
+        return;
+      case 'versions':
+        if (at.page) setVersionsOf(at.page);
+        return;
       case 'terminal':
         showSession(session ?? found?.session ?? null);
         return;
@@ -697,11 +719,19 @@ function StudioCanvasView({
         key={action.id}
         type="button"
         aria-pressed={pressed}
-        disabled={(action.id === 'pull' && pulling !== null) || (RUN_VERBS.has(action.id) && busy)}
+        disabled={
+          (action.id === 'pull' && pulling !== null) ||
+          (action.id === 'save-version' && saveVersion.saving !== null) ||
+          (RUN_VERBS.has(action.id) && busy)
+        }
         onClick={() => act(action.id, item.key, action.session)}
         className={cn(selectionToolbarItem, pressed && 'bg-control')}
       >
-        {action.id === 'pull' && pulling === item.id ? 'Pulling' : action.label}
+        {action.id === 'pull' && pulling === item.id
+          ? 'Pulling'
+          : action.id === 'save-version' && saveVersion.saving === item.page
+            ? 'Saving…'
+            : action.label}
       </button>
     );
     return action.keys ? (
@@ -842,7 +872,7 @@ function StudioCanvasView({
     )?.name ?? 'your agent';
 
   // What the canvas's controls, verbs, pulls and host actions said, newest first, beside them.
-  const line = newest(said.line, verbRunner.line, startLine, fresh(hostLine));
+  const line = newest(said.line, verbRunner.line, startLine, saveVersion.line, fresh(hostLine));
 
   const prompt = (
     <StudioPrompt
@@ -988,6 +1018,13 @@ function StudioCanvasView({
         />
         <OutputLine line={fresh(hostLine)} className="mt-3" />
       </Sheet>
+      <VersionsSheet
+        open={versionsOf !== null}
+        pageName={project.tree.pages.find(page => page.slug === versionsOf)?.name ?? ''}
+        versions={versionsOf ? pageVersions(project, versionsOf) : []}
+        onClose={() => setVersionsOf(null)}
+        refresh={refresh}
+      />
       <BriefSheet
         component={briefOf?.component ?? null}
         webHref={briefOf && webBase ? `${webBase}/${brief!.page}/${brief!.component}/brief` : null}

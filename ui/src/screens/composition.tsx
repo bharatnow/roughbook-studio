@@ -1,5 +1,4 @@
 import {
-  Button,
   CompositionSections,
   HelpTip,
   PreviewFrame,
@@ -7,14 +6,7 @@ import {
   termLabel,
   useUiHost
 } from '@roughbook/ui';
-import { CopyPlus } from 'lucide-react';
-import {
-  composeAddress,
-  composedKey,
-  compositionName,
-  findComposition,
-  sectionItems
-} from '../composition';
+import { composedKey, compositionName, findComposition, sectionItems } from '../composition';
 import { useStudio } from '../data';
 import { CompositionPromote } from '../parts/composition-promote';
 import { Missing } from '../parts/missing';
@@ -25,7 +17,8 @@ import { useApp } from './iteration';
 /**
  * A page's composition's own view (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md): the page as it composes
  * it, in the app's preview route with its layout and styles, Pick selecting a section on the
- * canvas; its sections in order; and Promote into the app's page. Where the stack does not compose
+ * canvas; its sections in order; and Promote into the app's page. It is one of the page's
+ * versions, saved and renamed from the canvas (the builder retired). Where the stack does not compose
  * yet, each section is in its own frame, one under another, and the frame says so (decision 54).
  */
 export function CompositionScreen({ page, id }: { page: string; id: string }) {
@@ -63,10 +56,6 @@ export function CompositionScreen({ page, id }: { page: string; id: string }) {
           {record.name}: {name}
         </h1>
         <span className="font-mono text-caption text-steel">{id}</span>
-        <Button href={composeAddress(page, id)} className="ml-auto">
-          <CopyPlus className="size-4" strokeWidth={1.5} />
-          Edit as new
-        </Button>
       </div>
       <OutputLine line={app.trouble} />
       {view.address ? (

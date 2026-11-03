@@ -1,20 +1,12 @@
-// A page's compositions in the local UI (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 46 to 52):
-// the project read and rough/ as @roughbook/ui's CompositionEditor and CompositionSections take
-// them. The editor starts from the map's order on baselines (decision 52); a section is one of the
-// page's components with an iteration in this repo; the composed preview is the recipe's route,
-// where it composes (decision 54).
-import { BASELINE } from './canvas-input.ts';
+// A page's compositions in the local UI (B6 of ROUGHBOOK-BROWNFIELD-PLAN.md, decisions 46 to 52),
+// which read as the page's versions: Save version keeps the page as the canvas shows it, each
+// section on the iteration it shows, in one click, named by the date and time (decided 3 November
+// 2026, reports/Composite audit.md section 15); a section is one of the page's components with an
+// iteration in this repo; the composed preview is the recipe's route, where it composes (decision
+// 54).
+import { pageComposite, slotRuns } from '@roughbook/ui/canvas';
+import { BASELINE, type StudioCanvas } from './canvas-input.ts';
 import type { CompositionView, ProjectView } from './types.ts';
-
-/** One of the page's components a section may be, with its iterations in this repo. */
-export type ComposerComponent = {
-  slug: string;
-  name: string;
-  iterations: { id: string; name: string; status?: string }[];
-  selected?: string | null;
-  /** When the map found it gone from the app (B7): its baseline reads Gone from the app. */
-  gone?: string | null;
-};
 
 /** A section while it is composed; a new section has no iteration until its first run. */
 export type DraftSection = { component: string; iteration: string | null };
@@ -51,46 +43,53 @@ export function canCompose(project: ProjectView, page: string): boolean {
 }
 
 /**
- * The page's components a composition may hold: the app's sections in the page's order, then the
- * page's other components (new sections made here, or the app's adopted on it), each with its
- * iterations in this repo. A section of the map that is not adopted here has no baseline to show.
+ * A version's name: the day and the time it was saved, in the viewer's locale ("3 Nov, 14:05" in
+ * British English). `locale` is for the tests; the viewer's own is used without it.
  */
-export function compositionComponents(project: ProjectView, page: string): ComposerComponent[] {
-  const record = project.tree.pages.find(item => item.slug === page);
-  const map = project.local.map;
-  const own = map?.pages.find(item => item.slug === page)?.sections ?? [];
-  const here = new Set(project.local.iterations);
-  const gone = goneOf(project);
-  const slugs = [
-    ...new Set([...own, ...(record?.components.map(component => component.slug) ?? [])])
-  ];
-  return slugs.flatMap(slug => {
-    const component = record?.components.find(item => item.slug === slug);
-    const iterations = (component?.iterations ?? [])
-      .filter(item => here.has(`${page}/${slug}/${item.id}`))
-      .map(item => ({ id: item.id, name: item.name, status: item.status }));
-    if (!component) return [];
-    const selected = component.iterations.find(
-      item => item.number === component.selectedIteration
-    )?.id;
-    return [
-      {
-        slug,
-        name: component.name,
-        iterations,
-        ...(selected ? { selected } : {}),
-        ...(gone.has(slug) ? { gone: gone.get(slug)! } : {})
-      }
-    ];
-  });
+export function versionName(at: Date, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(at);
 }
 
-/** Where the editor starts: the app's own order, each section on its baseline here. */
-export function appSections(project: ProjectView, page: string): DraftSection[] {
-  const here = new Set(project.local.iterations);
-  return (project.local.map?.pages.find(item => item.slug === page)?.sections ?? [])
-    .filter(slug => here.has(`${page}/${slug}/${BASELINE}`))
-    .map(component => ({ component, iteration: BASELINE }));
+/**
+ * The page as the canvas shows it, to save as a version: each section on the iteration it shows
+ * (its chosen one, or what stands in without a choice), top to bottom. Every one must be an
+ * iteration in this repo, since a version is kept in rough/; otherwise why not, in words.
+ */
+export function versionOf(
+  canvas: StudioCanvas,
+  page: string
+): { sections: { component: string; iteration: string }[] } | { problem: string } {
+  const section = canvas.input.sections.find(item => item.id === page);
+  const slots = section ? pageComposite(section).filter(slotRuns) : [];
+  if (!slots.length) return { problem: 'The page has no sections to save yet.' };
+  const problems: string[] = [];
+  const sections = slots.map(slot => {
+    const iteration = slot.card!.id;
+    const facts = canvas.cards[`iteration:${page}/${slot.component}/${iteration}`];
+    if (facts?.kind === 'map') {
+      problems.push(`${slot.name} is the app's, not adopted yet: adopt it first.`);
+    } else if (facts?.kind === 'sketch') {
+      problems.push(`${slot.name} shows a web sketch: pull it into this repo first.`);
+    } else if (facts?.kind !== 'local' || !facts.generated || facts.run) {
+      problems.push(`${slot.name} is still being made: save once it is done.`);
+    }
+    return { component: slot.component, iteration };
+  });
+  return problems.length
+    ? { problem: `A version keeps the page in this repo. ${problems.join(' ')}` }
+    : { sections };
+}
+
+/** A page's versions kept here, newest first. */
+export function pageVersions(project: ProjectView, page: string): CompositionView[] {
+  return (project.local.compositions ?? [])
+    .filter(item => item.page === page)
+    .sort((a, b) => b.number - a.number);
 }
 
 /** The sections as the composed preview's parameter carries them, those with an iteration. */
@@ -197,11 +196,6 @@ export function sectionItems(project: ProjectView, view: CompositionView): Secti
       ...(here.has(key) ? { href: `/${key}` } : {})
     };
   });
-}
-
-/** The editor's address for a page, starting from a composition when one is named. */
-export function composeAddress(page: string, from?: string | null): string {
-  return `/${page}/compose${from ? `?from=${from}` : ''}`;
 }
 
 /** A composition's own view. */

@@ -14,8 +14,6 @@ export type Route =
   | { screen: 'iteration'; page: string; component: string; iteration: string; refine: boolean }
   /** An adopted page's own view in the app, with its markers (B5): `/<page>?view=page`. */
   | { screen: 'page'; page: string }
-  /** A page's composition editor (B6): `/<page>/compose`, from a composition with `?from=`. */
-  | { screen: 'compose'; page: string; from: string | null }
   /** A page's composition's own view (B6): `/<page>/compositions/<composition>`. */
   | { screen: 'composition'; page: string; id: string }
   /**
@@ -44,9 +42,10 @@ export function parseRoute(hash: string): Route {
   const [page, component, third, fourth] = parts;
   if (!parts.length && query.get('view') === 'taste') return { screen: 'taste' };
   if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
+  // The composition builder retired (3 November 2026): Save version saves the page as the canvas
+  // shows it, so its old links, `/<page>/compose` with or without `?from=`, open the page there.
   if (page && component === 'compose' && parts.length === 2) {
-    const from = query.get('from');
-    return { screen: 'compose', page, from: from && COMPOSITION.test(from) ? from : null };
+    return { screen: 'canvas', focus: { kind: 'page', page } };
   }
   if (
     page &&
@@ -135,7 +134,6 @@ type Place =
   | { kind: 'page'; page: string }
   | { kind: 'component' | 'iterations' | 'compare'; page: string; component: string }
   | { kind: 'iteration'; page: string; component: string; iteration: string }
-  | { kind: 'composer'; page: string }
   | { kind: 'composition'; page: string; composition: string }
   | { kind: 'taste' };
 
@@ -157,8 +155,6 @@ function placeOf(route: Route): Place | null {
       };
     case 'page':
       return { kind: 'page', page: route.page };
-    case 'compose':
-      return { kind: 'composer', page: route.page };
     case 'composition':
       return { kind: 'composition', page: route.page, composition: route.id };
     case 'taste':
@@ -177,8 +173,6 @@ function documentParts(names: TitleNames | null, place: Place): string[] {
   switch (place.kind) {
     case 'page':
       return [pageName];
-    case 'composer':
-      return ['Composition', pageName];
     case 'composition':
       return [numbered(place.composition), pageName];
   }

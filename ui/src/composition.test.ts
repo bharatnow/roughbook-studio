@@ -4,13 +4,14 @@ import { selectionActions } from './canvas-actions.ts';
 import { iteration } from './canvas-fixture.ts';
 import { studioCanvasInput } from './canvas-input.ts';
 import {
-  appSections,
   canCompose,
   composedKey,
   composedSrc,
-  compositionComponents,
   compositionName,
-  sectionItems
+  pageVersions,
+  sectionItems,
+  versionName,
+  versionOf
 } from './composition.ts';
 import type { Component, CompositionView, ProjectView } from './types.ts';
 
@@ -136,7 +137,7 @@ describe("a page's compositions in the local UI", () => {
     );
   });
 
-  it('offers Compose on an adopted page of the map, and Open and Edit on a composition', () => {
+  it('offers Save version and Versions on an adopted page of the map, and Open on a composition', () => {
     const canvas = studioCanvasInput(PROJECT.tree, [], PROJECT.local);
     const state = {
       project: 'site',
@@ -146,45 +147,87 @@ describe("a page's compositions in the local UI", () => {
       composable: ['home']
     };
     assert.deepEqual(
-      selectionActions(canvas, 'page:home', state).find(action => action.id === 'compose'),
-      { id: 'compose', label: 'Compose', toolbar: true, href: '/home/compose' }
+      selectionActions(canvas, 'page:home', state)
+        .filter(action => action.id === 'save-version' || action.id === 'versions')
+        .map(action => [action.id, action.label, action.toolbar, action.href]),
+      [
+        ['save-version', 'Save version', true, undefined],
+        ['versions', 'Versions', true, undefined]
+      ]
     );
     assert.equal(
-      selectionActions(canvas, 'page:about', state).some(action => action.id === 'compose'),
+      selectionActions(canvas, 'page:about', state).some(action => action.id === 'save-version'),
       false
     );
+    // No versions yet: nothing to list.
+    const none = studioCanvasInput(PROJECT.tree, [], { ...PROJECT.local, compositions: [] });
+    assert.equal(
+      selectionActions(none, 'page:home', state).some(action => action.id === 'versions'),
+      false
+    );
+    // The builder retired: a composition opens, and no action leads to /compose.
     assert.deepEqual(
       selectionActions(canvas, 'composition:home/composition-02', state).map(action => [
         action.id,
         action.href
       ]),
-      [
-        ['open', '/home/compositions/composition-02'],
-        ['compose', '/home/compose?from=composition-02']
-      ]
+      [['open', '/home/compositions/composition-02']]
     );
     assert.equal(canCompose(PROJECT, 'home'), true);
     assert.equal(canCompose(PROJECT, 'about'), false);
   });
 
-  it('gives the editor the page’s components, its order on baselines and the composed address', () => {
-    assert.deepEqual(
-      compositionComponents(PROJECT, 'home').map(item => [
-        item.slug,
-        item.name,
-        item.iterations.map(one => one.id),
-        item.selected ?? null
-      ]),
-      [
-        ['hero', 'Hero', ['iteration-00', 'iteration-02'], 'iteration-02'],
-        ['features', 'Features', ['iteration-00'], null],
-        ['logos', 'Customer logos', ['iteration-01'], null]
+  it('saves the page as the canvas shows it, each section on the iteration it shows', () => {
+    const canvas = studioCanvasInput(PROJECT.tree, [], PROJECT.local);
+    // Hero's pick, Features' app version, and the logos' only iteration standing in.
+    assert.deepEqual(versionOf(canvas, 'home'), {
+      sections: [
+        { component: 'hero', iteration: 'iteration-02' },
+        { component: 'features', iteration: 'iteration-00' },
+        { component: 'logos', iteration: 'iteration-01' }
       ]
+    });
+    assert.deepEqual(versionOf(canvas, 'about'), {
+      problem: 'The page has no sections to save yet.'
+    });
+    // A web sketch the page shows is not in this repo, so a version cannot keep it: why, in words.
+    const home = PROJECT.tree.pages[0]!;
+    const tree = {
+      ...PROJECT.tree,
+      pages: [
+        {
+          ...home,
+          components: home.components.map(item =>
+            item.slug === 'logos'
+              ? { ...item, iterations: [iteration('iteration-01', { origin: 'sketch' })] }
+              : item
+          )
+        },
+        PROJECT.tree.pages[1]!
+      ]
+    };
+    const away = studioCanvasInput(tree, [], {
+      ...PROJECT.local,
+      iterations: PROJECT.local.iterations.filter(key => key !== 'home/logos/iteration-01')
+    });
+    assert.deepEqual(versionOf(away, 'home'), {
+      problem:
+        'A version keeps the page in this repo. Customer logos shows a web sketch: pull it into this repo first.'
+    });
+  });
+
+  it('names a version by the date and time in the viewer’s locale, and lists the newest first', () => {
+    const at = new Date(2026, 10, 3, 14, 5);
+    assert.equal(versionName(at, 'en-GB'), '3 Nov, 14:05');
+    assert.equal(versionName(at, 'en-US'), 'Nov 3, 2:05 PM');
+    assert.deepEqual(
+      pageVersions(PROJECT, 'home').map(item => item.id),
+      ['composition-02', 'composition-01']
     );
-    assert.deepEqual(appSections(PROJECT, 'home'), [
-      { component: 'hero', iteration: 'iteration-00' },
-      { component: 'features', iteration: 'iteration-00' }
-    ]);
+    assert.deepEqual(pageVersions(PROJECT, 'about'), []);
+  });
+
+  it('gives the composed address', () => {
     const src = composedSrc(PROJECT, 'http://localhost:3000', 'home')!;
     assert.equal(
       src([
@@ -216,9 +259,6 @@ describe("a page's compositions in the local UI", () => {
         }
       }
     };
-    const editor = compositionComponents(project, 'home');
-    assert.equal(editor.find(item => item.slug === 'features')!.gone, '2026-10-27');
-    assert.ok(!('gone' in editor.find(item => item.slug === 'hero')!));
     const listed = sectionItems(project, COMPOSITION);
     assert.equal(listed.find(item => item.component === 'features')!.gone, '2026-10-27');
     assert.ok(!('gone' in listed.find(item => item.component === 'hero')!));
