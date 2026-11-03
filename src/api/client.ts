@@ -23,7 +23,6 @@ import type {
   Promotion,
   PullableSketch,
   PulledSketch,
-  RatingSummary,
   PictureKind,
   SetupPrompt,
   SketchFile,
@@ -320,16 +319,6 @@ export class StudioApi {
       'GET',
       `${iterationPath(orgId, project, page, component, iteration)}/reviews`
     );
-  }
-
-  /** The component's rated iterations, by id: this user's own rating and the team's. */
-  ratings(
-    orgId: string,
-    project: string,
-    page: string,
-    component: string
-  ): Promise<Record<string, RatingSummary>> {
-    return this.request('GET', `${componentPath(orgId, project, page, component)}/ratings`);
   }
 
   /** The component's web sketches that can be pulled, newest first. */

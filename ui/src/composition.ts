@@ -165,7 +165,7 @@ export function composedKey(page: string): string {
 
 /** A composition's name, or its number's when the designer gave none. */
 export function compositionName(view: Pick<CompositionView, 'name' | 'number'>): string {
-  return view.name.trim() || `Composition ${view.number}`;
+  return view.name.trim() || `Version ${view.number}`;
 }
 
 /** A composition of a page kept here, by id. */

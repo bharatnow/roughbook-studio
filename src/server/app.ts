@@ -243,9 +243,6 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     }),
     route('GET', '/api/app', () => studio.checkApp()),
     route('POST', '/api/app/start', () => studio.startApp()),
-    route('GET', '/api/ratings/:page/:component', (_request, params) =>
-      studio.ratings(params.page!, params.component!)
-    ),
     route('GET', '/api/sketches/:page/:component', (_request, params) =>
       studio.sketches(params.page!, params.component!)
     ),

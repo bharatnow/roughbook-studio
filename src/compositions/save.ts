@@ -221,10 +221,9 @@ export async function saveComposition(
 /** A version's name, as the backend takes it: short text the designer typed. */
 export const MAX_VERSION_NAME = 80;
 
-/** Why a version cannot be deleted, in words: what depends on it. */
-export const VERSION_HAS_CHILDREN =
-  "This version can't be deleted: another version was made from it.";
-export const VERSION_PROMOTED = "This version can't be deleted: it was promoted into the app.";
+/** Why a version cannot be deleted, in words: what depends on it. The web says the same. */
+export const VERSION_HAS_CHILDREN = 'Another version was made from this one, so it stays.';
+export const VERSION_PROMOTED = 'A studio has promoted this version into the app, so it stays.';
 
 /** A kept composition, or why not, in words. */
 function keptOrThrow(repoRoot: string, page: string, id: string) {
@@ -253,9 +252,9 @@ export async function renameComposition(
   const { page, id } = input;
   const kept = keptOrThrow(repoRoot, page, id);
   const name = input.name.trim();
-  if (!name) throw new Error('Name the version.');
+  if (!name) throw new Error('Give the version a name.');
   if (name.length > MAX_VERSION_NAME) {
-    throw new Error(`A version's name holds at most ${MAX_VERSION_NAME} characters.`);
+    throw new Error(`Keep the name to ${MAX_VERSION_NAME} characters.`);
   }
   if (name === kept.composition.name) return { page, id, name };
   await api.renameComposition(link.orgId, link.project, page, id, name);

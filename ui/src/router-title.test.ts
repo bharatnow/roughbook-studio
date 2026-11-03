@@ -42,7 +42,7 @@ describe("the studio's tab titles", () => {
     assert.equal(title('#/home/compose'), 'Home · Acme / Roughbook studio');
     assert.equal(
       title('#/home/compositions/composition-02'),
-      'Composition 02 · Home · Acme / Roughbook studio'
+      'Version 02 · Home · Acme / Roughbook studio'
     );
     assert.equal(title('#/home?view=page'), 'Home · Acme / Roughbook studio');
     assert.equal(title('#/?view=taste'), 'Your taste · Acme / Roughbook studio');

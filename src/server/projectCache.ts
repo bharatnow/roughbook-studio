@@ -1,25 +1,23 @@
-// The project and its ratings as the backend last gave them, so the local UI can ask as often as
+// The project as the backend last gave it, so the local UI can ask as often as
 // it likes while few of its asks reach the backend. Every tab that asks during a read shares it.
 // The project is read again once it is older than the wait: 30 seconds after a read that found
 // something new, twice as long after each read that found nothing new, up to two minutes.
 // Whatever may have changed it makes it stale at once: the page's own actions, the outbox being
 // sent, a run starting or finishing or an iteration appearing on disk (from the CLI, or an agent
-// through MCP), and the designer coming back to the page. Ratings are read again once per read of
-// the project, since a teammate's rating changes nothing in it.
+// through MCP), and the designer coming back to the page.
 
 export const FIRST_WAIT_MS = 30_000;
 export const LONGEST_WAIT_MS = 120_000;
 /** Coming back to the page reads the project again, unless it was read this recently. */
 export const FRESH_ENOUGH_MS = 5_000;
 
-export class ProjectCache<Tree, Ratings> {
+export class ProjectCache<Tree> {
   private tree: { value: Tree; text: string; at: number; read: number } | null = null;
   private reading: { promise: Promise<Tree>; read: number } | null = null;
   private reads = 0;
   private wait = FIRST_WAIT_MS;
   private stale = false;
   private readonly seen = new Map<string, string>();
-  private readonly ratingsFor = new Map<string, { value: Promise<Ratings>; read: number }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -70,18 +68,5 @@ export class ProjectCache<Tree, Ratings> {
       });
     this.reading = { promise, read: number };
     return promise;
-  }
-
-  /** A component's ratings, read again once the project has been. */
-  ratings(component: string, read: () => Promise<Ratings>): Promise<Ratings> {
-    const generation = this.tree?.read ?? 0;
-    const cached = this.ratingsFor.get(component);
-    if (cached && cached.read === generation) return cached.value;
-    const value = read();
-    this.ratingsFor.set(component, { value, read: generation });
-    value.catch(() => {
-      if (this.ratingsFor.get(component)?.value === value) this.ratingsFor.delete(component);
-    });
-    return value;
   }
 }

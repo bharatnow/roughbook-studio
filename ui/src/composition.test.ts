@@ -124,7 +124,7 @@ describe("a page's compositions in the local UI", () => {
       },
       {
         id: 'composition-02',
-        name: 'Composition 2',
+        name: 'Version 2',
         thumbnail: '/api/compositions/home/composition-02/pictures/thumbnail?key=k',
         href: '/home/compositions/composition-02',
         created: '2026-10-26T10:00:00.000Z',
@@ -265,7 +265,7 @@ describe("a page's compositions in the local UI", () => {
   });
 
   it('lists a saved composition’s sections, named and marked', () => {
-    assert.equal(compositionName(COMPOSITION), 'Composition 2');
+    assert.equal(compositionName(COMPOSITION), 'Version 2');
     assert.deepEqual(sectionItems(PROJECT, COMPOSITION), [
       {
         component: 'features',

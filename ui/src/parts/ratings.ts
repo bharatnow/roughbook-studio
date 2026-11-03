@@ -1,25 +1,11 @@
 import type { RatingSummary } from '@roughbook/ui';
-import { useEffect, useState } from 'react';
-import { get } from '../api';
-import { useStudio } from '../data';
+
+const NONE: Record<string, RatingSummary> = {};
 
 /**
- * The component's rated iterations, by id: this designer's own rating and the team's. Read again
- * with the project, which is read again after every decision.
+ * The component's rated iterations, by id: none. Ratings are retired (ROUGHBOOK-LEARNING-PLAN.md,
+ * decision 1) and the backend no longer serves them, so every iteration reads as unrated.
  */
-export function useRatings(page: string, component: string): Record<string, RatingSummary> {
-  const { project } = useStudio();
-  const [ratings, setRatings] = useState<Record<string, RatingSummary>>({});
-  useEffect(() => {
-    let live = true;
-    get<Record<string, RatingSummary>>(
-      `/api/ratings/${encodeURIComponent(page)}/${encodeURIComponent(component)}`
-    )
-      .then(found => live && setRatings(found))
-      .catch(() => live && setRatings({}));
-    return () => {
-      live = false;
-    };
-  }, [page, component, project]);
-  return ratings;
+export function useRatings(_page: string, _component: string): Record<string, RatingSummary> {
+  return NONE;
 }

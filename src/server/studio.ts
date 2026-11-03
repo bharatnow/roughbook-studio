@@ -11,8 +11,7 @@ import {
   PICTURE_KINDS,
   type AssetScope,
   type PictureKind,
-  type ProjectTree,
-  type RatingSummary
+  type ProjectTree
 } from '../api/types.js';
 import { ApiError, describeError } from '../api/errors.js';
 import { outboxFor, type Outbox } from '../api/outbox.js';
@@ -571,7 +570,7 @@ export class LocalStudio {
   private readonly pendingSnapshots = new Set<string>();
   private detections: { at: number; list: Promise<Detection[]> } | null = null;
   private readonly assets = new Map<string, { bytes: Buffer; at: number }>();
-  private readonly cache = new ProjectCache<ProjectTree, Record<string, RatingSummary>>();
+  private readonly cache = new ProjectCache<ProjectTree>();
   private readonly remoteStills: RemoteStills;
   /**
    * The project's pictures answer as last read or given here (decision 25 of the Apple plan):
@@ -1852,15 +1851,6 @@ export class LocalStudio {
     const { api, link } = this.options;
     const result = await sendDecision(api, this.outbox, link, target, decision);
     return { status: result.status };
-  }
-
-  /** The component's rated iterations, from the backend: this user's rating and the team's. */
-  async ratings(page: string, component: string) {
-    if (!SLUG.test(page) || !SLUG.test(component)) throw new BadRequest('Not a component.');
-    const { api, link } = this.options;
-    return this.cache.ratings(`${page}/${component}`, () =>
-      api.ratings(link.orgId, link.project, page, component)
-    );
   }
 
   /** The component's web sketches that can be pulled, from the backend. */

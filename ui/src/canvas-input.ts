@@ -395,7 +395,7 @@ export function studioCanvasInput(
       .filter(item => item.page === page)
       .map(item => ({
         id: item.id,
-        name: item.name.trim() || `Composition ${item.number}`,
+        name: item.name.trim() || `Version ${item.number}`,
         thumbnail: item.pictures.includes('thumbnail')
           ? `/api/compositions/${page}/${item.id}/pictures/thumbnail${shotKey ? `?key=${encodeURIComponent(shotKey)}` : ''}`
           : null,

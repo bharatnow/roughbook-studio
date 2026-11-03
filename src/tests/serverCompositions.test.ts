@@ -306,16 +306,13 @@ describe("the local server's compositions", () => {
     assert.equal(kept.sections.length, 4);
     const blank = await call('POST', '/api/compositions/home/composition-01/rename', { name: ' ' });
     assert.equal(blank.status, 400);
-    assert.equal(blank.json.message, 'Name the version.');
+    assert.equal(blank.json.message, 'Give the version a name.');
     assert.equal(backend.requests.filter(request => request.method === 'PATCH').length, 1);
 
     // Another version was made from composition-01: refused in words, nothing asked.
     const parent = await call('POST', '/api/compositions/home/composition-01/delete');
     assert.equal(parent.status, 400);
-    assert.equal(
-      parent.json.message,
-      "This version can't be deleted: another version was made from it."
-    );
+    assert.equal(parent.json.message, 'Another version was made from this one, so it stays.');
     assert.ok(!backend.requests.some(request => request.method === 'DELETE'));
 
     // The child goes, on the backend and from rough/, its pictures with it.
@@ -343,7 +340,7 @@ describe("the local server's compositions", () => {
     assert.equal(refusedDelete.status, 400);
     assert.equal(
       refusedDelete.json.message,
-      "This version can't be deleted: it was promoted into the app."
+      'A studio has promoted this version into the app, so it stays.'
     );
     assert.ok(fs.existsSync(path.join(repo, 'rough/home/compositions/composition-03')));
     assert.equal((await call('POST', '/api/compositions/home/notes/delete')).status, 400);

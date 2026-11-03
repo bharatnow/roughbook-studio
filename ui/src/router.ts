@@ -118,10 +118,10 @@ export type TitleNames = {
 const PRODUCT = 'Roughbook studio';
 const SEPARATOR = ' · ';
 
-/** "iteration-03" as "Iteration 03", "composition-02" as "Composition 02"; anything else as it is. */
+/** "iteration-03" as "Iteration 03", "composition-02" as "Version 02"; anything else as it is. */
 function numbered(id: string): string {
   const match = /^(iteration|composition)-(\d+)$/.exec(id);
-  return match ? `${match[1] === 'iteration' ? 'Iteration' : 'Composition'} ${match[2]}` : id;
+  return match ? `${match[1] === 'iteration' ? 'Iteration' : 'Version'} ${match[2]}` : id;
 }
 
 function named(name: string | undefined, fallback: string): string {

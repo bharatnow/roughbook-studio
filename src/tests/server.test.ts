@@ -334,11 +334,6 @@ describe('the local server', () => {
       ],
       [
         'GET',
-        new RegExp(`^${PROJECT}/pages/home/components/hero/ratings$`),
-        () => ok({ 'iteration-01': { mine: 4, average: 3.5, count: 2 } })
-      ],
-      [
-        'GET',
         new RegExp(`^${PROJECT}/pages/home/components/hero/sketches$`),
         () =>
           ok([
@@ -806,12 +801,8 @@ describe('the local server', () => {
     assert.deepEqual(sentTo('/iteration-01/select'), { reason: 'Calmest' });
     await decide({ kind: 'reject', reason: 'Too quiet', rating: 3 });
     assert.deepEqual(sentTo('/iteration-01/reject'), { reason: 'Too quiet' });
-    // The existing ratings are still read, to show.
-    const ratings = await api('GET', '/api/ratings/home/hero');
-    assert.deepEqual(ratings.json.data, {
-      'iteration-01': { mine: 4, average: 3.5, count: 2 }
-    });
-    assert.equal((await api('GET', '/api/ratings/home/..%2Fsecrets')).status, 400);
+    // Nor are ratings read any more: the backend serves none.
+    assert.equal((await api('GET', '/api/ratings/home/hero')).status, 404);
 
     for (const bad of [
       { kind: 'rate', rating: 4 },
@@ -1269,12 +1260,11 @@ describe('the local server', () => {
     assert.equal((await api('GET', '/api/app')).json.data.fault, null);
   });
 
-  it('asks the backend for the project and its ratings only when they may have changed', async () => {
+  it('asks the backend for the project only when it may have changed', async () => {
     const reads = (ending: string) =>
       backend.requests.filter(request => request.method === 'GET' && request.url.endsWith(ending))
         .length;
     const projectReads = () => reads(PROJECT);
-    const ratingsReads = () => reads('/components/hero/ratings');
     const ask = async (pathname: string) => {
       const answer = await api('GET', pathname);
       assert.equal(answer.status, 200, JSON.stringify(answer.json));
@@ -1284,15 +1274,12 @@ describe('the local server', () => {
 
     // The page's own action may have changed it; then one read serves every ask.
     await api('POST', '/api/agents/default', { agent: null });
-    const before = { project: projectReads(), ratings: ratingsReads() };
+    const before = { project: projectReads() };
     const asks = await Promise.all([1, 2, 3].map(() => ask('/api/project')));
     assert.equal(asks[0].tree.slug, 'site');
     for (let index = 0; index < 5; index += 1) await ask('/api/project');
     await ask('/api/project?fresh');
     assert.equal(projectReads() - before.project, 1);
-    await ask('/api/ratings/home/hero');
-    await ask('/api/ratings/home/hero');
-    assert.equal(ratingsReads() - before.ratings, 1);
 
     // A run finished by the CLI or by an agent through MCP, seen in the run list.
     const [newest] = await listRuns(repo);
@@ -1302,8 +1289,6 @@ describe('the local server', () => {
     await ask('/api/project');
     await ask('/api/project');
     assert.equal(projectReads() - before.project, 2);
-    await ask('/api/ratings/home/hero');
-    assert.equal(ratingsReads() - before.ratings, 2);
 
     // An iteration pulled or started from the CLI, seen on disk.
     const pulled = path.join(repo, 'rough', 'home', 'hero', 'iteration-77');
@@ -1338,7 +1323,7 @@ describe("the local server's copy of the project", () => {
   type Tree = { version: number };
   function setup() {
     const clock = { now: 0 };
-    const cache = new ProjectCache<Tree, string>(() => clock.now);
+    const cache = new ProjectCache<Tree>(() => clock.now);
     const backend = { tree: { version: 1 } as Tree, reads: 0 };
     const read = async () => {
       backend.reads += 1;
@@ -1429,22 +1414,6 @@ describe("the local server's copy of the project", () => {
     );
     assert.deepEqual(await cache.project(read), { version: 1 });
     assert.equal(backend.reads, 2);
-  });
-
-  it("reads a component's ratings once per read of the project, and again after a failure", async () => {
-    const { cache, read } = setup();
-    let reads = 0;
-    const ratings = async () => `ratings ${++reads}`;
-    await cache.project(read);
-    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 1');
-    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 1');
-    assert.equal(await cache.ratings('home/footer', ratings), 'ratings 2');
-    cache.invalidate();
-    await cache.project(read);
-    assert.equal(await cache.ratings('home/hero', ratings), 'ratings 3');
-
-    await assert.rejects(cache.ratings('home/cta', () => Promise.reject(new Error('offline'))));
-    assert.equal(await cache.ratings('home/cta', ratings), 'ratings 4');
   });
 });
 
