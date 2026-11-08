@@ -90,6 +90,12 @@ Rules for any agent working here:
 - An iteration never imports from another iteration. It may import the app's
   own components, styles and utilities.
 - Nothing outside rough/ imports from rough/.
+- Show the client's real things, never invented ones. Before writing a design,
+  find what the app already has: its data, fixtures, seeds or CMS exports for
+  names, prices, times and ratings, its own copy, and its images under its public
+  or assets folders. Use those, by their real names and values; where the app
+  has none, use the content your instructions give, and invent no name, price
+  or picture in their place.
 ${own}- Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
