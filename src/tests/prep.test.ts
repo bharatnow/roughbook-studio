@@ -163,7 +163,22 @@ describe('preparing a repo', () => {
       appDir: 'src/app'
     });
     assert.equal(read(repo, 'rough/CLAUDE.md'), '@AGENTS.md\n');
-    assert.match(read(repo, 'rough/AGENTS.md'), /Never edit an existing iteration/);
+    const agents = read(repo, 'rough/AGENTS.md');
+    assert.match(agents, /Never edit an existing iteration/);
+    // A first screen's structure and contract are rules for the agent, as the web's are (E8).
+    assert.match(
+      agents,
+      /give a first screen its structure and its contract,\n {2}build that structure, not a hero poster/
+    );
+    assert.match(
+      agents,
+      /a labelled field in\n {2}a form whose submit does something, a handler on every button/
+    );
+    assert.match(agents, /At 390 px the field and its button come before any large picture/);
+    assert.match(agents, /run get_checks \(the roughbook MCP tool\)[^]*fix every failure it names/);
+    // The real things are said once, and the file holds no project's data.
+    assert.equal(agents.match(/never invented ones/g)?.length, 1);
+    assert.doesNotMatch(agents, /search-first|list-first|Dishpatch/);
     assert.match(read(repo, 'rough/README.md'), /This folder is committed/);
     const page = read(repo, 'src/app/rough-preview/[...slug]/page.tsx');
     // Checked alone in an editor, the route still knows `process`.

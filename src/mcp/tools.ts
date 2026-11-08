@@ -20,6 +20,7 @@ import {
   namesPromotion,
   type PromotionRecord
 } from '../runs/promotion.js';
+import { skeletonName, type LookScreen } from '../runs/lookScreen.js';
 import { unnamedButtonIn } from '../runs/nativeFloor.js';
 import { finishingSection } from '../runs/slots.js';
 import { listRuns, namesRun } from '../runs/store.js';
@@ -189,9 +190,37 @@ export function describeCheck(check: Check, run: RunRecord): string {
       return `The source shows none of these model tells: ${check.tells.join(', ')}. Warnings only.`;
     case 'native-floor':
       return `The source has no placeholder copy, such as lorem ipsum or a stand-in name like Jane Doe, and no icon-only button with no name for a screen reader: ${unnamedButtonIn(check.family)}. Warnings only.`;
+    case 'look-screen':
+      return describeScreen(check.screen);
     default:
       return `A check this studio does not know yet (${(check as { kind: string }).kind}); update the studio to read it.`;
   }
+}
+
+/**
+ * The look-screen check in a line: the way in, the structure, and what it shows, as the first
+ * screen's contract and the content sheet give them. Every finding fails until it is fixed.
+ */
+function describeScreen(screen: LookScreen): string {
+  const parts = [
+    screen.action,
+    `a header with the project's name${screen.account ? ' and "Log in"' : ''}`,
+    ...(screen.skeleton ? [`built as ${skeletonName(screen.skeleton)}`] : []),
+    ...(screen.catalogue
+      ? [`with at least ${screen.catalogue.min} ${screen.catalogue.name} by name and their facts`]
+      : []),
+    ...(screen.content ? [`with the sheet's ${screen.content.label} and no invented ones`] : []),
+    ...(screen.pictures
+      ? [
+          screen.pictures.stance === 'photos'
+            ? "with only the project's chosen photos"
+            : screen.pictures.stance === 'illustration'
+              ? 'with drawings in inline SVG, never photos'
+              : 'with no pictures'
+        ]
+      : [])
+  ];
+  return `A working first screen: ${parts.join(', ')}; no dead button, no "#" link to nothing, no placeholder address, and the look's notes and subline not repeated on the screen. Each failure must be fixed before finish_run.`;
 }
 
 /** What get_checks says of the repo's accessibility audit, when rough/environment.md names one. */
@@ -267,7 +296,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     name: 'get_checks',
     title: 'Check a Roughbook iteration',
     description:
-      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, app files importing from rough/, and the repo's accessibility audit when rough/environment.md names one (warnings only). Fix what fails, then call finish_run.",
+      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, app files importing from rough/, a first-screen run's working first screen, and the repo's accessibility audit when rough/environment.md names one (warnings only). Fix what fails, then call finish_run.",
     inputSchema: {
       type: 'object',
       properties: { run: RUN, repo: REPO },

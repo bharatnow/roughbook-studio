@@ -96,7 +96,16 @@ Rules for any agent working here:
   or assets folders. Use those, by their real names and values; where the app
   has none, use the content your instructions give, and invent no name, price
   or picture in their place.
-${own}- Do not install dependencies, change the app's configuration, or commit.
+- When your instructions give a first screen its structure and its contract,
+  build that structure, not a hero poster. The way in works: a labelled field in
+  a form whose submit does something, a handler on every button, and no link to
+  "#" or to an id nothing has. The things it shows are the real ones above, by
+  name, each with its facts.
+- At 390 px the field and its button come before any large picture, and nothing
+  scrolls sideways.
+${own}- Before you finish, run get_checks (the roughbook MCP tool) when you have it,
+  and fix every failure it names.
+- Do not install dependencies, change the app's configuration, or commit.
 
 ${OURS}; it rewrites this file.
 `;

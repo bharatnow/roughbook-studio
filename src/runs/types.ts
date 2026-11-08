@@ -2,6 +2,7 @@
 import type { Family } from '../environment/types.js';
 
 /** What an iteration's output must pass, as the backend sends it (its utils/compile/checks.ts). */
+import type { LookScreen } from './lookScreen.js';
 import type { NativeFamily } from './nativeFloor.js';
 
 export type Check =
@@ -14,7 +15,13 @@ export type Check =
   /** The model tells to look for, and the fonts the Design System chose (detector.ts). */
   | { kind: 'detector'; tells: string[]; fonts: string[] }
   /** The native floor, for the native toolkits' families: placeholder copy, unnamed icon buttons. Warnings. */
-  | { kind: 'native-floor'; family: NativeFamily };
+  | { kind: 'native-floor'; family: NativeFamily }
+  /**
+   * A first-screen run's look-screen check (lookScreen.ts, E8 of the engine plan): a labelled
+   * field in a form that submits, a header, no dead control, the assigned structure, and only the
+   * content sheet's things and pictures. Every finding fails the check until the agent fixes it.
+   */
+  | { kind: 'look-screen'; screen: LookScreen };
 
 /** `pull`: a web sketch ported into the repo's stack by the agent (F7 of the frameworks plan). */
 export type RunKind = 'generate' | 'fork' | 'refine' | 'pull';
