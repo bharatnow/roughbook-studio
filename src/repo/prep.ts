@@ -65,7 +65,9 @@ ${OURS}; it rewrites this file.
 /**
  * The iteration rules every agent reads when it works in rough/, whichever agent it is: the
  * rules every stack shares, with the recipe's own among them, or the environment's entry file
- * when the setup run wrote the environment instead of a recipe.
+ * when the setup run wrote the environment instead of a recipe. A control's states, motion only
+ * for a change, and no first-screen load-in are the web's rules too
+ * (ROUGHBOOK-PROOF-MOTION-PLAN.md, M3).
  */
 export function roughAgents(environment: RepoEnvironment, recipe: Recipe | null): string {
   const entry = environment.entry
@@ -103,6 +105,15 @@ Rules for any agent working here:
   name, each with its facts.
 - At 390 px the field and its button come before any large picture, and nothing
   scrolls sideways.
+- Every control has its states: a visible focus ring, hover, selected, and an
+  empty and an error state that say in words what happened.
+- Motion shows what changed when the way in is used: transform and opacity
+  only, for 150 to 300 ms, scaled by the design system's motion level. At the
+  level none the change is highlighted instead of moved, and under
+  prefers-reduced-motion: reduce nothing moves: a change is instant, or at most
+  fades.
+- No first-screen content enters with motion on load. A frame or a drawing may,
+  for at most 300 ms, and never starting from opacity 0.
 ${own}- Before you finish, run get_checks (the roughbook MCP tool) when you have it,
   and fix every failure it names.
 - Do not install dependencies, change the app's configuration, or commit.

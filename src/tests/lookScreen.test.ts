@@ -254,6 +254,89 @@ type Place = { name: string; area: string; time: string };
       );
     });
 
+    // ROUGHBOOK-PROOF-MOTION-PLAN.md, M5: E9's #40 wrote cuisines lowered and a place as its placeholder.
+    it('refuses the sheet’s values in another case, lowered as shown or written so', () => {
+      const lowered = working.replace('{item.area}', '{item.area.toLowerCase()}');
+      const findings = lookScreenFindings(files(lowered), withSheet());
+      assert.deepEqual(
+        findings.map(item => item.code),
+        ['SHEET_CASE']
+      );
+      assert.ok(findings[0]!.blocks);
+      assert.equal(
+        findings[0]!.message,
+        'The screen writes the content sheet\'s values in another case: "Ancoats", "Chorlton", "Didsbury", "Levenshulme". Write each as the sheet does, with its capitals; never lower one as it is shown.'
+      );
+      const written = working.replace("area: 'Chorlton'", "area: 'chorlton'");
+      assert.match(
+        lookScreenFindings(files(written), withSheet())[0]!.message,
+        /another case: "Chorlton"\./
+      );
+      // A name, or a value with a capital past its first letter, is wrong anywhere in the text.
+      const prose = working.replace('Median handover', 'Try mama lin tonight. Median handover');
+      assert.match(
+        lookScreenFindings(files(prose), withSheet())[0]!.message,
+        /another case: "Mama Lin"\./
+      );
+      // Capitals added are a style, not a mistake.
+      const upper = working.replace('<p>Median', '<p>ANCOATS · CHORLTON. Median');
+      assert.deepEqual(lookScreenFindings(files(upper), withSheet()), []);
+    });
+
+    it('never reads code as the screen’s text', () => {
+      const code = `import Lin from './mama lin';
+import './chorlton.css';
+const ancoats = kitchens.filter(item => item.area === 'Ancoats');
+const TINTS = { chorlton: '#c33', 'mama lin': '#3c3' };
+const AREAS = ['ancoats', 'chorlton', 'didsbury'];
+export function areaOf(value: string) {
+  const low = value.toLowerCase();
+  if (low === 'levenshulme' || low.includes('didsbury')) return null;
+  return AREAS.find(area => low.startsWith(area)) ?? null;
+}
+export const Chip = ({ here }: { here: boolean }) => (
+  <li id="chorlton" data-area="ancoats" aria-label="chorlton kitchens" className={here ? 'didsbury on' : cn('chorlton', 'levenshulme')} style={{ color: TINTS.chorlton }}>
+    {ancoats.length} <Lin />
+  </li>
+);
+export const pick = { id: 'ancoats', slug: 'mama lin', art: 'chorlton' };
+const art = { chorlton: <svg />, ancoats: <svg /> };
+`;
+      assert.deepEqual(lookScreenFindings(files(working, [['chip.tsx', code]]), withSheet()), []);
+    });
+
+    it('refuses a placeholder that is a bare value from the sheet, but not an example or a hint', () => {
+      const field = (placeholder: string) =>
+        working.replace('<input id="where"', `<input id="where" placeholder=${placeholder}`);
+      const findings = lookScreenFindings(files(field('"Chorlton"')), withSheet());
+      assert.deepEqual(
+        findings.map(item => item.code),
+        ['PLACEHOLDER_VALUE']
+      );
+      assert.ok(findings[0]!.blocks);
+      assert.equal(
+        findings[0]!.message,
+        'index.tsx gives a field the placeholder "Chorlton", a bare value from the content sheet, so it reads as filled in. Make it an example, "e.g. Chorlton", or a hint, such as "Your neighbourhood".'
+      );
+      assert.match(
+        lookScreenFindings(files(field("{'Mama Lin'}")), withSheet())[0]!.message,
+        /the placeholder "Mama Lin",.*"e\.g\. Mama Lin"/
+      );
+      for (const fine of [
+        '"e.g. Chorlton"',
+        '"eg Chorlton"',
+        '"such as Didsbury"',
+        '"For example Ancoats"',
+        "{'Try Levenshulme'}",
+        '"Your neighbourhood"',
+        '"Chorlton, Didsbury or Ancoats"'
+      ]) {
+        assert.deepEqual(lookScreenFindings(files(field(fine)), withSheet()), [], fine);
+      }
+      // Without a sheet there are no values to read as filled in.
+      assert.deepEqual(lookScreenFindings(files(field('"Chorlton"')), screen), []);
+    });
+
     it('with photos, allows only the chosen ones, and drawing and fonts are never pictures', () => {
       const photo = (src: string) =>
         working.replace(

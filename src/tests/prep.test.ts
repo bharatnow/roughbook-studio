@@ -175,6 +175,24 @@ describe('preparing a repo', () => {
       /a labelled field in\n {2}a form whose submit does something, a handler on every button/
     );
     assert.match(agents, /At 390 px the field and its button come before any large picture/);
+    // A control's states, motion only for a change, and no load-in, as the web's are (M3).
+    assert.match(
+      agents,
+      /Every control has its states: a visible focus ring, hover, selected, and an\n {2}empty and an error state/
+    );
+    assert.match(
+      agents,
+      /transform and opacity\n {2}only, for 150 to 300 ms, scaled by the design system's motion level\./
+    );
+    assert.match(agents, /level none the change is highlighted instead of moved/);
+    assert.match(
+      agents,
+      /prefers-reduced-motion: reduce nothing moves: a change is instant, or at most\s+fades\./
+    );
+    assert.match(
+      agents,
+      /No first-screen content enters with motion on load\. A frame or a drawing may,\n {2}for at most 300 ms, and never starting from opacity 0\./
+    );
     assert.match(agents, /run get_checks \(the roughbook MCP tool\)[^]*fix every failure it names/);
     // The real things are said once, and the file holds no project's data.
     assert.equal(agents.match(/never invented ones/g)?.length, 1);

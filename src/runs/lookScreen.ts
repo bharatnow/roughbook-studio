@@ -7,8 +7,9 @@
 // labelled field in a form that submits, a header (with Log in where people have accounts), no
 // dead button or anchor, no placeholder address, none of the look's points rendered, the subline
 // said once, the contract's named objects with facts that can be counted, the assigned
-// structure's carrier, only the content sheet's names, and only the pictures its imagery allows.
-// Every finding blocks: the studio fails the check with it, so the agent fixes it before finishing.
+// structure's carrier, only the content sheet's names, and only the pictures its imagery allows;
+// with ROUGHBOOK-PROOF-MOTION-PLAN.md, M5, the sheet's values in its own case and no field whose
+// placeholder is one of them. Every finding blocks: the studio fails the check with it, so the agent fixes it before finishing.
 import type { Finding } from './types.js';
 
 /** The facts on a named object the check can count (the backend's rules/firstScreen.ts). */
@@ -321,6 +322,210 @@ function inventedFindings(
   ];
 }
 
+/**
+ * What the screen's text is, for the sheet's values (ROUGHBOOK-PROOF-MOTION-PLAN.md, M5): the
+ * pieces of JSX text and of string literals that can be shown. Code is blanked first, keeping
+ * positions: comments, regular expressions, import paths, a tag's attribute values (all but a
+ * placeholder, title, alt or label, and handlers, whose strings can be shown), class-name calls,
+ * object keys and code keys' values (id, slug, className...), strings compared or searched for,
+ * and lists of lower-case strings in a file that lowers what it compares.
+ */
+const COMMENT = /\/\*[\s\S]*?\*\/|(?<![:\\])\/\/[^\n]*/g;
+const REGEX_LITERAL =
+  /(?<=[(,=:[!&|?{};]\s*)\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[dgimsuyv]*/g;
+const IMPORT_PATH =
+  /\bfrom\s*(["'])[^"'\n]*\1\s*;?\s*$|\bimport\s*(["'])[^"'\n]*\2|\b(?:require|import)\s*\(\s*(["'`])[^"'`\n]*\3\s*\)/gm;
+const TAG = new RegExp(String.raw`<[A-Za-z][\w.:-]*\b${ATTRS}\/?>`, 'g');
+const ATTR_VALUE = new RegExp(
+  String.raw`([\w:.-]+)\s*=\s*("[^"]*"|'[^']*'|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})`,
+  'g'
+);
+/** Attributes whose value is shown as words; every other attribute's value is code. */
+const TEXT_ATTRS = new Set(['placeholder', 'title', 'alt', 'label']);
+const HANDLER = /^on[A-Z]/;
+const OBJECT_KEY = /(?<=[{,]\s*)(["'`])(?:\\.|(?!\1)[^\\\n])*\1(?=\s*:)/g;
+/** Keys whose string is code, never shown: an id, a slug, a class, an address. */
+const CODE_KEY =
+  /^(?:id|key|slug|href|url|src|image|photo|icon|type|kind|variant|tone|ref|class|className|style|path|[\w$]+(?:Id|Key|Slug|Class|ClassName|Url|Href|Src))$/;
+const COMPARED = [
+  /(?:[!=]==?|\bcase)\s*(["'`])(?:\\.|(?!\1)[^\\\n])*\1/g,
+  /(["'`])(?:\\.|(?!\1)[^\\\n])*\1(?=\s*[!=]==?)/g,
+  /\.(?:includes|startsWith|endsWith|indexOf|lastIndexOf|match|matchAll|replace|replaceAll|split|search|localeCompare|test|has|get)\s*\(\s*(["'`])(?:\\.|(?!\1)[^\\\n])*\1/g
+];
+const STRING_LIST = /\[\s*(?:(["'`])(?:\\.|(?!\1)[^\\\n])*\1\s*,?\s*)+\]/g;
+const LOWERS = /\.to(?:Locale)?LowerCase\s*\(/;
+/** A call that joins class names: its strings are classes, never words. */
+const CLASS_CALL =
+  /\b(?:cn|clsx|cx|classNames|classnames|twMerge|twJoin|cva)\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g;
+/** An object's key, quoted or not: a string that is one is a lookup, never words ("verde"). */
+const KEY_NAME = /(?<=[{,]\s*)(["']?)([\w$-]+)\1\s*:/g;
+const STRING = /(["'`])((?:\\[\s\S]|(?!\1)[^\\])*?)\1/g;
+/** JSX text, from a tag's end to the next tag; the `>` of `=>` and `->` ends no tag. */
+const JSX_TEXT = /(?<![=-])>([^<>]*)(?=<)/g;
+const BRACED = String.raw`\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}`;
+const EXPRESSION = new RegExp(BRACED, 'g');
+const AROUND_EXPRESSION = new RegExp(`(${BRACED})`);
+/**
+ * Text between two tags that is code, never words: `</>),\n  verde: (` in a map of drawings. Text
+ * that is taken is blanked, so prose like `, only Larkford's own` must be taken, or its apostrophe
+ * starts a string.
+ */
+const CODE_LIKE = /[=;]|&&|\|\||^\s*\)\s*[,;)}\]]/;
+/** A value lowered as it is shown: `{kitchen.cuisine.toLowerCase()}` among a tag's children. */
+const LOWERED =
+  /(?<!(?:=|=>)\s*)\{\s*(?:[\w$]+\??\.)*([\w$]+)\s*\.\s*to(?:Locale)?LowerCase\s*\(\s*\)\s*\}/g;
+/** Where one shown piece ends and the next starts: a list's separators, a clause's end. */
+const PIECE = /[,·•|/\n()]|\s[–—-]\s|[.!?:;](?=\s|$)/;
+const PLACEHOLDER = /\bplaceholder\s*=\s*(?:(["'])(.*?)\1|\{\s*(["'`])(.*?)\3\s*\})/g;
+/** A placeholder that is an example already: "e.g. Old Market", "such as Northgate", "Try Verde". */
+const EXAMPLE = /^(?:e\.\s?g\b\.?|eg\b|such as\b|for example\b|try\b)/i;
+
+const blank = (text: string) => text.replace(/[^\n]/g, ' ');
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const trimmed = (text: string) => text.replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, '');
+const capitalled = (text: string) => /\p{Lu}/u.test(text);
+
+/** A file's code with what is never shown blanked, its positions kept. */
+function shownSource(text: string): string {
+  let out = text.replace(COMMENT, blank).replace(REGEX_LITERAL, blank).replace(IMPORT_PATH, blank);
+  out = out.replace(TAG, tag =>
+    tag.replace(ATTR_VALUE, (attr, name: string, value: string) =>
+      TEXT_ATTRS.has(name) || HANDLER.test(name)
+        ? attr
+        : attr.slice(0, attr.length - value.length) + blank(value)
+    )
+  );
+  out = out.replace(CLASS_CALL, blank).replace(OBJECT_KEY, blank);
+  out = out.replace(PROPERTY, (match: string, _quote, key: string, string?: string) =>
+    string && CODE_KEY.test(key) ? match.replace(/(["'`])[\s\S]*\1$/, blank) : match
+  );
+  for (const pattern of COMPARED) out = out.replace(pattern, blank);
+  if (LOWERS.test(out)) {
+    out = out.replace(STRING_LIST, list => (capitalled(list) ? list : blank(list)));
+  }
+  return out;
+}
+
+/**
+ * The pieces of a file's text that can be shown: its JSX text, then its strings, but a piece that
+ * is one of the files' object keys (`{ chorlton: <svg /> }`, `art: 'chorlton'`).
+ */
+function shownPieces(code: string, keys: Set<string>): string[] {
+  const pieces: string[] = [];
+  const add = (value: string) =>
+    pieces.push(
+      ...value
+        .split(PIECE)
+        .map(trimmed)
+        .filter(piece => piece && !keys.has(piece))
+    );
+  const rest = code.replace(JSX_TEXT, (match, inner: string) => {
+    const words = inner.replace(EXPRESSION, '\n');
+    if (CODE_LIKE.test(words)) return match;
+    add(words);
+    // Taken: its apostrophes start no string, and its {expressions} are read as code below.
+    const parts = inner.split(AROUND_EXPRESSION);
+    return `>${parts.map((part, at) => (at % 2 ? part : blank(part))).join('')}`;
+  });
+  for (const [, , value] of rest.matchAll(STRING)) {
+    if (value?.trim()) add(value.replace(/\$\{[^}]*\}/g, '\n').replace(/\\(.)/g, '$1'));
+  }
+  return pieces;
+}
+
+/** Where the found text lost a capital the sheet's value has: "vietnamese" for "Vietnamese". */
+function lostCapital(value: string, found: string): boolean {
+  return [...value].some(
+    (char, at) => char !== char.toLowerCase() && found[at] === char.toLowerCase()
+  );
+}
+
+/**
+ * The sheet's values the screen writes in another case (ROUGHBOOK-PROOF-MOTION-PLAN.md, M5): a
+ * name, or a value with a capital past its first letter ("South Indian", "St Bride's"), anywhere
+ * in the shown text; any other value ("Vietnamese") where a shown piece is that value alone; and
+ * any value the files hold under a key that is lowered as it is shown. Capitals added are fine.
+ */
+function caseFindings(
+  own: [string, string][],
+  content: NonNullable<LookScreen['content']>
+): ScreenFinding[] {
+  const names = new Set(content.names);
+  const values = [...new Set([...content.names, ...content.known])]
+    .filter(value => capitalled(value) && nameKey(value).length >= 3)
+    .sort((a, b) => b.length - a.length)
+    .map(value => ({
+      value,
+      anywhere: names.has(value) || capitalled(value.slice(1)),
+      at: new RegExp(`(?<![\\p{L}\\p{N}])${escaped(value)}(?![\\p{L}\\p{N}])`, 'giu')
+    }));
+  if (!values.length) return [];
+  const found: string[] = [];
+  const note = (value: string) => {
+    if (!found.includes(value)) found.push(value);
+  };
+  const source = own.map(([, text]) => text).join('\n');
+  const keys = new Set([...source.matchAll(KEY_NAME)].map(match => match[2]!));
+  for (const [, text] of own) {
+    const code = shownSource(text);
+    for (const piece of shownPieces(code, keys)) {
+      for (const { value, anywhere, at } of values) {
+        const lost = anywhere
+          ? [...piece.matchAll(at)].some(match => lostCapital(value, match[0]))
+          : piece.toLowerCase() === value.toLowerCase() && lostCapital(value, piece);
+        if (lost) note(value);
+      }
+    }
+    for (const [, key] of code.matchAll(LOWERED)) {
+      for (const match of source.matchAll(PROPERTY)) {
+        if (match[2] !== key || !match[3]) continue;
+        const held = nameKey(match[4] ?? '');
+        const value = values.find(item => nameKey(item.value) === held);
+        if (value) note(value.value);
+      }
+    }
+  }
+  if (!found.length) return [];
+  const shown = found.slice(0, SHOWN).map(value => `"${value}"`);
+  const more = found.length > SHOWN ? ` and ${found.length - SHOWN} more` : '';
+  return [
+    blocks(
+      'SHEET_CASE',
+      `The screen writes the content sheet's values in another case: ${shown.join(', ')}${more}. Write each as the sheet does, with its capitals; never lower one as it is shown.`
+    )
+  ];
+}
+
+/**
+ * Placeholders that are a bare value from the sheet, a name or any value, its places among them
+ * (ROUGHBOOK-PROOF-MOTION-PLAN.md, M5): the field reads as filled in. An example ("e.g.
+ * Northgate") or a hint ("Your neighbourhood") is not a value.
+ */
+function placeholderFindings(
+  own: [string, string][],
+  content: NonNullable<LookScreen['content']>
+): ScreenFinding[] {
+  const values = new Set([...content.names, ...content.known].map(nameKey).filter(Boolean));
+  const files: string[] = [];
+  const found: string[] = [];
+  for (const [file, text] of own) {
+    for (const match of text.replace(COMMENT, blank).matchAll(PLACEHOLDER)) {
+      const placeholder = trimmed(match[2] ?? match[4] ?? '');
+      if (!placeholder || EXAMPLE.test(placeholder) || placeholder.includes('${')) continue;
+      if (!values.has(nameKey(placeholder))) continue;
+      if (!files.includes(file)) files.push(file);
+      if (!found.includes(placeholder)) found.push(placeholder);
+    }
+  }
+  if (!found.length) return [];
+  return [
+    blocks(
+      'PLACEHOLDER_VALUE',
+      `${files.join(', ')} give${files.length === 1 ? 's' : ''} a field the placeholder ${found.map(value => `"${value}"`).join(', ')}, a bare value from the content sheet, so it reads as filled in. Make it an example, "e.g. ${found[0]}", or a hint, such as "Your neighbourhood".`
+    )
+  ];
+}
+
 const IMG = new RegExp(String.raw`<img\b(${ATTRS})>`, 'g');
 const SRC = /\bsrc\s*=\s*(?:(["'])(.*?)\1|\{\s*(["'`])(.*?)\3\s*\})/;
 const CSS_URL = /url\(\s*(["']?)([^"')]*)\1\s*\)/g;
@@ -503,7 +708,13 @@ export function lookScreenFindings(files: Map<string, string>, check: LookScreen
   }
 
   if (check.catalogue) findings.push(...catalogueFindings(source, check.catalogue));
-  if (check.content) findings.push(...inventedFindings(source, check.content));
+  if (check.content) {
+    findings.push(
+      ...inventedFindings(source, check.content),
+      ...caseFindings(own, check.content),
+      ...placeholderFindings(own, check.content)
+    );
+  }
   if (check.pictures) {
     const styled = [...files].filter(
       ([path]) => path !== LOOK_CSS && path !== LOOK_WORDS && STYLED.test(path)
