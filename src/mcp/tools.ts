@@ -192,6 +192,14 @@ export function describeCheck(check: Check, run: RunRecord): string {
       return `The source has no placeholder copy, such as lorem ipsum or a stand-in name like Jane Doe, and no icon-only button with no name for a screen reader: ${unnamedButtonIn(check.family)}. Warnings only.`;
     case 'look-screen':
       return describeScreen(check.screen);
+    // A section's or a page's media (ROUGHBOOK-MEDIA-PLAN.md, V5).
+    case 'media-avoided':
+      return `Uses none of the media this section avoids: ${check.media
+        .filter(item => item.stance === 'avoid')
+        .map(item => item.label)
+        .join(
+          ', '
+        )}. One the scan is sure of fails the check until it is gone; Product UI and an unsure reading are warnings.`;
     default:
       return `A check this studio does not know yet (${(check as { kind: string }).kind}); update the studio to read it.`;
   }

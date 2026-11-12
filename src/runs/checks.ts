@@ -10,7 +10,7 @@ import { fromTheApp, readBase, sameHash, sameText } from './base.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
 import { nativeFloorFindings, unescapeNative } from './nativeFloor.js';
-import { lookScreenFindings } from './lookScreen.js';
+import { lookScreenFindings, mediaAvoidFindings } from './lookScreen.js';
 import { isPlaceholder } from './placeholder.js';
 import type { Check, Finding } from './types.js';
 
@@ -127,12 +127,16 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
     if (check.kind === 'detector') warnings.push(...detectorFindings(files, check));
     if (check.kind === 'native-floor') warnings.push(...nativeFloorFindings(files, check.family));
   }
-  // The look-screen check last, as the backend runs it. A finding it marks as blocking fails the
-  // check, so the agent fixes it before finishing: the studio's version of the web sending a
-  // sketch back. The first is the failure; the rest follow the other warnings, so get_checks
-  // lists them all at once.
+  // The look-screen check last, as the backend runs it, and a section's media check with it (V5).
+  // A finding either marks as blocking fails the check, so the agent fixes it before finishing:
+  // the studio's version of the web sending a sketch back. The first is the failure; the rest
+  // follow the other warnings, so get_checks lists them all at once.
   const screen = checks.flatMap(check =>
-    check.kind === 'look-screen' ? lookScreenFindings(files, check.screen) : []
+    check.kind === 'look-screen'
+      ? lookScreenFindings(files, check.screen)
+      : check.kind === 'media-avoided'
+        ? mediaAvoidFindings(files, check.media, check.pictureStyle)
+        : []
   );
   const finding = ({ code, message }: Finding): Finding => ({ code, message });
   const [failure, ...rest] = screen.filter(item => item.blocks).map(finding);

@@ -861,6 +861,26 @@ function avoidedFindings(
 }
 
 /**
+ * The avoid check for a section's or a page's sketch (ROUGHBOOK-MEDIA-PLAN.md, V5), as the
+ * backend's mediaAvoidFindings: the look's scan, words and blocking (decision 4), on the section's
+ * resolved stances. A section is checked from its files alone, so only a labelled SVG diagram
+ * written out in its own <svg> is sure among the drawn media. It has no picture check of its own,
+ * so a photo it avoids is named here.
+ */
+export function mediaAvoidFindings(
+  files: Map<string, string>,
+  media: MediaStance[],
+  pictureStyle: ImageryStance | null = null,
+  boxes?: SvgBoxes | null
+): ScreenFinding[] {
+  if (!media.some(item => item.stance === 'avoid' && scannedMedium(item.label))) return [];
+  const scanned = mediaScan(Object.fromEntries(files), boxes ?? undefined, {
+    sureFromFiles: true
+  });
+  return avoidedFindings(scanned, media, false, pictureStyle);
+}
+
+/**
  * The media whose absence the scan cannot tell: a look can show Product UI as plain HTML (a rota
  * table, a swap panel) that the scan does not read, as reports/Media baseline.md records for
  * coverwell. Until media-eval shows the scan reads them, a look given one is never told it is

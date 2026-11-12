@@ -2,7 +2,7 @@
 import type { Family } from '../environment/types.js';
 
 /** What an iteration's output must pass, as the backend sends it (its utils/compile/checks.ts). */
-import type { LookScreen } from './lookScreen.js';
+import type { ImageryStance, LookScreen, MediaStance } from './lookScreen.js';
 import type { NativeFamily } from './nativeFloor.js';
 
 export type Check =
@@ -21,7 +21,14 @@ export type Check =
    * field in a form that submits, a header, no dead control, the assigned structure, and only the
    * content sheet's things and pictures. Every finding fails the check until the agent fixes it.
    */
-  | { kind: 'look-screen'; screen: LookScreen };
+  | { kind: 'look-screen'; screen: LookScreen }
+  /**
+   * A section's or a page's run uses no medium its resolved stances avoid (ROUGHBOOK-MEDIA-PLAN.md,
+   * V5), by the look-screen check's media scan and words (lookScreen.ts mediaAvoidFindings): an
+   * avoided medium the scan is sure of fails the check until the agent fixes it; Product UI, a
+   * less certain reading, and Illustration under the type picture style are warnings.
+   */
+  | { kind: 'media-avoided'; media: MediaStance[]; pictureStyle: ImageryStance | null };
 
 /** `pull`: a web sketch ported into the repo's stack by the agent (F7 of the frameworks plan). */
 export type RunKind = 'generate' | 'fork' | 'refine' | 'pull';
