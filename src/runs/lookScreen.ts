@@ -10,6 +10,12 @@
 // structure's carrier, only the content sheet's names, and only the pictures its imagery allows;
 // with ROUGHBOOK-PROOF-MOTION-PLAN.md, M5, the sheet's values in its own case and no field whose
 // placeholder is one of them. Every finding blocks: the studio fails the check with it, so the agent fixes it before finishing.
+// With the project's media stances, no medium it avoids, by the media scan (a copy of the
+// backend's, mediaScan.ts; ROUGHBOOK-MEDIA-PLAN.md, V2), and with the look's own medium, a soft
+// word when the files do not show it (V3). The scan's less certain readings and the look's missing
+// medium never block: the backend tells its critic of them, and the studio lists them as warnings.
+import { mediaScan, type MediaUse, type ScannedMedium } from './mediaScan.js';
+import type { SvgBoxes } from './svgBoxes.js';
 import type { Finding } from './types.js';
 
 /** The facts on a named object the check can count (the backend's rules/firstScreen.ts). */
@@ -57,8 +63,11 @@ export type LookScreen = {
   pictures?: { stance: ImageryStance; urls: string[] } | null;
 };
 
-/** A finding of this check: every one blocks, as the backend marks it. */
+/** A finding of this check: every one blocks, as the backend marks it, but the media's soft ones. */
 export type ScreenFinding = Finding & { blocks?: true };
+
+/** One medium's stance in the project's Visual Direction (the backend's rules/catalogTypes.ts). */
+export type MediaStance = { label: string; stance: 'preferred' | 'allowed' | 'avoid' };
 
 /**
  * The skeletons' names and how each is built, as the backend's rules/skeletons.ts says them: the
@@ -83,7 +92,7 @@ export const SKELETONS: Record<SkeletonId, { name: string; build: string }> = {
   'single-object': {
     name: 'One thing, large',
     build:
-      "One object fills the first screen at large size, with all its facts and the action on it, as a product page would show one product; the other objects follow as a small row under it. For software, that object is the product's own screen, working."
+      "One object fills the first screen at large size, with all its facts and the action on it, as a product page would show one product; the other objects follow as rows under it, each with every fact at body size, never a small thin row. For software, that object is the product's own screen, working."
   },
   editorial: {
     name: 'Editorial',
@@ -111,6 +120,78 @@ export const SKELETONS: Record<SkeletonId, { name: string; build: string }> = {
       'A large headline and one strong picture share the first screen, with the way in beside them and the named objects in a row under them.'
   }
 };
+
+/**
+ * What a software screen shows when the project avoids Product UI (the backend's
+ * rules/firstScreen.ts, ROUGHBOOK-MEDIA-PLAN.md decision 1), word for word.
+ */
+export const SOFTWARE_OUTCOME =
+  'the outcome the customer gets from it (the report, the booking or the result)';
+
+/**
+ * The builds that ask for a picture, reworded for a project whose pictures are type only, as the
+ * backend's rules/skeletons.ts `skeletonFor` words them (ROUGHBOOK-MEDIA-PLAN.md, V1 and decision 2).
+ */
+const TYPE_ONLY_BUILDS: Partial<Record<SkeletonId, string>> = {
+  editorial:
+    'A short written story leads, set as a magazine page in an <article>: the named objects and their figures sit inside the running text and its captions, with one large figure: its picture, if it has one, or else one of its numbers set large; the way in closes the story.',
+  hero: 'A large headline and its picture, if it has one, share the first screen, with the way in beside them and the named objects in a row under them; with no picture, the headline fills that space in type.'
+};
+
+/** The map, for a project that avoids Illustration or whose pictures are type only (decision 7). */
+const LABELLED_MAP_BUILD =
+  'The place leads: a drawn map or plan of the area, as an inline <svg>, takes most of the first screen, with its streets or areas and the named objects labelled by name in <text> inside the <svg>, so it is a diagram that carries information, not an illustration; picking one on the map shows its facts, and a short list of the same objects sits beside or under it.';
+
+/** The one large thing of a software project that avoids Product UI (decision 1). */
+const NO_PRODUCT_UI_BUILD = `One object fills the first screen at large size, with all its facts and the action on it, as a product page would show one product; the other objects follow as rows under it, each with every fact at body size, never a small thin row. For software, that object is ${SOFTWARE_OUTCOME}, filled in with realistic data, never the product's own screen.`;
+
+/**
+ * Photography and Illustration as the picture style sets them, whatever the list says (the
+ * backend's rules/visualDirection.ts `withPictureStyle`, which its `screenMedia` applies).
+ */
+const AVOIDED_BY_STYLE: Record<ImageryStance, Record<string, boolean>> = {
+  photos: { photography: false, illustration: true },
+  illustration: { photography: true, illustration: false },
+  type: { photography: true, illustration: true }
+};
+
+const avoidsLabel = (
+  media: readonly MediaStance[],
+  label: string,
+  pictureStyle: ImageryStance | null = null
+) => {
+  const wanted = label.toLowerCase();
+  const byStyle = pictureStyle ? AVOIDED_BY_STYLE[pictureStyle][wanted] : undefined;
+  if (byStyle !== undefined) return byStyle;
+  return media.some(item => item.stance === 'avoid' && item.label.trim().toLowerCase() === wanted);
+};
+
+/**
+ * A skeleton's name and build as a project with these media is told it, mirroring the backend's
+ * rules/skeletons.ts `skeletonFor` with `screenMedia` (ROUGHBOOK-MEDIA-PLAN.md, V1): the picture
+ * style sets Photography and Illustration first; with pictures of type only (the picture style, or
+ * both avoided), a build that asks for a picture says "its picture, if it has one"; with
+ * Illustration avoided (the photos style included) or type only, the map is labelled inside its
+ * <svg>; with Product UI avoided, the one large thing of software is its outcome. Without media it
+ * is SKELETONS[id].
+ */
+export function skeletonFor(
+  id: SkeletonId,
+  media: readonly MediaStance[] = [],
+  pictureStyle: ImageryStance | null = null
+): { name: string; build: string } {
+  const typeOnly =
+    pictureStyle === 'type' ||
+    (avoidsLabel(media, 'Photography', pictureStyle) &&
+      avoidsLabel(media, 'Illustration', pictureStyle));
+  const build =
+    id === 'map-first' && (typeOnly || avoidsLabel(media, 'Illustration', pictureStyle))
+      ? LABELLED_MAP_BUILD
+      : id === 'single-object' && avoidsLabel(media, 'Product UI')
+        ? NO_PRODUCT_UI_BUILD
+        : ((typeOnly ? TYPE_ONLY_BUILDS[id] : undefined) ?? SKELETONS[id].build);
+  return { name: SKELETONS[id].name, build };
+}
 
 /** A skeleton's name, or its id when this studio does not know it yet. */
 export function skeletonName(id: string): string {
@@ -618,10 +699,214 @@ function pictureFindings(
 }
 
 /**
- * What an iteration lacks to be a first screen, file by file in the order given. Each code once,
- * with where and how often; nothing when the screen has every part.
+ * The project's media and the look's own, for the media checks (ROUGHBOOK-MEDIA-PLAN.md, V2 and
+ * V3). Each may come on the check itself or as lookScreenFindings' options, which win.
  */
-export function lookScreenFindings(files: Map<string, string>, check: LookScreen): ScreenFinding[] {
+export type LookScreenMedia = {
+  /** The project's Visual Direction: each medium's stance (the look's `material.media`). */
+  media?: MediaStance[] | null;
+  /** The one preferred medium the look was given to lead with (V3), or null for none. */
+  medium?: string | null;
+  /** The inline SVGs the render measured, when the check runs after a render. */
+  boxes?: SvgBoxes | null;
+};
+
+/** An avoided medium the scan is sure of: blocking, sent back once (V2, decision 4). */
+export const MEDIUM_AVOIDED = 'MEDIUM_AVOIDED';
+/** An avoided medium the scan reads with less certainty, or Product UI: told to the critic (V2). */
+export const MEDIUM_AVOIDED_UNSURE = 'MEDIUM_AVOIDED_UNSURE';
+/** The look's own medium, which its files do not show: told to the critic, never blocking (V3). */
+export const MEDIUM_MISSING = 'MEDIUM_MISSING';
+/** The codes of the findings the critic is told and that never block (V2, V3; decision 5). */
+export const CRITIC_MEDIA_CODES: readonly string[] = [MEDIUM_AVOIDED_UNSURE, MEDIUM_MISSING];
+/**
+ * The media an Avoid blocks when the scan is sure of them (decision 4); Product UI, which the scan
+ * reads with lower confidence, is told to the critic, and Generated imagery is never scanned.
+ */
+export const BLOCKING_MEDIA: readonly ScannedMedium[] = [
+  '3D',
+  'Video',
+  'Motion graphics',
+  'Photography',
+  'Illustration',
+  'SVG diagrams'
+];
+const SCANNED: readonly ScannedMedium[] = [...BLOCKING_MEDIA, 'Product UI'];
+/** How many places a media finding names before "and N more". */
+const PLACES = 3;
+
+/** A stance's or a look's medium as the scan names it, ignoring case; null when it is not scanned. */
+function scannedMedium(label: string): ScannedMedium | null {
+  const wanted = label.trim().toLowerCase();
+  return SCANNED.find(medium => medium.toLowerCase() === wanted) ?? null;
+}
+
+/** What a line of evidence shows, in words: "a CSS 3D transform". */
+function shownAs(medium: ScannedMedium, text: string): string {
+  switch (medium) {
+    case '3D':
+      if (/three|@react-three/.test(text)) return 'a three.js scene';
+      return /model-viewer/i.test(text) ? 'a 3D model viewer' : 'a CSS 3D transform';
+    case 'Video':
+      if (/<video\b/.test(text)) return 'a <video> element';
+      return /youtube|vimeo/i.test(text) ? 'an embedded video player' : 'a video file';
+    case 'Motion graphics':
+      if (/<animate/.test(text)) return 'an SVG animation that runs on load';
+      if (/requestAnimationFrame|useAnimationFrame/.test(text))
+        return 'a frame loop started on load';
+      if (/setInterval/.test(text)) return 'a timer that moves the screen at rest';
+      if (/infinite|[iI]teration|\brepeat\b|animate-(?:ping|pulse|bounce)/.test(text)) {
+        return 'an animation that loops';
+      }
+      if (/<motion\./.test(text)) return 'an entrance longer than 300 ms';
+      return 'an animation that runs on load';
+    case 'Photography':
+      return 'a photo';
+    case 'Illustration':
+      return 'a drawing (an inline <svg>)';
+    case 'SVG diagrams':
+      return 'a labelled drawing (an inline <svg> with text, connectors or a route)';
+    case 'Product UI':
+      return /sidebar|side-?nav|side-?panel/i.test(text)
+        ? "an app's sidebar and panel"
+        : 'a drawn app window or device frame';
+  }
+}
+
+/** Where a medium shows: "a CSS 3D transform in hero.css, line 12", the files' lines first. */
+function places(use: MediaUse): string {
+  const inFiles = use.evidence.filter(item => !/^rendered \d+px$/.test(item.file));
+  const cited = (inFiles.length ? inFiles : use.evidence).map(item => {
+    const rendered = /^rendered (\d+px)$/.exec(item.file);
+    return rendered
+      ? `${shownAs(use.medium, item.text)}, the page's inline <svg> number ${item.line} as rendered at ${rendered[1]}`
+      : `${shownAs(use.medium, item.text)} in ${item.file}, line ${item.line}`;
+  });
+  const unique = [...new Set(cited)];
+  const more = unique.length > PLACES ? ` and ${unique.length - PLACES} more` : '';
+  return `${unique.slice(0, PLACES).join('; ')}${more}`;
+}
+
+/** How to take an avoided medium off, offering only what the project does not avoid too. */
+function avoidFix(medium: ScannedMedium, avoided: Set<ScannedMedium>): string {
+  switch (medium) {
+    case '3D':
+      return 'Keep the idea flat: no 3D transform, perspective or 3D library.';
+    case 'Video':
+      return 'Take the video off and let type, colour and space carry the idea.';
+    // The words of the rules the sketch was given (the backend's firstScreen.ts STILL_AT_REST and
+    // MOTION_HELD), so the send-back never allows what the prompt forbids (ROUGHBOOK-MEDIA-PLAN.md,
+    // rule 1).
+    case 'Motion graphics':
+      return 'Let nothing on the first screen move on load or at rest: no entrance, no loop and no decorative animation. Motion may only show what changed when the way in is used, on transform and opacity, for at most 150 ms over a short distance.';
+    case 'Photography':
+      return `Take the photos off and let type, colour and space carry it${avoided.has('Illustration') ? '' : ', or a drawing'}.`;
+    case 'Illustration':
+      return `Take the drawing off${avoided.has('SVG diagrams') ? '' : ', or make it a diagram that carries labelled information (place names, values, steps)'}, and let type, colour and space carry the rest.`;
+    case 'SVG diagrams':
+      return `Take the labelled drawing off: no map, chart, flow or route drawn as <svg> with words in it. Say the places and facts as text instead${avoided.has('Illustration') ? '' : '; a drawing without labels may stay'}.`;
+    case 'Product UI':
+      return "Show the outcome the customer gets (the report, the booking, the result) instead of the product's screen.";
+  }
+}
+
+/**
+ * Whether a sure reading of an avoided medium blocks. Under the type picture style, Illustration
+ * is avoided by the style itself, which still allows a drawn diagram of the offer and type or
+ * shapes that move (decision 2): a drawing of shapes alone may be that moving drawing, so it is
+ * a warning, never blocking (ROUGHBOOK-MEDIA-PLAN.md, V2).
+ */
+function blocksWhenSure(medium: ScannedMedium, pictureStyle: ImageryStance | null): boolean {
+  if (!BLOCKING_MEDIA.includes(medium)) return false;
+  return !(medium === 'Illustration' && pictureStyle === 'type');
+}
+
+/**
+ * The avoided media the screen uses (ROUGHBOOK-MEDIA-PLAN.md, V2): decision 4's media the scan is
+ * sure of block and are sent back once; a less certain reading, and Product UI, is a warning
+ * (decision 7: an unclear drawing never blocks), which the backend tells its critic. A photo
+ * PICTURE_NOT_ALLOWED already names is not named twice.
+ */
+function avoidedFindings(
+  scanned: MediaUse[],
+  media: MediaStance[],
+  photosRefused: boolean,
+  pictureStyle: ImageryStance | null = null
+): ScreenFinding[] {
+  const avoided = new Set(
+    media.flatMap(item => {
+      const medium = item.stance === 'avoid' ? scannedMedium(item.label) : null;
+      return medium ? [medium] : [];
+    })
+  );
+  return scanned.flatMap(use => {
+    if (!avoided.has(use.medium)) return [];
+    if (use.medium === 'Photography' && photosRefused) return [];
+    const fix = avoidFix(use.medium, avoided);
+    if (use.confidence === 'high' && blocksWhenSure(use.medium, pictureStyle)) {
+      return [
+        blocks(
+          MEDIUM_AVOIDED,
+          `The project avoids ${use.medium}, and the screen uses it: ${places(use)}. ${fix}`
+        )
+      ];
+    }
+    return [
+      {
+        code: MEDIUM_AVOIDED_UNSURE,
+        message: `The project avoids ${use.medium}, and the screen may use it: ${places(use)}. The scan cannot be sure of this one, so it does not hold the screen back. ${fix}`
+      }
+    ];
+  });
+}
+
+/**
+ * The media whose absence the scan cannot tell: a look can show Product UI as plain HTML (a rota
+ * table, a swap panel) that the scan does not read, as reports/Media baseline.md records for
+ * coverwell. Until media-eval shows the scan reads them, a look given one is never told it is
+ * missing (ROUGHBOOK-MEDIA-PLAN.md, V3).
+ */
+export const MISSING_UNREAD: readonly ScannedMedium[] = ['Product UI'];
+
+/**
+ * The look's own medium, when its files do not show it (ROUGHBOOK-MEDIA-PLAN.md, V3): a warning,
+ * never blocking, which the backend tells its critic. A medium the scan does not read (Generated
+ * imagery), one whose absence it cannot tell (MISSING_UNREAD), or one the project avoids, says
+ * nothing.
+ */
+function missingFindings(
+  scanned: MediaUse[],
+  given: string,
+  media: MediaStance[]
+): ScreenFinding[] {
+  const medium = scannedMedium(given);
+  if (!medium || MISSING_UNREAD.includes(medium)) return [];
+  if (scanned.some(use => use.medium === medium)) return [];
+  if (media.some(item => item.stance === 'avoid' && scannedMedium(item.label) === medium))
+    return [];
+  return [
+    {
+      code: MEDIUM_MISSING,
+      message: `This look was given ${medium} to lead with, and the scan finds none in its files. Let ${medium} carry the look where its structure has room.`
+    }
+  ];
+}
+
+/** The messages of the findings the critic is told (V2, V3), for its prompt. */
+export function criticMediaNotes(findings: Finding[]): string[] {
+  return findings.filter(item => CRITIC_MEDIA_CODES.includes(item.code)).map(item => item.message);
+}
+
+/**
+ * What an iteration lacks to be a first screen, file by file in the order given. Each code once,
+ * with where and how often; nothing when the screen has every part. The project's media and the
+ * look's own medium come on the check or in `options`, which win (V2, V3).
+ */
+export function lookScreenFindings(
+  files: Map<string, string>,
+  check: LookScreen & LookScreenMedia,
+  options: LookScreenMedia = {}
+): ScreenFinding[] {
   const own = written(files);
   if (!own.length) return [];
   const source = own.map(([, text]) => text).join('\n');
@@ -715,14 +1000,21 @@ export function lookScreenFindings(files: Map<string, string>, check: LookScreen
       ...placeholderFindings(own, check.content)
     );
   }
+  let photosRefused = false;
   if (check.pictures) {
     const styled = [...files].filter(
       ([path]) => path !== LOOK_CSS && path !== LOOK_WORDS && STYLED.test(path)
     );
-    findings.push(...pictureFindings(styled, check.pictures));
+    const refused = pictureFindings(styled, check.pictures);
+    photosRefused = refused.length > 0;
+    findings.push(...refused);
   }
+  const media = options.media ?? check.media ?? [];
   const carrier = check.skeleton ? CARRIERS[check.skeleton] : undefined;
-  const skeleton = check.skeleton ? SKELETONS[check.skeleton] : undefined;
+  // The build in the words the look's sketch was told, for its project's media (V1).
+  const skeleton = check.skeleton
+    ? skeletonFor(check.skeleton, media, check.pictures?.stance ?? null)
+    : undefined;
   if (carrier && skeleton && !carrier.test.test(source)) {
     findings.push(
       blocks(
@@ -730,6 +1022,19 @@ export function lookScreenFindings(files: Map<string, string>, check: LookScreen
         `This look was assigned the ${skeleton.name} structure and its files have ${carrier.lacks}. ${skeleton.build}`
       )
     );
+  }
+  const medium = options.medium ?? check.medium ?? null;
+  const avoids = media.some(item => item.stance === 'avoid' && scannedMedium(item.label));
+  if (avoids || medium) {
+    // Decision 7's reading of a drawing from the files, as the render has measured nothing yet.
+    const boxes = options.boxes ?? check.boxes ?? undefined;
+    const scanned = mediaScan(Object.fromEntries(files), boxes, { sureFromFiles: true });
+    if (avoids) {
+      findings.push(
+        ...avoidedFindings(scanned, media, photosRefused, check.pictures?.stance ?? null)
+      );
+    }
+    if (medium) findings.push(...missingFindings(scanned, medium, media));
   }
   return findings;
 }
