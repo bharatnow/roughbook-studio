@@ -767,6 +767,9 @@ function shownAs(medium: ScannedMedium, text: string): string {
     case 'SVG diagrams':
       return 'a labelled drawing (an inline <svg> with text, connectors or a route)';
     case 'Product UI':
+      if (/<table\b|\brole\s*=\s*["'{`]*table["'`}]/.test(text)) {
+        return "the product's screen written as HTML (a titled table of its records)";
+      }
       return /sidebar|side-?nav|side-?panel/i.test(text)
         ? "an app's sidebar and panel"
         : 'a drawn app window or device frame';
@@ -881,10 +884,11 @@ export function mediaAvoidFindings(
 }
 
 /**
- * The media whose absence the scan cannot tell: a look can show Product UI as plain HTML (a rota
- * table, a swap panel) that the scan does not read, as reports/Media baseline.md records for
- * coverwell. Until media-eval shows the scan reads them, a look given one is never told it is
- * missing (ROUGHBOOK-MEDIA-PLAN.md, V3).
+ * The media whose absence the scan cannot tell: a look can show Product UI as plain HTML, as
+ * reports/Media baseline.md records for coverwell. The scan reads a titled table of the product's
+ * records with a control of its own, but not a product piece without one (a swap card, a row of
+ * controls), and its recall rests on four looks: two the owner labelled, two given Product UI. Until media-eval shows the scan reads them, a look given
+ * one is never told it is missing (ROUGHBOOK-MEDIA-PLAN.md, V3).
  */
 export const MISSING_UNREAD: readonly ScannedMedium[] = ['Product UI'];
 

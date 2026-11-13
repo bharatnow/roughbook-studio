@@ -20,8 +20,10 @@
 //   an SVG diagram, and one without is an illustration. The render worker's measured boxes
 //   (`svgBoxes.ts`) decide when given; the files alone give only a 'low' reading, unless the
 //   look-screen check asks for a sure reading of a drawing that carries its own <text> (V2).
-// - Product UI: a frame drawn as an app window or device, or a sidebar-and-panel app layout.
-//   Nothing read a product screen before, so it is always 'low'.
+// - Product UI: a frame drawn as an app window or device, or a sidebar-and-panel app layout, or
+//   the product's screen written as HTML: a titled table of its records with a control or status
+//   of its own, at rest and away from the way in (reports/Media baseline.md, coverwell). Nothing read a product screen before, and
+//   a table's meaning is not in its markup, so it is always 'low'.
 // - Photography: raster files and photo addresses, read as the look-screen check's
 //   PICTURE_NOT_ALLOWED reads them (`pictureUses`, `isPhoto`).
 import type { SvgBox, SvgBoxes } from './svgBoxes.js';
@@ -966,7 +968,8 @@ function drawingFindings(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Product UI: a drawn app window or device, or an app's sidebar and panel. Always 'low'.
+// Product UI: a drawn app window or device, or an app's sidebar and panel, or the product's screen
+// written as HTML: a titled table of its records that works. Always 'low'.
 
 const FRAME_WORDS =
   /(?<![a-z0-9])(?:title-?bar|window-?(?:dots|chrome|controls|frame|bar)|traffic-?lights?|browser-?(?:bar|chrome|frame|window|mock(?:up)?)|address-?bar|url-?bar|app-?(?:window|frame|shell|chrome|screen|mock(?:up)?)|device-?(?:frame|mock(?:up)?)|phone-?(?:frame|bezel|mock(?:up)?|screen)|bezel|mock-?(?:up|screen|window|browser|app)|screen-?mock(?:up)?|dashboard)(?![a-z0-9])/i;
@@ -1007,6 +1010,216 @@ function names(src: Source): { value: string; offset: number }[] {
   return found;
 }
 
+/**
+ * A tag closing, `</name>` or a fragment's `</>`, or opening, `<name` or `<>`. Right after a name
+ * or a dot only an HTML tag opens, as in `this week<span>`: `useState<Plan>(`, `useRef<number>`
+ * and `Array<string>` are types.
+ */
+const TAG =
+  /<\/([A-Za-z][\w.:-]*)?\s*>|(?<![\w$.])<([A-Za-z][\w.:-]*|>)|(?<=[\w$.])<(?!(?:string|number|boolean|bigint|symbol|object|any|unknown|never|void|null|undefined|keyof|typeof)\b)([a-z][\w-]*)/g;
+/** HTML's elements that never close. */
+const VOID_TAG = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
+
+type TagStep = { tag: string; kind: 'open' | 'close' | 'alone'; end: number };
+
+/** The tag at a TAG match: its name ('' for a fragment), what it does, and the offset past it. */
+function tagStep(text: string, match: RegExpExecArray): TagStep {
+  const at = match.index;
+  if (match[0].startsWith('</'))
+    return { tag: match[1] ?? '', kind: 'close', end: at + match[0].length };
+  if (match[2] === '>') return { tag: '', kind: 'open', end: at + 2 };
+  const tag = match[2] ?? match[3] ?? '';
+  const end = tagEnd(text, at);
+  const alone = text[end - 1] === '/' || VOID_TAG.test(tag);
+  return { tag, kind: alone ? 'alone' : 'open', end: end + 1 };
+}
+
+type OpenTag = { tag: string; start: number };
+
+/**
+ * Reads the tags that start from `from` up to `to`, keeping the elements open, and stops past the
+ * element that opens at `from` when `whole`. A closing tag closes back to its own opening, and one
+ * with no opening is passed over.
+ */
+function readTags(
+  text: string,
+  from: number,
+  to: number,
+  whole = false
+): { open: OpenTag[]; end: number } {
+  const pattern = new RegExp(TAG.source, 'g');
+  pattern.lastIndex = from;
+  const open: OpenTag[] = [];
+  for (let match = pattern.exec(text); match && match.index < to; match = pattern.exec(text)) {
+    const step = tagStep(text, match);
+    if (step.kind === 'open') open.push({ tag: step.tag, start: match.index });
+    else if (step.kind === 'close') {
+      const index = open.map(item => item.tag).lastIndexOf(step.tag);
+      if (index >= 0) open.length = index;
+    }
+    pattern.lastIndex = step.end;
+    if (whole && !open.length) return { open, end: step.end };
+  }
+  return { open, end: text.length };
+}
+
+/** The elements open around `at`, innermost first, read from the top of the text. */
+function ancestors(text: string, at: number): OpenTag[] {
+  return readTags(text, 0, at).open.reverse();
+}
+
+/** The offset past the element that opens at `start`: its own closing tag, or the end. */
+function elementEnd(text: string, start: number): number {
+  return readTags(text, start, text.length, true).end;
+}
+
+/**
+ * A table of records, HTML or ARIA. An ARIA one is found by its role and read from the `<` of its
+ * tag, so no match runs on past one attribute.
+ */
+const RECORDS = /<table\b|\brole\s*=\s*["'{`]*table["'`}]/g;
+const COLUMN_HEAD = /<th\b|\brole\s*=\s*["'{`]*columnheader["'`}]/g;
+/** Rows drawn from data: a `.map(`, or a framework's own loop. */
+const DRAWN_ROWS = /\.map\(|\bv-for\b|\{#each\b|@for\b|\*ngFor\b/;
+/**
+ * A column naming a price list, the page's offer rather than the product's records: a plan, a
+ * price or a term, or a header that is only a cost or a fee.
+ */
+const PRICE_HEAD =
+  /^(?:costs?|fees?)$|\b(?:prices?|pricing|plans?|monthly|yearly|annual(?:ly)?|(?:per|a) (?:month|year)|memberships?|tiers?)\b/i;
+const HEADING = /<h([1-6])\b/g;
+const HEADING_AT = /<h[1-6]\b/;
+/** The way in, or part of it: a form, a field or the look's action. */
+const WAY_IN = /<form\b|<input\b|<select\b|<textarea\b|\bdata-look\s*=\s*["'{`]*action/;
+/** A screen's own control or live status: what makes it a working screen, not a printed one. */
+const WORKING =
+  /<button\b|\brole\s*=\s*["'{`]*(?:tab|tablist|switch|status|checkbox|radio)["'`}]|\baria-(?:pressed|selected|checked)\b|\bonClick\b/;
+/** A component declared at the top of a file: `function Name`, `const Name =`, exported or not. */
+const COMPONENT =
+  /^(?:export\s+)?(default\s+)?(?:function\s+|(?:const|let|var)\s+)([A-Z][\w$]*[a-z][\w$]*)\b/gm;
+const IMPORT_DEFAULT = /\bimport\s+([A-Z][\w$]*)\s*(?:,\s*\{[^}]*\}\s*)?from\s*["']([^"']+)["']/g;
+
+/** An opening tag's start, for a match inside it (an ARIA role), or -1 when it is not in one. */
+function tagStart(text: string, at: number): number {
+  const start = text.lastIndexOf('<', at);
+  return start >= 0 && /^<[A-Za-z]/.test(text.slice(start, start + 2)) && tagEnd(text, start) > at
+    ? start
+    : -1;
+}
+
+/** A column header's words, its tags and {expressions} left out. */
+function headWords(text: string, start: number): string {
+  let words = text.slice(start, elementEnd(text, start));
+  for (let last = ''; last !== words;) [last, words] = [words, words.replace(/\{[^{}]*\}/g, ' ')];
+  return words
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const baseName = (file: string) => file.replace(/^.*\//, '').replace(/\.\w+$/, '');
+
+/**
+ * Where the component around `at` is drawn in the code: each `<Name` of the top-level component
+ * that holds it, or of the name another file imports it by when it is the default export.
+ */
+function drawnAt(code: Source[], src: Source, at: number): { src: Source; at: number }[] {
+  let name = '';
+  let exported = false;
+  for (const match of src.text.slice(0, at).matchAll(COMPONENT)) {
+    name = match[2] ?? '';
+    exported = Boolean(match[1]);
+  }
+  const names = new Set(name ? [name] : []);
+  if (exported || !name) {
+    for (const other of code) {
+      for (const match of other.text.matchAll(IMPORT_DEFAULT)) {
+        if (baseName(match[2] ?? '') === baseName(src.file)) names.add(match[1] ?? '');
+      }
+    }
+  }
+  const found: { src: Source; at: number }[] = [];
+  for (const each of names) {
+    const use = new RegExp(`(?<![\\w$.])<${escapeRegExp(each)}(?![\\w$.:-])`, 'g');
+    for (const other of code) {
+      for (const match of other.text.matchAll(use))
+        found.push({ src: other, at: match.index ?? 0 });
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether the element at `at`..`end` sits where a screen is shown: at rest (not on a state, not a
+ * list's row), outside any form, and, until a box is found, in a box that is a titled screen. The
+ * first element around it that holds a heading is its box, which must hold just one, an h2-h6,
+ * none of the way in, and a control or status of its own beside the table. Then the same is asked
+ * where its component is drawn, file by file, so a part in its own file is read as it is shown.
+ */
+function shownAsScreen(
+  code: Source[],
+  src: Source,
+  at: number,
+  end: number,
+  boxed: boolean,
+  depth = 0
+): boolean {
+  const text = src.text;
+  if (inConditional(text, at) || inMap(text, at)) return false;
+  const around = ancestors(text, at);
+  if (around.some(item => item.tag === 'form')) return false;
+  const box = boxed
+    ? undefined
+    : around.find(item => HEADING_AT.test(text.slice(item.start, elementEnd(text, item.start))));
+  if (box) {
+    const close = elementEnd(text, box.start);
+    const headings = [...text.slice(box.start, close).matchAll(HEADING)];
+    const titled =
+      headings.length === 1 &&
+      headings[0]?.[1] !== '1' &&
+      !WAY_IN.test(text.slice(box.start, close)) &&
+      !inConditional(text, box.start) &&
+      !inMap(text, box.start) &&
+      WORKING.test(text.slice(box.start, at) + text.slice(end, close));
+    if (!titled) return false;
+  }
+  const screen = boxed || Boolean(box);
+  const uses = depth < 4 ? drawnAt(code, src, at) : [];
+  if (!uses.length) return screen;
+  return uses.every(use =>
+    shownAsScreen(code, use.src, use.at, elementEnd(use.src.text, use.at), screen, depth + 1)
+  );
+}
+
+/**
+ * The product's screen written as HTML: a table of the product's records (two column headers,
+ * rows drawn from data) that is not a price list, shown at rest as a working screen: titled by
+ * its one h2-h6, with a control or status of its own, away from the way in. A table in the hero
+ * beside its h1, in a section's own box with its step headings, in the form, on a state, in a
+ * list's row, or printed with nothing to work is not.
+ */
+function screenFindings(sources: Source[]): MediaEvidence[] {
+  const code = sources.filter(src => !src.css);
+  const found: MediaEvidence[] = [];
+  for (const src of code) {
+    const text = src.text;
+    for (const match of text.matchAll(RECORDS)) {
+      const at = match[0].startsWith('<') ? (match.index ?? 0) : tagStart(text, match.index ?? 0);
+      if (at < 0) continue;
+      const end = elementEnd(text, at);
+      const inner = text.slice(at, end);
+      const heads = [...inner.matchAll(COLUMN_HEAD)].map(head => {
+        const index = head.index ?? 0;
+        return head[0].startsWith('<') ? index : tagStart(inner, index);
+      });
+      if (heads.filter(index => index >= 0).length < 2 || !DRAWN_ROWS.test(inner)) continue;
+      if (heads.some(index => index >= 0 && PRICE_HEAD.test(headWords(inner, index)))) continue;
+      if (shownAsScreen(code, src, at, end, false)) found.push(cite(src, at));
+    }
+  }
+  return found;
+}
+
 function productFindings(sources: Source[], tally: Tally): void {
   const evidence: MediaEvidence[] = [];
   const sidebars: MediaEvidence[] = [];
@@ -1026,6 +1239,8 @@ function productFindings(sources: Source[], tally: Tally): void {
     }
   }
   if (panels) evidence.push(...sidebars);
+  // After the frames, so their lines are cited first.
+  evidence.push(...screenFindings(sources));
   if (evidence.length) add(tally, 'Product UI', 'low', evidence);
 }
 

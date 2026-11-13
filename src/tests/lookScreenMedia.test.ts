@@ -133,6 +133,26 @@ const SHOWS: Record<Medium, { file: [string, string]; place: string }> = {
   }
 };
 
+/** The product's screen written as HTML: a titled table of its records with its own status. */
+const ROTA_SCREEN: { file: [string, string]; place: string } = {
+  file: [
+    'rota.tsx',
+    `export function Rota() {
+  return (
+    <section className="cw-rota">
+      <h2>Rota, week 47</h2><p role="status">Draft</p>
+      <table>
+        <thead><tr><th scope="col">Staff</th><th scope="col">Tue</th></tr></thead>
+        <tbody>{STAFF.map(s => (<tr key={s.name}><th scope="row">{s.name}</th><td>{s.tue}</td></tr>))}</tbody>
+      </table>
+    </section>
+  );
+}
+`
+  ],
+  place: "the product's screen written as HTML (a titled table of its records) in rota.tsx, line 5"
+};
+
 const codes = (found: { code: string }[]) => found.map(item => item.code);
 
 /** The render's measure of the one drawing in SHOWS.Illustration, at both widths. */
@@ -205,6 +225,15 @@ describe('the avoid check for looks (V2)', () => {
       lookScreenFindings(files(), screen, { media: stances('avoid', 'Product UI') }),
       []
     );
+  });
+
+  it("tells the critic of the product's screen written as HTML, never blocking", () => {
+    const found = lookScreenFindings(files(ROTA_SCREEN.file), screen, {
+      media: stances('avoid', 'Product UI')
+    });
+    assert.deepEqual(codes(found), [MEDIUM_AVOIDED_UNSURE]);
+    assert.equal(found[0]!.blocks, undefined);
+    assert.ok(found[0]!.message.includes(ROTA_SCREEN.place), found[0]!.message);
   });
 
   it('keeps an illustration under SVG diagrams avoided (decision 7)', () => {
@@ -444,5 +473,12 @@ describe("the look's own medium (V3)", () => {
   it('never says Product UI is missing, as the scan cannot see it shown as plain HTML', () => {
     assert.ok(MISSING_UNREAD.includes('Product UI'));
     assert.deepEqual(lookScreenFindings(files(), screen, { medium: 'Product UI' }), []);
+    assert.deepEqual(
+      lookScreenFindings(files(ROTA_SCREEN.file), screen, {
+        medium: 'Product UI',
+        media: stances('preferred', 'Product UI')
+      }),
+      []
+    );
   });
 });

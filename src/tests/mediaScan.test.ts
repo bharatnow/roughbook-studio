@@ -708,6 +708,279 @@ test('an app window or a sidebar-and-panel layout is Product UI, always low', ()
   );
 });
 
+/** A coverwell-like first screen: the hero's h1 and form, and beside it the rota as HTML. */
+const ROTA_TSX = `import { useState, type FormEvent } from "react";
+import "./hero.css";
+
+const DAYS = ["Tue", "Wed", "Thu"];
+
+export default function Hero() {
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [day, setDay] = useState("Tue");
+  return (
+    <main className="cw-hero">
+      <h1>Rotas in eighteen minutes</h1>
+      <form onSubmit={(e: FormEvent) => e.preventDefault()}>
+        <input type="email" aria-label="Work email" />
+        <button type="submit" data-look="action">Start a trial</button>
+      </form>
+      <section className="cw-rota">
+        <div className="cw-bar"><h2>Rota, week 47</h2><span>Draft</span></div>
+        <div role="tablist">
+          {DAYS.map(d => (
+            <button key={d} role="tab" aria-pressed={day === d} onClick={() => setDay(d)}>{d}</button>
+          ))}
+        </div>
+        <table className="cw-grid">
+          <thead><tr><th scope="col">Staff</th><th scope="col">Tue</th><th scope="col">Wed</th></tr></thead>
+          <tbody>{STAFF.map(s => (<tr key={s.name}><th scope="row">{s.name}</th>{s.days.map((d, i) => <td key={i}>{d}</td>)}</tr>))}</tbody>
+        </table>
+      </section>
+    </main>
+  );
+}
+`;
+
+/** Product UI's readings and the lines they cite, or [] when there is none. */
+const productLines = (files: Record<string, string>) => {
+  const product = use(mediaScan(files), 'Product UI');
+  return product ? product.evidence.map(item => `${item.file}:${item.line}`) : [];
+};
+
+test("the product's screen written as HTML, a titled table of its records, is Product UI, low", () => {
+  const found = mediaScan({ 'index.tsx': ROTA_TSX, 'hero.css': PLAIN_CSS });
+  assert.deepEqual(media(found), ['Product UI']);
+  const product = use(found, 'Product UI');
+  assert.equal(product?.confidence, 'low');
+  assert.deepEqual(product?.evidence, [
+    { file: 'index.tsx', line: 23, text: '<table className="cw-grid">' }
+  ]);
+  // In its own component file, as an ARIA table titled by an h3, with a live status of its own,
+  // and a tag written straight after a word, which is a tag and not a type.
+  const aria = `export function Screen() {
+  const [week] = useState<Week | null>(null);
+  return (
+    <div className="x-card">
+      <h3>Tips<span className="x-when">, Friday dinner</span></h3>
+      <p role="status">Signed off</p>
+      <div role="table" aria-label="Tips">
+        <div role="row"><span role="columnheader">Name</span><span role="columnheader">Hours</span></div>
+        {TIPS.map(t => (<div role="row" key={t.name}><span role="cell">{t.name}</span><span role="cell">{t.hours}</span></div>))}
+      </div>
+    </div>
+  );
+}
+`;
+  assert.deepEqual(productLines({ 'parts/screen.tsx': aria }), ['parts/screen.tsx:7']);
+  // A screen in a fragment of its own, beside others in the same file.
+  const fragments = `export const Tips = () => (
+  <>
+    <h3>Tips, Friday</h3><button onClick={next}>Saturday</button>
+    <table><thead><tr><th>Name</th><th>Tips</th></tr></thead><tbody>{TIPS.map(t => <tr key={t.name}><td>{t.name}</td><td>{t.tips}</td></tr>)}</tbody></table>
+  </>
+);
+export const Sites = () => (
+  <>
+    <h3>Sites</h3><button aria-pressed={all}>All sites</button>
+    <table><thead><tr><th>Site</th><th>Staff</th></tr></thead><tbody>{SITES.map(s => <tr key={s.name}><td>{s.name}</td><td>{s.staff}</td></tr>)}</tbody></table>
+  </>
+);
+`;
+  assert.deepEqual(productLines({ 'parts/screens.tsx': fragments }), [
+    'parts/screens.tsx:4',
+    'parts/screens.tsx:10'
+  ]);
+});
+
+test('a frame and a titled table are one Product UI entry, the frame cited first', () => {
+  const frame =
+    'export const Shot = () => <div className="browser-bar"><span>app.coverwell.com</span></div>;\n';
+  const found = mediaScan({ 'index.tsx': ROTA_TSX, 'shot.tsx': frame });
+  assert.deepEqual(media(found), ['Product UI']);
+  assert.equal(use(found, 'Product UI')?.confidence, 'low');
+  assert.deepEqual(productLines({ 'index.tsx': ROTA_TSX, 'shot.tsx': frame }), [
+    'shot.tsx:1',
+    'index.tsx:23'
+  ]);
+});
+
+/** A rota screen, titled, with a control of its own, that reads; each case changes one part. */
+const screenOf = (part: Partial<Record<'title' | 'control' | 'heads' | 'rows', string>> = {}) => {
+  const {
+    title = '<h2>Rota, week 47</h2>',
+    control = '<button aria-pressed={all}>All staff</button>',
+    heads = '<th scope="col">Staff</th><th scope="col">Tue</th>',
+    rows = '{STAFF.map(s => (<tr key={s.name}><td>{s.name}</td><td>{s.tue}</td></tr>))}'
+  } = part;
+  return `<section className="x-screen">${title}${control}<table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></section>`;
+};
+
+/** A first screen: the hero's h1 and form in <main>, and `body` beside them. */
+const heroWith = (body: string, before = '') => `${before}export default function Hero() {
+  return (
+    <main>
+      <h1>Rotas in eighteen minutes</h1>
+      <form onSubmit={go}><input type="email" /></form>
+      ${body}
+    </main>
+  );
+}
+`;
+
+test('a titled table is a screen only at rest, away from the way in, in a box of its own', () => {
+  assert.deepEqual(productLines({ 'index.tsx': heroWith(screenOf()) }), ['index.tsx:6']);
+  const cases: Record<string, string> = {
+    // Inside a form: a booking step's slots are the way in.
+    'in the form': heroWith(`<form onSubmit={book}>${screenOf()}</form>`),
+    // Shown only once the form is sent: the way in's result.
+    'on a state': heroWith(`{results && (${screenOf()})}`),
+    // One card of a list the way in fills.
+    'a row of a list': heroWith(
+      `<ul>{KITCHENS.map(k => (<li key={k.id}>${screenOf({ title: '<h3>{k.name}</h3>' })}</li>))}</ul>`
+    ),
+    // Set straight into the hero, so its box is the one with the h1.
+    'in the hero': heroWith(screenOf().replace(/^<section[^>]*>|<\/section>$/g, '')),
+    // A section's own box, with its step headings.
+    'a section with steps': heroWith(
+      screenOf({ title: '<h2>How it works</h2><h3>Build</h3><h3>Publish</h3>' })
+    ),
+    // Titled by the page's own h1.
+    'an h1': heroWith(screenOf({ title: '<h1>Rota</h1>' })),
+    // Its box holds part of the way in.
+    'the way in in its box': heroWith(
+      screenOf({ control: '<button aria-pressed={all}>All</button><input type="search" />' })
+    ),
+    // Titled by a paragraph, so the box found is the hero's.
+    'no heading': heroWith(screenOf({ title: '<p className="x-title">Rota</p>' })),
+    // Rows written out, not drawn from data.
+    'written rows': heroWith(screenOf({ rows: '<tr><td>Sam</td><td>Lunch</td></tr>' })),
+    // Written inside a comment.
+    'a comment': heroWith(`{/* ${screenOf()} */}`)
+  };
+  for (const [name, tsx] of Object.entries(cases)) {
+    assert.deepEqual(mediaScan({ 'index.tsx': tsx }), [], name);
+  }
+});
+
+test('a printed table, with no control or status of its own, is not a working screen', () => {
+  const cases: Record<string, string> = {
+    // The coverwell sections the owner did not count: a rota table, printed.
+    'a printed rota': heroWith(screenOf({ control: '' })),
+    // A comparison with other ways to work.
+    'a comparison': heroWith(
+      screenOf({
+        title: '<h2>How we compare</h2>',
+        control: '',
+        heads: '<th>Feature</th><th>Coverwell</th><th>Spreadsheet</th>',
+        rows: '{ROWS.map(r => (<tr key={r.name}><th scope="row">{r.name}</th><td>{r.ours}</td><td>{r.theirs}</td></tr>))}'
+      })
+    ),
+    // An openfloor-like timetable: its Book buttons are in its rows, so they are the way in.
+    'a timetable': heroWith(
+      screenOf({
+        title: "<h2>This week's timetable</h2>",
+        control: '',
+        heads: '<th>Day</th><th>Class</th><th>Studio</th>',
+        rows: '{WEEK.map(c => (<tr key={c.id}><td>{c.day}</td><td>{c.name}</td><td><button onClick={() => book(c)}>Book</button></td></tr>))}'
+      })
+    )
+  };
+  for (const [name, tsx] of Object.entries(cases)) {
+    assert.deepEqual(mediaScan({ 'index.tsx': tsx }), [], name);
+  }
+});
+
+test('a price list is not the product, however its headers are written', () => {
+  // A monthly and yearly toggle beside it, so only the headers keep it out.
+  const control = '<button aria-pressed={yearly}>Yearly</button>';
+  const heads = [
+    '<th scope="col">Plan</th><th scope="col">Price</th><th scope="col">Staff</th>',
+    '<th scope="col"><span>Plan</span></th><th scope="col">Staff</th>',
+    '<th>Plan name</th><th>Per month</th>',
+    '<th>Option</th><th>Monthly</th>',
+    '<th>Sites</th><th>Cost</th>'
+  ];
+  for (const head of heads) {
+    const tsx = heroWith(screenOf({ title: '<h2>Plans</h2>', control, heads: head }));
+    assert.deepEqual(mediaScan({ 'index.tsx': tsx }), [], head);
+  }
+  // A column that only mentions a cost is the product's own record.
+  const labour = heroWith(screenOf({ control, heads: '<th>Staff</th><th>Labour cost</th>' }));
+  assert.deepEqual(productLines({ 'index.tsx': labour }), ['index.tsx:6']);
+});
+
+test('a screen in a file of its own is read where it is drawn', () => {
+  const part = (screen: string, exported = 'export function RotaScreen') =>
+    `${exported}() {\n  return (\n    ${screen}\n  );\n}\n`;
+  const named = 'import { RotaScreen } from "./parts/rota";\n';
+  const at = (index: string, rota = part(screenOf())) =>
+    productLines({ 'index.tsx': index, 'parts/rota.tsx': rota });
+  assert.deepEqual(at(heroWith('<div className="x-side"><RotaScreen /></div>', named)), [
+    'parts/rota.tsx:3'
+  ]);
+  // Drawn on a state, as a list's row, or inside the form.
+  assert.deepEqual(at(heroWith('{rows && <RotaScreen rows={rows} />}', named)), []);
+  assert.deepEqual(at(heroWith('{DAYS.map(d => <RotaScreen key={d} day={d} />)}', named)), []);
+  assert.deepEqual(at(heroWith('<form onSubmit={book}><RotaScreen /></form>', named)), []);
+  // The default export, under the name the page imports it by.
+  const found = part(screenOf(), 'export default function RotaScreen');
+  const alias = 'import Found from "./parts/rota";\n';
+  assert.deepEqual(at(heroWith('{done && <Found />}', alias), found), []);
+  assert.deepEqual(at(heroWith('<Found />', alias), found), ['parts/rota.tsx:3']);
+  // A bare table in its own file, titled and worked where it is drawn.
+  const week = part(
+    screenOf().replace(/^<section[^>]*>.*?(?=<table>)|<\/section>$/g, ''),
+    'export function Week'
+  );
+  const titled = heroWith(
+    '<section><h2>Rota</h2><button onClick={next}>Next week</button><Week /></section>',
+    'import { Week } from "./parts/week";\n'
+  );
+  assert.deepEqual(productLines({ 'index.tsx': titled, 'parts/week.tsx': week }), [
+    'parts/week.tsx:3'
+  ]);
+});
+
+test('a long file of comparisons is scanned in good time', () => {
+  const big = 'if (a<b) { a++; }\n'.repeat(32_000);
+  const started = Date.now();
+  assert.deepEqual(mediaScan({ 'big.ts': `${big}const t = <div role="table">;\n` }), []);
+  assert.ok(Date.now() - started < 1000, `${Date.now() - started} ms`);
+});
+
+test('a class list, a timeline and table selectors in a stylesheet are not Product UI', () => {
+  // An openfloor-like class list: an aria-hidden header over rows of buttons, beside the search.
+  const classes = `export default function Hero() {
+  return (
+    <main>
+      <h1>Drop in tonight</h1>
+      <form role="search" onSubmit={go}><input name="area" /></form>
+      <section>
+        <h2>Tonight near you</h2>
+        <div className="of-cols" aria-hidden="true"><span>Studio</span><span>Class</span><span>Price</span></div>
+        <ul className="of-list">{shown.map(c => (<li key={c.id}><button aria-pressed={c.id === pick}>{c.studio} {c.name} {c.price}</button></li>))}</ul>
+      </section>
+    </main>
+  );
+}
+`;
+  // A timeline of lanes on a time axis, drawn with divs.
+  const timeline = `export function Week() {
+  return (
+    <section>
+      <h2>Monday, lane by lane</h2>
+      <div className="axis">{HOURS.map(h => <span key={h}>{h}</span>)}</div>
+      {LANES.map(lane => (<div key={lane.name} className="lane" style={{ left: lane.from, width: lane.span }}>{lane.name}</div>))}
+    </section>
+  );
+}
+`;
+  const sheet = '.x-screen table { width: 100%; }\n.x-screen th { text-align: left; }\n';
+  assert.deepEqual(mediaScan({ 'index.tsx': classes }), []);
+  assert.deepEqual(mediaScan({ 'week.tsx': timeline }), []);
+  assert.deepEqual(mediaScan({ 'hero.css': sheet, 'index.tsx': PLAIN_TSX }), []);
+});
+
 test('comments are not media', () => {
   const tsx = `// No <video> here, and no three.js: import * as THREE from "three";
 /* A photo would go here: https://images.unsplash.com/photo-1 */
@@ -738,9 +1011,11 @@ test('every medium at once, one entry each, sorted by name', () => {
       '\nexport const P = () => <img src="https://images.pexels.com/photos/1.jpeg" alt="" />;\nexport const W = () => <div className="titlebar" />;',
     'flow.tsx':
       '<svg viewBox="0 0 400 100"><rect /><text>Kitchen</text><rect /><text>Door</text></svg>',
-    'a.css': '.steam { animation: steam 4s infinite; }'
+    'a.css': '.steam { animation: steam 4s infinite; }',
+    'rota.tsx': ROTA_TSX
   };
   const found = mediaScan(files);
+  assert.equal(use(found, 'Product UI')?.confidence, 'low');
   assert.deepEqual(media(found), [
     '3D',
     'Illustration',
