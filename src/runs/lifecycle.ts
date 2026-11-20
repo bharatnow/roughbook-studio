@@ -31,6 +31,7 @@ import {
 import { checkIteration, importsFromRough } from './checks.js';
 import { keepLocalPaths } from './keptPaths.js';
 import { redactRunRequest, restoreLocalPaths } from './localPaths.js';
+import { referencesSection, type LocalReference } from './references.js';
 import {
   assertTarget,
   createSlot,
@@ -110,6 +111,11 @@ export type StartOptions = {
    * the repo is snapshotted, so it counts as neither run's change: a ported sketch's reference.
    */
   beforeSlots?: (started: StartedRun[]) => void;
+  /**
+   * The references in rough/references/ the ask carries, listed in each prompt by path. They are
+   * never in the request: the agent reads them here (ROUGHBOOK-WHOLE-SITE-PLAN.md, X10).
+   */
+  references?: LocalReference[];
 };
 
 export async function startRuns(
@@ -255,6 +261,13 @@ export async function startRuns(
       options.devUrl && environment.mode === 'live'
         ? previewUrl(options.devUrl, request.page, request.component, run.iteration, environment)
         : null;
+    // Added here, after the backend's prompt, so the references never travel to it.
+    const references = referencesSection(options.references ?? []);
+    if (references)
+      prompt = `${prompt.trimEnd()}
+
+${references}
+`;
     writePrompt(
       repoRoot,
       record.promptFile,

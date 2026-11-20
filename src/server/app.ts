@@ -43,6 +43,8 @@ export type LocalServerOptions = {
 };
 
 const BODY_LIMIT = 256 * 1024;
+/** A reference's body: a 20 MB document as base64, with room for its name (X10). */
+const REFERENCE_BODY_LIMIT = 28 * 1024 * 1024;
 
 const STATIC_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -78,12 +80,15 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(
+  request: IncomingMessage,
+  limit = BODY_LIMIT
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     size += (chunk as Buffer).length;
-    if (size > BODY_LIMIT) throw new BadRequest('That request is too large.');
+    if (size > limit) throw new BadRequest('That request is too large.');
     chunks.push(chunk as Buffer);
   }
   if (!size) return {};
@@ -316,6 +321,10 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
       });
     }),
     // A page's composition (B6): a new section, and Save; its Promote goes through /api/promote.
+    // A reference is copied into rough/references/ and stays on this machine (X10).
+    route('POST', '/api/references', async request =>
+      studio.addReference(await readBody(request, REFERENCE_BODY_LIMIT))
+    ),
     route('POST', '/api/sections', async request => studio.makeSection(await readBody(request))),
     route('POST', '/api/compositions', async request =>
       studio.saveComposition(await readBody(request))

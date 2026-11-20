@@ -91,6 +91,7 @@ import { ITERATION, SLUG, iterationDir, listIterations } from '../repo/iteration
 import { roughPath } from '../repo/root.js';
 import { forkFields } from '../runs/forkIntent.js';
 import { assessRun, putBack, startRuns } from '../runs/lifecycle.js';
+import { addReference, readReferences, type LocalReference } from '../runs/references.js';
 import { queued } from '../runs/queue.js';
 import { watchRepo } from '../runs/watch.js';
 import {
@@ -355,6 +356,8 @@ export type RunBody = {
   terminal?: 'builtin' | 'external';
   cols?: number;
   rows?: number;
+  /** Ids of references in rough/references/, listed in the prompt and never sent (X10). */
+  references?: unknown;
 } & (
   | {
       kind: 'generate';
@@ -1551,6 +1554,25 @@ export class LocalStudio {
   }
 
   /** The composition editor's new section (decision 47): made on the backend, its folder here. */
+  /**
+   * A reference added in the local UI, copied into rough/references/ (ROUGHBOOK-WHOLE-SITE-PLAN.md,
+   * X10). The body is `{ fileName, data }` (base64) or `{ url }`; nothing is sent anywhere.
+   */
+  addReference(body: Record<string, unknown>): LocalReference {
+    try {
+      if (typeof body.url === 'string') return addReference(this.repoRoot, { url: body.url });
+      if (typeof body.fileName !== 'string' || typeof body.data !== 'string' || !body.data) {
+        throw new Error('Choose a file or paste a link.');
+      }
+      return addReference(this.repoRoot, {
+        fileName: body.fileName.slice(0, 200),
+        bytes: Buffer.from(body.data, 'base64')
+      });
+    } catch (error) {
+      throw new BadRequest((error as Error).message);
+    }
+  }
+
   async makeSection(body: Record<string, unknown>) {
     const page = typeof body.page === 'string' ? body.page : '';
     if (!SLUG.test(page)) throw new BadRequest('Name a page of the map.');
@@ -1589,6 +1611,14 @@ export class LocalStudio {
     const context = this.context;
     const { api, link } = this.options;
     const kind = this.runKind(body);
+    // Read before the backend allocates anything, so a reference that has gone is refused first.
+    // They stay out of the request (runKind copies only the words), and go in the prompt file.
+    let references: LocalReference[];
+    try {
+      references = readReferences(this.repoRoot, body.references);
+    } catch (error) {
+      throw new BadRequest((error as Error).message);
+    }
     const { adapter, detection } = await chooseAgent(context, body.agent);
     if (body.mode === 'headless' && !detection.headless.ready) {
       throw new BadRequest(detection.headless.reason);
@@ -1623,7 +1653,7 @@ export class LocalStudio {
             },
             { assetOrigin }
           )
-        : await startRuns(this.repoRoot, api, link, request, { assetOrigin });
+        : await startRuns(this.repoRoot, api, link, request, { assetOrigin, references });
     const model = typeof body.model === 'string' && body.model ? body.model : null;
 
     if (adapter.kind === 'editor') {

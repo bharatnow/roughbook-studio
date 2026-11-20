@@ -23,6 +23,7 @@ import { describe, useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
 import { forkPrompt } from '../fork-prompt';
 import { currentMode, promptModes } from '../prompt-modes';
+import { attachLocalReference, referenceIds } from '../references';
 import { saveRuleFrom } from '../save-rule';
 import type { Launched, RunView, StudioState } from '../types';
 import { understandFrom } from '../understand';
@@ -151,6 +152,8 @@ export function StudioPrompt({
     };
     if (!state || !choice.agent) return refuse('No coding agent or editor was found.');
     if (!at.page || !at.component) return refuse('Select a component first.');
+    // References kept in rough/references/; the local server lists them in the prompt (X10).
+    const references = referenceIds(form.get('references'));
     let body: Record<string, unknown>;
     if (current === 'new') {
       const tests = lines.find(line => TESTS.test(line))?.replace(TESTS, '');
@@ -194,6 +197,7 @@ export function StudioPrompt({
         ...(typed ? { instructions: typed } : {})
       };
     }
+    if (references.length) body.references = references;
     if (!(await launch(body))) {
       // The line beside the prompt says why; the words wait for another try.
       setField(value => ({ key: value.key + 1, value: text, refused: true }));
@@ -234,7 +238,12 @@ export function StudioPrompt({
   }
 
   /** "Make these": one generate run per reading, as New starts them. */
-  function makeReadings(text: string, readings: Reading[]) {
+  function makeReadings(
+    text: string,
+    readings: Reading[],
+    _instructions?: string,
+    references: string[] = []
+  ) {
     if (!at.page || !at.component) {
       setAnswer({ message: 'Select a component first.', tone: 'error' });
       return;
@@ -244,12 +253,16 @@ export function StudioPrompt({
       hypothesis: reading.hypothesis
     }));
     if (!directions.length) return;
-    void launch({ page: at.page, component: at.component, kind: 'generate', directions }).then(
-      started => {
-        // The words wait for another try.
-        if (!started) setField(value => ({ key: value.key + 1, value: text, refused: true }));
-      }
-    );
+    void launch({
+      page: at.page,
+      component: at.component,
+      kind: 'generate',
+      directions,
+      ...(references.length ? { references } : {})
+    }).then(started => {
+      // The words wait for another try.
+      if (!started) setField(value => ({ key: value.key + 1, value: text, refused: true }));
+    });
   }
 
   if (!state) return null;
@@ -272,6 +285,7 @@ export function StudioPrompt({
       makeReadings={makeReadings}
       understand={understand}
       saveRule={saveRule}
+      attachReference={attachLocalReference}
       onQuestion={onQuestion}
       key={field.key}
       action={send}

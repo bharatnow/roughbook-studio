@@ -14,8 +14,16 @@ import { ROUGH_DIR, STATE_DIR, statePath } from '../repo/root.js';
 import { isBasePath } from './base.js';
 import { assertRunId, listRuns } from './store.js';
 
-/** Never recorded: the studio's own state and screenshots (and, below, the kept bases). */
-const SKIPPED = [`${ROUGH_DIR}/${STATE_DIR}/`, `${ROUGH_DIR}/.screenshots/`];
+/**
+ * Never recorded: the studio's own state and screenshots (and, below, the kept bases), and the
+ * references the designer adds in the local UI, so one added while a run is open is not counted as
+ * that run's change (ROUGHBOOK-WHOLE-SITE-PLAN.md, X10).
+ */
+const SKIPPED = [
+  `${ROUGH_DIR}/${STATE_DIR}/`,
+  `${ROUGH_DIR}/.screenshots/`,
+  `${ROUGH_DIR}/references/`
+];
 
 /**
  * Whether a file is in a folder the environment ignores: a bare name (`node_modules`) at any

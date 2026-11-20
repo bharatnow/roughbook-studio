@@ -1317,6 +1317,70 @@ describe('the local server', () => {
     fs.rmSync(pulled, { recursive: true });
     fs.rmSync(path.join(repo, 'rough', '.roughbook', 'runs', `${finished.runId}.json`));
   });
+
+  // ROUGHBOOK-WHOLE-SITE-PLAN.md, X10: the composer's references are copied here, never uploaded.
+  it('keeps a reference in rough/references/ and lists it in the prompt, never in the request', async () => {
+    const LINE = 'Server-only brand rule 9q: the oak green is #2f4a3a and never a gradient';
+    const before = backend.requests.length;
+    const added = await api('POST', '/api/references', {
+      fileName: 'Oak Brand Guide.md',
+      data: Buffer.from(`# Oak\n\n${LINE}\n`).toString('base64')
+    });
+    assert.equal(added.status, 200, JSON.stringify(added.json));
+    assert.equal(added.json.data.id, 'oak-brand-guide.md');
+    assert.equal(added.json.data.roles[0], 'Brand rules');
+    assert.match(added.json.data.summary, /stays on this machine/);
+    assert.equal(
+      fs.readFileSync(path.join(repo, 'rough', 'references', 'oak-brand-guide.md'), 'utf8'),
+      `# Oak\n\n${LINE}\n`
+    );
+    const linked = await api('POST', '/api/references', { url: 'https://oak.example/' });
+    assert.equal(linked.json.data.kind, 'link');
+    const heic = await api('POST', '/api/references', { fileName: 'a.heic', data: 'eA==' });
+    assert.equal(heic.status, 400);
+    assert.equal(heic.json.message, "HEIC can't be read yet. Export it as JPEG.");
+    assert.equal(backend.requests.length, before, 'adding a reference asks the backend nothing');
+
+    const missing = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      mode: 'interactive',
+      terminal: 'builtin',
+      kind: 'generate',
+      directions: [{ direction: 'Oak' }],
+      references: ['gone.md']
+    });
+    assert.equal(missing.status, 400);
+    assert.match(missing.json.message, /Add it again/);
+
+    const started = await api('POST', '/api/runs', {
+      page: 'home',
+      component: 'hero',
+      mode: 'interactive',
+      terminal: 'builtin',
+      kind: 'generate',
+      directions: [{ direction: 'Oak' }],
+      references: [added.json.data.id, linked.json.data.id]
+    });
+    assert.equal(started.status, 200, JSON.stringify(started.json));
+    const [run] = started.json.data.runs;
+    const prompt = fs.readFileSync(path.join(repo, ...run.promptFile.split('/')), 'utf8');
+    assert.ok(prompt.includes('- `rough/references/oak-brand-guide.md`: document; Brand rules'));
+    assert.ok(prompt.includes('- `rough/references/oak-example.url`: link'), prompt);
+
+    const sent = backend.requests.filter(request => request.url.endsWith('/runs')).at(-1)!;
+    assert.equal((sent.body as Record<string, unknown>).references, undefined);
+    const carried = JSON.stringify(backend.requests.slice(before).map(request => request.body));
+    for (const kept of [LINE, 'oak-brand-guide', 'oak.example', 'references']) {
+      assert.ok(!carried.includes(kept), `${kept} was sent`);
+    }
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), LINE],
+      minimumLines: 8
+    });
+  });
 });
 
 describe("the local server's copy of the project", () => {
