@@ -318,3 +318,41 @@ export type Heartbeat = {
   os: string;
   agents: { id: string; version: string | null; signedIn: boolean | null; headless: boolean }[];
 };
+
+/**
+ * One section a site draw would draw (ROUGHBOOK-WHOLE-SITE-PLAN.md, X5): Shared parts are stage 1
+ * on the page `shared`, the home page's opening is stage 2, and the rest stage 3. `direction` is
+ * the backend's `siteDirection`, the one a local run is given as it is.
+ */
+export type DrawSection = {
+  page: string;
+  component: string;
+  name: string;
+  stage: 1 | 2 | 3;
+  direction: string;
+};
+
+/** `GET …/site/draw?page=`: what a draw would draw now, its estimate, and the latest draw. */
+export type SiteDrawView = {
+  plan: { version: number; approved: boolean } | null;
+  /** In words, e.g. "Create the pages first." or "Nothing left to draw."; null when it can draw. */
+  refusal: string | null;
+  estimate: { sections: number; perSection: number; upToCredits: number };
+  order: DrawSection[];
+  draw: null | {
+    id: string;
+    status: 'drawing' | 'done' | 'stopped';
+    stage: number;
+    page: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+    sections: {
+      page: string;
+      component: string;
+      name: string;
+      stage: number;
+      state: 'waiting' | 'drawing' | 'drawn' | 'failed' | 'stopped';
+      iteration: string | null;
+    }[];
+  };
+};

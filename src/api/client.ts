@@ -25,6 +25,7 @@ import type {
   PulledSketch,
   PictureKind,
   SetupPrompt,
+  SiteDrawView,
   SketchFile,
   StillsRead,
   StoredPicture
@@ -532,6 +533,15 @@ export class StudioApi {
   /** Saves a lasting rule on a component or the project (I3 of the chat audit); editors only. */
   saveRule(orgId: string, project: string, body: SaveRuleBody): Promise<SaveRuleReply> {
     return this.request('POST', `${projectPath(orgId, project)}/rules`, body);
+  }
+
+  /**
+   * What drawing the site (or one page) would draw now, in stages, with each section's direction
+   * (ROUGHBOOK-WHOLE-SITE-PLAN.md, X5). `roughbook run --site` runs these sections here.
+   */
+  siteDraw(orgId: string, project: string, page?: string): Promise<SiteDrawView> {
+    const query = page ? `?${new URLSearchParams({ page })}` : '';
+    return this.request('GET', `${projectPath(orgId, project)}/site/draw${query}`);
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */
