@@ -244,6 +244,12 @@ async function runSite(
     return said.exit;
   }
   const stages = siteStages(view.order);
+  // A plan with daily sketches draws up to them (ROUGHBOOK-WHOLE-SITE-PLAN.md, X5); the rest wait.
+  if (view.allowance) {
+    io.out(
+      `Drawing ${view.order.length} of ${view.order.length + view.allowance.later} sections today, the plan's ${view.allowance.perDay} a day. Run this again tomorrow for the rest.`
+    );
+  }
 
   const environment = await readEnvironment(repoRoot, link);
   const { adapter, detection } = await chooseAgent(context, values.agent);

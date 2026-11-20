@@ -339,6 +339,8 @@ export type SiteDrawView = {
   refusal: string | null;
   estimate: { sections: number; perSection: number; upToCredits: number };
   order: DrawSection[];
+  /** When the plan's daily sketches draw only part of the order: how many wait for later. */
+  allowance?: { perDay: number; later: number } | null;
   draw: null | {
     id: string;
     status: 'drawing' | 'done' | 'stopped';
