@@ -266,6 +266,30 @@ export function findPlaces(
     };
 
     const anchors = usePart ? anchorWords(old, usePart) : [];
+    // A section that states the whole fact, and says the changing part nowhere else but bare: its
+    // bare figure ("22:00" set large beside "Deliveries in Elm Hill stop at 22:00") is the same
+    // fact (U6). A section where the part is also said otherwise (Northside's Monday "08:00 to
+    // 19:00") keeps its bare figure unsure.
+    const bare = (place: Place) =>
+      usePart !== null && normaliseFact(place.text) === normaliseFact(usePart.old);
+    const statesWhole = new Map<string, boolean>();
+    const wholeSection = (place: Place) => {
+      const key = sectionKey(place);
+      if (!statesWhole.has(key)) {
+        const own = sections.get(key) ?? [];
+        const whole = own.filter(
+          other => countFact(other.text, old) > 0 && !endsARange(other.text, old)
+        );
+        const otherwise = own.some(
+          other =>
+            countFact(other.text, usePart!.old) > 0 &&
+            countFact(other.text, old) === 0 &&
+            !bare(other)
+        );
+        statesWhole.set(key, whole.length > 0 && !otherwise);
+      }
+      return statesWhole.get(key)!;
+    };
     for (const place of index.places) {
       if (countFact(place.text, old) > 0) {
         if (edit.kind === 'set' && endsARange(place.text, old)) {
@@ -295,7 +319,16 @@ export function findPlaces(
       // "19:00" is Northside's Friday closing on a line that says Friday, and nowhere else.
       const text = normaliseFact(place.text);
       const anchored = anchors.length > 0 && anchors.every(word => text.includes(word));
-      if (anchored && (mentions(place.text, words) || sectionNames(place)))
+      if (bare(place) && wholeSection(place))
+        add(
+          place,
+          editIndex,
+          usePart.old,
+          usePart.new,
+          true,
+          `${said} on its own, in a section that states "${old}" and says "${usePart.old}" no other way.`
+        );
+      else if (anchored && (mentions(place.text, words) || sectionNames(place)))
         add(
           place,
           editIndex,
