@@ -1,5 +1,5 @@
 // The prompt's `understand` (I1 of the chat audit): a message goes to `POST /api/understand` with
-// the current selection's slugs. Anything that goes wrong reads as "this could not be read", which
+// the current selection's slugs, saying the page has the fact sheet (U5 of the fact-change plan). Anything that goes wrong reads as "this could not be read", which
 // PromptBar shows with Draw anyway, so a failed read never loses the words or blocks a run.
 import type { Understand, Understanding } from '@roughbook/ui';
 
@@ -35,9 +35,11 @@ export function understandFrom(
 ): Understand {
   return async input => {
     try {
+      // This host has the fact sheet (U5), so a change of a fact may be read as `fact`.
       const reading = (await post('/api/understand', {
         ...selection,
-        ...input
+        ...input,
+        facts: true
       })) as Understanding;
       if (reading.requestId) onKept?.();
       return reading;

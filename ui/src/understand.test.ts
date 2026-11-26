@@ -15,7 +15,18 @@ describe('the prompt reader', () => {
       return reply;
     });
     assert.deepEqual(await understand({ words: 'hello', mode: 'new' }), reply);
-    assert.deepEqual(posted, [['/api/understand', { ...SELECTED, words: 'hello', mode: 'new' }]]);
+    assert.deepEqual(posted, [
+      ['/api/understand', { ...SELECTED, words: 'hello', mode: 'new', facts: true }]
+    ]);
+  });
+
+  it('accepts a fact reading as it comes, for the composer to offer the sheet', async () => {
+    const fact = { ...NOT_READ, read: true, intent: 'fact' as const, confidence: 'high' as const };
+    const understand = understandFrom(SELECTED, async () => fact);
+    assert.equal(
+      (await understand({ words: 'Northside closes at 18:00', mode: 'new' })).intent,
+      'fact'
+    );
   });
 
   it('says when a message left a line, and only then', async () => {

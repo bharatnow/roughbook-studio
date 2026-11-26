@@ -15,7 +15,7 @@ import {
 } from '@roughbook/ui';
 import { focusForKey } from '@roughbook/ui/canvas';
 import { Eraser, SlidersHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { canvasEntry } from '../canvas-actions';
 import type { StudioCanvas } from '../canvas-input';
 import { post } from '../api';
@@ -27,6 +27,7 @@ import { attachLocalReference, referenceIds } from '../references';
 import { saveRuleFrom } from '../save-rule';
 import type { Launched, RunView, StudioState } from '../types';
 import { understandFrom } from '../understand';
+import { FactSheetHost, type FactAsk } from './fact-sheet-host';
 import { RunOptions, useRunChoice, useStartRuns } from './run-options';
 
 /** A run's directions at most, as the run panel allowed. */
@@ -104,6 +105,10 @@ export function StudioPrompt({
   const [field, setField] = useState({ key: 0, value: '', refused: false });
   // A radical fork: an empty folder, with what the parent was and what reviews said.
   const [cleanStart, setCleanStart] = useState(false);
+  // A fact change's sheet (U5 of the fact-change plan), open on the words that asked for it.
+  const [factAsk, setFactAsk] = useState<FactAsk | null>(null);
+  // Counted across openings, so a reading of earlier words is never shown for new ones.
+  const factSerial = useRef(0);
   useEffect(() => {
     if (field.refused) document.getElementById(fieldId)?.focus();
   }, [field, fieldId]);
@@ -278,76 +283,84 @@ export function StudioPrompt({
         describe
       )
     : undefined;
+  // Online, a fact reading offers "Change this everywhere?", which opens the sheet on its words.
+  const changeFacts = state.online
+    ? (words: string) => setFactAsk({ words, serial: (factSerial.current += 1) })
+    : undefined;
   return (
-    <PromptBar
-      readingsDefault={readingsDefault === true}
-      planReadings={planReadings}
-      makeReadings={makeReadings}
-      understand={understand}
-      saveRule={saveRule}
-      attachReference={attachLocalReference}
-      onQuestion={onQuestion}
-      key={field.key}
-      action={send}
-      modes={modes}
-      mode={current}
-      onModeChange={next => {
-        setAnswer(null);
-        onModeChange(next);
-      }}
-      target={target}
-      chip={
-        <div className="flex shrink-0 items-center gap-0.5">
-          {current === 'fork' && complete !== false ? (
-            <button
-              type="button"
-              aria-pressed={cleanStart}
-              onClick={() => setCleanStart(value => !value)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label aria-pressed:bg-control aria-pressed:text-label"
-            >
-              <Eraser className="size-3.5" strokeWidth={1.5} />
-              Clean start
-            </button>
-          ) : null}
-          {current === 'refine' ? (
-            <button
-              type="button"
-              onClick={onRefineOptions}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label"
-            >
-              <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
-              Options
-            </button>
-          ) : null}
-          <details className="group/run relative">
-            <summary className="inline-flex h-7 cursor-pointer list-none items-center rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label group-open/run:bg-control [&::-webkit-details-marker]:hidden">
-              Agent
-            </summary>
-            <div className="material-frost absolute right-0 bottom-full z-10 mb-2 flex gap-1 rounded-control border border-separator p-1 shadow-elevation-1">
-              <RunOptions state={state} choice={choice} onChange={setChoice} compact />
-            </div>
-          </details>
-          {complete !== false ? (
-            <HelpTip label="About the prompt">
-              <strong className="font-medium">New</strong>: one iteration per line, up to{' '}
-              {MAX_DIRECTIONS}; a line starting with <span className="font-mono">Tests:</span> says
-              what they test. <strong className="font-medium">Fork</strong>: a copy of the selected
-              iteration the agent takes where the words say, keeping what a{' '}
-              <span className="font-mono">Keep:</span> line lists; Clean start begins empty instead,
-              from what it was and what reviews said.{' '}
-              <strong className="font-medium">Refine</strong>: a new iteration that changes it as
-              you say; Options has the presets. {formatKeys(['Mod', 'Enter'], mac)} sends.
-            </HelpTip>
-          ) : null}
-        </div>
-      }
-      fieldId={fieldId}
-      fieldKey={field.key}
-      defaultValue={field.value}
-      label="Prompt"
-      message={answer?.message ?? started?.text ?? null}
-      tone={answer?.tone ?? (started?.tone === 'error' ? 'error' : 'status')}
-      disabled={modes.find(item => item.id === current)?.disabled ?? true}
-    />
+    <>
+      <PromptBar
+        readingsDefault={readingsDefault === true}
+        changeFacts={changeFacts}
+        planReadings={planReadings}
+        makeReadings={makeReadings}
+        understand={understand}
+        saveRule={saveRule}
+        attachReference={attachLocalReference}
+        onQuestion={onQuestion}
+        key={field.key}
+        action={send}
+        modes={modes}
+        mode={current}
+        onModeChange={next => {
+          setAnswer(null);
+          onModeChange(next);
+        }}
+        target={target}
+        chip={
+          <div className="flex shrink-0 items-center gap-0.5">
+            {current === 'fork' && complete !== false ? (
+              <button
+                type="button"
+                aria-pressed={cleanStart}
+                onClick={() => setCleanStart(value => !value)}
+                className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label aria-pressed:bg-control aria-pressed:text-label"
+              >
+                <Eraser className="size-3.5" strokeWidth={1.5} />
+                Clean start
+              </button>
+            ) : null}
+            {current === 'refine' ? (
+              <button
+                type="button"
+                onClick={onRefineOptions}
+                className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label"
+              >
+                <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
+                Options
+              </button>
+            ) : null}
+            <details className="group/run relative">
+              <summary className="inline-flex h-7 cursor-pointer list-none items-center rounded-full px-2.5 text-body text-label-secondary hover:bg-control hover:text-label group-open/run:bg-control [&::-webkit-details-marker]:hidden">
+                Agent
+              </summary>
+              <div className="material-frost absolute right-0 bottom-full z-10 mb-2 flex gap-1 rounded-control border border-separator p-1 shadow-elevation-1">
+                <RunOptions state={state} choice={choice} onChange={setChoice} compact />
+              </div>
+            </details>
+            {complete !== false ? (
+              <HelpTip label="About the prompt">
+                <strong className="font-medium">New</strong>: one iteration per line, up to{' '}
+                {MAX_DIRECTIONS}; a line starting with <span className="font-mono">Tests:</span>{' '}
+                says what they test. <strong className="font-medium">Fork</strong>: a copy of the
+                selected iteration the agent takes where the words say, keeping what a{' '}
+                <span className="font-mono">Keep:</span> line lists; Clean start begins empty
+                instead, from what it was and what reviews said.{' '}
+                <strong className="font-medium">Refine</strong>: a new iteration that changes it as
+                you say; Options has the presets. {formatKeys(['Mod', 'Enter'], mac)} sends.
+              </HelpTip>
+            ) : null}
+          </div>
+        }
+        fieldId={fieldId}
+        fieldKey={field.key}
+        defaultValue={field.value}
+        label="Prompt"
+        message={answer?.message ?? started?.text ?? null}
+        tone={answer?.tone ?? (started?.tone === 'error' ? 'error' : 'status')}
+        disabled={modes.find(item => item.id === current)?.disabled ?? true}
+      />
+      <FactSheetHost ask={factAsk} onClose={() => setFactAsk(null)} />
+    </>
   );
 }
