@@ -15,7 +15,9 @@ export default [
       'node_modules/**',
       'conformance/fixtures/**',
       // A reproduction for an upstream issue, with its own package.json; not the studio's code.
-      'conformance/upstream/**'
+      'conformance/upstream/**',
+      // The backend's fact rules, copied verbatim by scripts/sync-facts.mjs; linted there.
+      'src/facts/vendor/**'
     ]
   },
   js.configs.recommended,

@@ -131,6 +131,20 @@ describe('understand route', () => {
     assert.deepEqual(body, { words: 'calm', mode: 'fork' });
   });
 
+  it('asks for the fact reading only when the page has the fact sheet (U5)', () => {
+    assert.deepEqual(parseUnderstand({ words: 'calm', mode: 'new', facts: true }).body, {
+      words: 'calm',
+      mode: 'new',
+      facts: true
+    });
+    for (const facts of [false, 'true', 1, null]) {
+      assert.deepEqual(parseUnderstand({ words: 'calm', mode: 'new', facts }).body, {
+        words: 'calm',
+        mode: 'new'
+      });
+    }
+  });
+
   it('refuses a body the backend would refuse, in words', () => {
     const bad: Record<string, unknown>[] = [
       { mode: 'new' },

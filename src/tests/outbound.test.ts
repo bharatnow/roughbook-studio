@@ -747,3 +747,145 @@ describe('outbound requests: the history (C6 of the composer audit)', () => {
     assertCarriesNoRepoContent(backend.requests, { repo, root, minimumLines: 5 });
   });
 });
+
+describe('outbound requests: a late fact change (U5 of the fact-change plan)', () => {
+  it('sends the words with paths as stand-ins, the edits, ids and iteration numbers, never a line or a path', async () => {
+    const { createRequire } = await import('node:module');
+    const { StudioApi } = await import('../api/client.js');
+    const { outboxFor } = await import('../api/outbox.js');
+    const { sendDecision } = await import('../runs/reviews.js');
+    const { changeFacts, factsLib, readFactSheet, undoFacts } = await import('../server/facts.js');
+    const root = await tempDir('roughbook-outbound-facts-');
+    const repo = path.join(root, 'client-app');
+    const hero = `${ITERATION_SOURCE}export const hours = <p className="hours-only-here">Open Friday 08:00 to 19:00</p>;\n`;
+    const dir = path.join(repo, 'rough', 'home', 'hero', 'iteration-01');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'index.tsx'), hero);
+    fs.writeFileSync(path.join(repo, 'package.json'), '{ "name": "client-app-private" }\n');
+    fs.writeFileSync(path.join(repo, 'src-stray.ts'), STRAY_EDIT);
+    const typescript = path.dirname(
+      createRequire(import.meta.url).resolve('typescript/package.json')
+    );
+    fs.mkdirSync(path.join(repo, 'node_modules'), { recursive: true });
+    fs.symlinkSync(typescript, path.join(repo, 'node_modules', 'typescript'), 'junction');
+
+    const hours = {
+      kind: 'set',
+      subject: "Northside's Friday hours",
+      old: 'Friday 08:00 to 19:00',
+      new: 'Friday 08:00 to 18:00'
+    };
+    let pick = 'iteration-01';
+    const backend = fakeFetch(request => {
+      const route = new URL(request.url).pathname.replace(`/v1/api/studio${PROJECT}`, '');
+      if (route === '/facts/read') {
+        return ok({
+          summary: 'Northside closes at 18:00 on Fridays',
+          edits: [hours],
+          unsure: null
+        });
+      }
+      if (route === '/facts/apply') return ok({ changes: [], scriptVersion: 2, planVersion: 2 });
+      if (route === '/facts/context') {
+        return ok({
+          pages: [
+            {
+              slug: 'home',
+              name: 'Home',
+              kind: 'page',
+              sections: [{ component: 'hero', name: 'Hero', iteration: pick, kept: false }]
+            }
+          ],
+          siteMap: { nav: [], links: [] },
+          plan: null,
+          script: null
+        });
+      }
+      if (route.endsWith('/fact-copy')) return ok({ iteration: 'iteration-02' }, 201);
+      const select = /\/iterations\/(iteration-\d+)\/select$/.exec(route);
+      if (select) {
+        pick = select[1]!;
+        return ok({ selected: true });
+      }
+      return refused('NOT_FOUND', 404);
+    });
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+    const link = {
+      version: 1 as const,
+      orgId: ORG,
+      project: 'site',
+      roughCommitted: true,
+      appDir: null
+    };
+    const outbox = outboxFor(repo);
+    const source = {
+      api,
+      link,
+      repoRoot: repo,
+      lib: factsLib(() => ({
+        recipe: 'next',
+        mode: 'live' as const,
+        family: 'react-like' as const
+      })),
+      select: (target: { page: string; component: string; iteration: string }) =>
+        sendDecision(api, outbox, link, target, { kind: 'select' }),
+      discard: (target: { page: string; component: string; iteration: string }) =>
+        sendDecision(api, outbox, link, target, { kind: 'discard' }),
+      wrote: async () => {}
+    };
+
+    // A page that sent more than it should: the repo's path and its code.
+    const file = path.join(repo, 'src-stray.ts');
+    const sheet = await readFactSheet(source, {
+      words: `Northside closes at 18:00 on Fridays, as "${file}" says`,
+      repoRoot: repo,
+      source: hero
+    });
+    assert.equal(sheet.places.length, 1);
+    const done = await changeFacts(source, {
+      summary: sheet.reading.summary,
+      edits: sheet.reading.edits,
+      places: sheet.places.map(place => place.id),
+      before: sheet.places[0]!.before,
+      repoRoot: repo
+    });
+    assert.equal(done.ok, true, done.message);
+    assert.match(
+      fs.readFileSync(
+        path.join(repo, 'rough', 'home', 'hero', 'iteration-02', 'index.tsx'),
+        'utf8'
+      ),
+      /Open Friday 08:00 to 18:00/
+    );
+    assert.equal((await undoFacts(source, { changeIds: done.changeIds })).ok, true);
+
+    const summary = 'Northside closes at 18:00 on Fridays';
+    assert.deepEqual(
+      backend.requests.map(request => request.body).filter(body => body !== null),
+      [
+        { words: `${summary}, as "[local path 1]" says` },
+        { edits: [hours], summary },
+        { parent: 'iteration-01', changeId: done.changeIds[0], summary },
+        { reason: '' },
+        { reason: '' },
+        { edits: [{ ...hours, old: hours.new, new: hours.old }], summary: `Undo: ${summary}` }
+      ]
+    );
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [
+        ...hero.split('\n'),
+        STRAY_EDIT,
+        sheet.places[0]!.before,
+        sheet.places[0]!.after
+      ],
+      minimumLines: 5
+    });
+  });
+});

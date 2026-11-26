@@ -1,6 +1,7 @@
 // What the backend's /studio routes answer. Kept by hand beside the backend's validators; the
 // route tests on both sides pin the shapes.
 import type { Family } from '../environment/types.js';
+import type { FactContext } from '../facts/index.js';
 
 export type OrgRole = 'owner' | 'editor' | 'viewer';
 
@@ -358,3 +359,30 @@ export type SiteDrawView = {
     }[];
   };
 };
+
+// --- a late fact change (ROUGHBOOK-FACT-CHANGE-PLAN.md, U5) -----------------------------------
+
+/** One edit of the facts, as the backend reads it (U2): a value, a name, or a new member. */
+export type FactEdit =
+  | { kind: 'set'; subject: string; old: string; new: string }
+  | { kind: 'rename'; old: string; new: string }
+  | { kind: 'add'; collection: string; name: string; facts: string };
+
+/** `POST …/facts/read {words}`: the words read into edits, and what was not read surely. */
+export type FactReadReply = { summary: string; edits: FactEdit[]; unsure: string | null };
+
+/** `POST …/facts/apply {edits, summary}`: what changed in the facts, and the facts-only versions. */
+export type FactApplyReply = {
+  changes: unknown[];
+  scriptVersion: number | null;
+  planVersion: number | null;
+};
+
+/**
+ * `GET …/facts/context`: the fact index's input without files. The pages with each section's
+ * picked iteration and whether it is kept, the site map, the landed plan and the approved script.
+ */
+export type FactContextReply = FactContext;
+
+/** `POST …/iterations/fact-copy`: the parent copied from, the change, and its summary. */
+export type FactCopyBody = { parent: string; changeId: string; summary: string };

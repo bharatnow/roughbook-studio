@@ -55,6 +55,8 @@ export function parseUnderstand(body: Record<string, unknown>): ParsedUnderstand
     body: {
       words,
       mode: body.mode as UnderstandBody['mode'],
+      // Only a page with the fact sheet asks (U5): without it a fact reads as a change.
+      ...(body.facts === true ? { facts: true as const } : {}),
       ...(page === undefined ? {} : { page }),
       ...(component === undefined ? {} : { component }),
       ...(iteration === undefined ? {} : { iteration })

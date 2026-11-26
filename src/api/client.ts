@@ -12,6 +12,11 @@ import type {
   AssetScope,
   DeviceLogin,
   DoctorResultBody,
+  FactApplyReply,
+  FactContextReply,
+  FactCopyBody,
+  FactEdit,
+  FactReadReply,
   Heartbeat,
   IssuedInstall,
   LinkBody,
@@ -100,6 +105,8 @@ export type RequestsPage = { requests: RequestLine[]; next: string | null };
 export type UnderstandBody = {
   words: string;
   mode: 'new' | 'fork' | 'refine';
+  /** The page has the fact sheet (U5), so a change of a fact may be read as `fact`. */
+  facts?: true;
   page?: string;
   component?: string;
   iteration?: string;
@@ -108,7 +115,8 @@ export type UnderstandBody = {
 /** What the understand call answers, as @roughbook/ui's `Understanding`. */
 export type UnderstandReply = {
   read: boolean;
-  intent: 'make' | 'change' | 'judge' | 'ask' | 'instruct' | 'chat' | 'unclear';
+  /** `fact` only when the body said `facts: true`. */
+  intent: 'make' | 'change' | 'judge' | 'ask' | 'instruct' | 'chat' | 'unclear' | 'fact';
   target: { page: string; component: string | null; iteration: string | null } | null;
   targetName: string | null;
   directions: string[];
@@ -542,6 +550,50 @@ export class StudioApi {
   siteDraw(orgId: string, project: string, page?: string): Promise<SiteDrawView> {
     const query = page ? `?${new URLSearchParams({ page })}` : '';
     return this.request('GET', `${projectPath(orgId, project)}/site/draw${query}`);
+  }
+
+  /**
+   * A late fact change's words read into edits (ROUGHBOOK-FACT-CHANGE-PLAN.md, U5): the words the
+   * designer typed, with paths as stand-ins, and nothing from the repo.
+   */
+  readFacts(orgId: string, project: string, words: string): Promise<FactReadReply> {
+    return this.request('POST', `${projectPath(orgId, project)}/facts/read`, { words });
+  }
+
+  /** Applies the edits to the facts as a facts-only version: the edits and their summary alone. */
+  applyFacts(
+    orgId: string,
+    project: string,
+    edits: FactEdit[],
+    summary: string
+  ): Promise<FactApplyReply> {
+    return this.request('POST', `${projectPath(orgId, project)}/facts/apply`, {
+      edits: edits as unknown as JsonValue[],
+      summary
+    });
+  }
+
+  /** The fact index's input without files: pages, picks, the site map, the plan and the script. */
+  factContext(orgId: string, project: string): Promise<FactContextReply> {
+    return this.request('GET', `${projectPath(orgId, project)}/facts/context`);
+  }
+
+  /**
+   * A new local iteration record copied from a section's pick for a fact change: the parent's id,
+   * the change's id and its summary. No run and no quota; the studio writes its files.
+   */
+  factCopy(
+    orgId: string,
+    project: string,
+    page: string,
+    component: string,
+    body: FactCopyBody
+  ): Promise<{ iteration: string }> {
+    return this.request(
+      'POST',
+      `${componentPath(orgId, project, page, component)}/iterations/fact-copy`,
+      body
+    );
   }
 
   /** How doctor went on the repo this install linked: tokens and check ids, nothing from the repo. */

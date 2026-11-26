@@ -13,3 +13,5 @@ conformance/overlays
 release
 # Reproductions for upstream issues, each an app of its own (conformance/upstream/*/ISSUE.md).
 conformance/upstream
+# The backend's fact rules, copied verbatim by scripts/sync-facts.mjs and checked by src/facts/sync.test.ts.
+src/facts/vendor

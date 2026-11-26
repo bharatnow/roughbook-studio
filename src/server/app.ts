@@ -20,6 +20,7 @@ import {
   originAllowed,
   sameToken
 } from './security.js';
+import { changeFacts, factsSourceFor, readFactSheet, standingChanges, undoFacts } from './facts.js';
 import { forgetLearned, loadLearned } from './learned.js';
 import { planReadings } from './readings.js';
 import { deleteRequest, readRequests } from './requests.js';
@@ -273,6 +274,22 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('POST', '/api/understand', async request =>
       understandMessage(studio.requestsSource, await readBody(request))
     ),
+    // A late fact change (U5 of the fact-change plan): the words and the edits go, never a line or
+    // a path; the places are found and spliced in rough/ here, and the log is rough/.facts/.
+    route('POST', '/api/facts/read', async request =>
+      readFactSheet(factsSourceFor(studio), await readBody(request))
+    ),
+    route('POST', '/api/facts/change', async request => {
+      const done = await changeFacts(factsSourceFor(studio), await readBody(request));
+      studio.projectChanged();
+      return done;
+    }),
+    route('POST', '/api/facts/undo', async request => {
+      const done = await undoFacts(factsSourceFor(studio), await readBody(request));
+      studio.projectChanged();
+      return done;
+    }),
+    route('GET', '/api/facts/changes', () => standingChanges(studio)),
     // The project's record (C6 of the composer audit): a cursor or a line's id goes, nothing else.
     route('GET', '/api/requests', request =>
       readRequests(

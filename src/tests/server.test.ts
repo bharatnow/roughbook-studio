@@ -533,6 +533,19 @@ describe('the local server', () => {
     );
   });
 
+  it('serves the fact routes (U5), refusing what the backend would refuse in words', async () => {
+    const before = backend.requests.length;
+    const changes = await api('GET', '/api/facts/changes');
+    assert.equal(changes.status, 200);
+    assert.deepEqual(changes.json.data, []);
+    const read = await api('POST', '/api/facts/read', { words: '   ' });
+    assert.equal(read.status, 400);
+    assert.equal(read.json.message, 'Write the change first.');
+    assert.equal((await api('POST', '/api/facts/change', { edits: [] })).status, 400);
+    assert.equal((await api('POST', '/api/facts/undo', { changeIds: ['x'] })).status, 400);
+    assert.equal(backend.requests.length, before, 'nothing went to the backend');
+  });
+
   it("serves the linked project's and library's asset files to the dev server, once each", async () => {
     const before = backend.requests.length;
     const asset = (pathname: string) => raw(port, 'GET', pathname, { host: `127.0.0.1:${port}` });
