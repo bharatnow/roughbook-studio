@@ -290,6 +290,11 @@ export function findPlaces(
       }
       return statesWhole.get(key)!;
     };
+    /** Whether a place's section says the whole `old` surely, whatever else it says. */
+    const statesWholeHere = (place: Place) =>
+      (sections.get(sectionKey(place)) ?? []).some(
+        other => countFact(other.text, old) > 0 && !endsARange(other.text, old)
+      );
     for (const place of index.places) {
       if (countFact(place.text, old) > 0) {
         if (edit.kind === 'set' && endsARange(place.text, old)) {
@@ -336,6 +341,18 @@ export function findPlaces(
           usePart.new,
           true,
           `${said} beside "${anchors.join(' ')}" where ${subject} is named.`
+        );
+      // A line saying what stays the same, in a section that states the whole fact, is that fact
+      // however the subject was worded (U6b: "Of the food on each order, 18% is our commission",
+      // beside "Commission is 18% of the food", with the subject "Restaurant commission rate").
+      else if (anchored && statesWholeHere(place))
+        add(
+          place,
+          editIndex,
+          usePart.old,
+          usePart.new,
+          true,
+          `${said} beside "${anchors.join(' ')}", in a section that states "${old}".`
         );
       else
         add(
