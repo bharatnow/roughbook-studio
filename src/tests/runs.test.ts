@@ -166,6 +166,7 @@ describe('starting runs', () => {
       ...GENERATE,
       skills,
       screenshots: true,
+      treatmentsFile: true,
       family: 'react-like',
       entry: 'index.tsx'
     });
@@ -204,6 +205,7 @@ describe('starting runs', () => {
     assert.deepEqual(requests[0]!.body, {
       ...GENERATE,
       screenshots: true,
+      treatmentsFile: true,
       family: 'react-like',
       entry: 'index.tsx'
     });

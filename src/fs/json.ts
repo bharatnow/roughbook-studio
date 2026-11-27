@@ -30,9 +30,18 @@ export async function writeJsonAtomic(
   value: unknown,
   options: { mode?: number } = {}
 ): Promise<void> {
+  await writeTextAtomic(file, formatJson(value), options);
+}
+
+/** A text file written whole, as writeJsonAtomic writes JSON. */
+export async function writeTextAtomic(
+  file: string,
+  text: string,
+  options: { mode?: number } = {}
+): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
-  await writeFile(temp, formatJson(value), { mode: options.mode });
+  await writeFile(temp, text, { mode: options.mode });
   for (let attempt = 0; ; attempt++) {
     try {
       await rename(temp, file);

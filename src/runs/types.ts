@@ -65,6 +65,8 @@ export type StartRunRequest = {
   skills?: string[];
   /** This studio can take the iteration's screenshots, so its prompt says when to look. */
   screenshots?: boolean;
+  /** This studio writes rough/look/treatments.css, so the prompt may name it (parity T3). */
+  treatmentsFile?: boolean;
   /** The repo's family of checks and its entry file, from its environment (decision 23). */
   family?: Family;
   entry?: string;
@@ -135,6 +137,13 @@ export type StartedRun = {
     base?: string;
   };
   checks: Check[];
+  /**
+   * What the studio writes to rough/look/treatments.css on this start, the same for every run of
+   * it (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T3): the look's variables and the settled treatments, with
+   * a short hash of them; null to remove the file. A backend from before it leaves it out, and the
+   * file is left as it is.
+   */
+  treatments?: { css: string; version: string } | null;
 };
 
 /** A warning or failure, with the code the backend records and the sentence the designer reads. */

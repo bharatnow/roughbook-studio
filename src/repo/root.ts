@@ -9,6 +9,12 @@ export const ROUGH_DIR = 'rough';
 export const LINK_FILE = 'roughbook.json';
 /** Inside `rough/`: runs, snapshots and the outbox. Never committed. */
 export const STATE_DIR = '.roughbook';
+/**
+ * Inside `rough/`: the project's treatments with the look's variables they read, written whole by
+ * the studio on each start from the backend's answer (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T3). An
+ * iteration's entry imports it; no agent edits it.
+ */
+export const TREATMENTS_FILE = `${ROUGH_DIR}/look/treatments.css`;
 
 /** Whether `dir` is the home folder or one of its ancestors: never a repo the studio works in. */
 export function isHomeOrAbove(dir: string, home: string = os.homedir()): boolean {

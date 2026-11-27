@@ -2,10 +2,13 @@
 // the studio snapshots the repo, writes the slot and the prompt file, and hands the one-line
 // instruction to the agent. At Done it applies the backend's checks and its own, compares the
 // snapshot, and reports codes and counts through the outbox.
+import fs from 'node:fs';
+import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { Outbox } from '../api/outbox.js';
 import { localOrigin } from '../config/settings.js';
+import { writeTextAtomic } from '../fs/json.js';
 import {
   fillEnvironment,
   hasEnvironmentFile,
@@ -18,7 +21,7 @@ import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import { cleanStack, type RepoLink } from '../repo/link.js';
 import { syncIterations } from '../repo/mirror.js';
-import { ROUGH_DIR } from '../repo/root.js';
+import { ROUGH_DIR, TREATMENTS_FILE } from '../repo/root.js';
 import { copyAssets } from './assets.js';
 import {
   fillAppStandIns,
@@ -69,13 +72,41 @@ export type RunUsage = {
   cacheWriteTokens?: number | null;
 };
 
-/** The files a run may write: its folder, its prompt, and what the studio itself regenerates. */
+/**
+ * rough/look/treatments.css as a start's answer has it (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T3):
+ * written whole when its text changed, removed when the project has no treatment, and left as it
+ * is by a backend from before it. Only this one path inside rough/ is ever written.
+ */
+export async function writeTreatments(
+  repoRoot: string,
+  treatments: StartedRun['treatments']
+): Promise<void> {
+  if (treatments === undefined) return;
+  const file = path.join(repoRoot, ...TREATMENTS_FILE.split('/'));
+  if (treatments === null) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+  const text = `${treatments.css.replace(/\r\n?/g, '\n').trimEnd()}\n`;
+  let current: string | null = null;
+  try {
+    current = fs.readFileSync(file, 'utf8');
+  } catch {
+    current = null;
+  }
+  if (current !== text) await writeTextAtomic(file, text);
+}
+
+/**
+ * The files a run may write: its folder, its prompt, and what the studio itself regenerates,
+ * among them the treatments' stylesheet, which a later start may rewrite while this run is open.
+ */
 export function inScope(
   file: string,
   runs: Pick<RunRecord, 'targetFolder' | 'promptFile'>[],
   generated: string[] = []
 ): boolean {
-  if (generated.includes(file)) return true;
+  if (generated.includes(file) || file === TREATMENTS_FILE) return true;
   return runs.some(run => file.startsWith(`${run.targetFolder}/`) || file === run.promptFile);
 }
 
@@ -165,6 +196,7 @@ export async function startRuns(
     ...outbound,
     ...(link.skills?.length ? { skills: link.skills } : {}),
     screenshots: true,
+    treatmentsFile: true,
     family: environment.family,
     entry: environment.entry,
     ...(environment.assets.copy ? { assetsCopy: true } : {}),
@@ -187,6 +219,8 @@ export async function startRuns(
     paths
   );
 
+  // The treatments' stylesheet the prompts tell each entry to import, as the backend settled it.
+  await writeTreatments(repoRoot, started[0]?.treatments);
   options.beforeSlots?.(started);
   // Before the slots, so writing them counts as the runs' own change.
   await takeSnapshot(

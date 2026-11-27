@@ -10,7 +10,7 @@ import path from 'node:path';
 import type { RepoEnvironment } from '../environment/types.js';
 import { recipeOf } from '../recipes/index.js';
 import { ITERATION, SLUG, listIterations } from './iterations.js';
-import { ROUGH_DIR } from './root.js';
+import { ROUGH_DIR, TREATMENTS_FILE } from './root.js';
 
 /** At the mirror's root: the studio's mark, so it never empties a folder it did not make. */
 export const MIRROR_MARK = '.roughbook-mirror';
@@ -64,6 +64,21 @@ export function syncMirror(repoRoot: string, environment: RepoEnvironment): Mirr
   if (!fs.existsSync(mark)) fs.writeFileSync(mark, MARK_TEXT);
   let written = 0;
   let removed = 0;
+  // The treatments' stylesheet sits where an iteration's import finds it from the mirror too (T3).
+  const look = TREATMENTS_FILE.slice(ROUGH_DIR.length + 1);
+  const lookTo = path.join(mirror, ...look.split('/'));
+  const lookFrom = path.join(repoRoot, ...TREATMENTS_FILE.split('/'));
+  if (fs.existsSync(lookFrom)) {
+    const bytes = fs.readFileSync(lookFrom);
+    if (!fs.existsSync(lookTo) || !fs.readFileSync(lookTo).equals(bytes)) {
+      fs.mkdirSync(path.dirname(lookTo), { recursive: true });
+      fs.writeFileSync(lookTo, bytes);
+      written += 1;
+    }
+  } else if (fs.existsSync(lookTo)) {
+    fs.rmSync(lookTo, { force: true });
+    removed += 1;
+  }
   const keys = new Set(listIterations(repoRoot, environment.entry));
   for (const key of keys) {
     const source = path.join(repoRoot, ROUGH_DIR, ...key.split('/'));
