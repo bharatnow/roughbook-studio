@@ -15,3 +15,5 @@ release
 conformance/upstream
 # The backend's fact rules, copied verbatim by scripts/sync-facts.mjs and checked by src/facts/sync.test.ts.
 src/facts/vendor
+# The backend's house rules and technique library, copied by scripts/sync-rules.mjs and checked by src/rules/sync.test.ts.
+src/rules/vendor

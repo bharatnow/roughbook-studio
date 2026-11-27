@@ -296,11 +296,12 @@ terminal agent found, then the first editor.
 
 ## MCP
 
-`roughbook mcp` is an MCP server (stdio) with four tools, so an editor's agent finds a run and
+`roughbook mcp` is an MCP server (stdio) with five tools, so an editor's agent finds a run and
 finishes it itself: `list_runs` (the runs open in the repo), `get_prompt`, `get_checks` (what the
-iteration must pass, checked now, without finishing anything) and `finish_run` (Done: the checks,
+iteration must pass, checked now, without finishing anything), `finish_run` (Done: the checks,
 the files changed outside the run's folder, the screenshots and the report, with the warnings back
-to the agent). It reads and writes local files only and reports through the same client and outbox
+to the agent) and `technique` (the backend's technique library, copied into the studio: the list,
+one entry by name, or the best entries for a need). It reads and writes local files only and reports through the same client and outbox
 as `done`. It works out the repo from the folders the editor says it has open, else the folder it
 was started in, else the `repo` path the agent passes. Unattended runs end when their agent exits,
 so `finish_run` leaves them alone.
@@ -601,7 +602,7 @@ src/
   config/       sign-in, server address, the user config folder
   agents/       one adapter per coding agent: finding it, terminal sessions, unattended runs
   launch/       everything that differs by OS: terminals, opening a browser, naming the OS
-  mcp/          the MCP server: the protocol, the four tools, and adding it to editors
+  mcp/          the MCP server: the protocol, the five tools, and adding it to editors
   screenshot/   one headless Chrome, Chromium or Edge kept for the session, at every viewport and variant
   runs/         local runs: slots and prompt files, the checks, snapshots and revert, the watcher,
                 review decisions, sketch pulls, and promotion

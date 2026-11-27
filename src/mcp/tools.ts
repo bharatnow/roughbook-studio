@@ -1,6 +1,7 @@
-// The four tools an agent calls: list_runs, get_prompt, get_checks and finish_run. They read and
-// write local files only, and finish_run reports through the same client and outbox as
-// `roughbook done`, so nothing here sends more than the CLI does.
+// The five tools an agent calls: list_runs, get_prompt, get_checks, finish_run and technique. They
+// read and write local files only, and finish_run reports through the same client and outbox as
+// `roughbook done`, so nothing here sends more than the CLI does. technique answers from the
+// backend's technique library, copied into src/rules/vendor/, as the web's tool answers.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,10 +25,13 @@ import { skeletonName, type LookScreen } from '../runs/lookScreen.js';
 import { unnamedButtonIn } from '../runs/nativeFloor.js';
 import { finishingSection } from '../runs/slots.js';
 import { listRuns, namesRun } from '../runs/store.js';
+import { FLOORS, houseRule } from '../rules/vendor/houseRules.js';
+import { TECHNIQUES } from '../rules/vendor/techniques/index.js';
+import { techniqueAnswer } from '../rules/vendor/technique.js';
 import type { Check, RunRecord } from '../runs/types.js';
 import type { Tool, ToolCall } from './server.js';
 
-export const INSTRUCTIONS = `Roughbook design iterations, made in the designer's own repo. The designer starts a run with roughbook run or the Roughbook studio; each run has a prompt file under rough/ and one folder to write in. list_runs shows the open runs. get_prompt gives a run's instructions: follow them, writing only inside the run's folder. get_checks says what the iteration must pass and whether it passes now. finish_run finishes the run once it is ready. When the server cannot tell which repo you have open, pass repo: its absolute path.`;
+export const INSTRUCTIONS = `Roughbook design iterations, made in the designer's own repo. The designer starts a run with roughbook run or the Roughbook studio; each run has a prompt file under rough/ and one folder to write in. list_runs shows the open runs. get_prompt gives a run's instructions: follow them, writing only inside the run's folder. get_checks says what the iteration must pass and whether it passes now. finish_run finishes the run once it is ready. technique gives a tested recipe for an expressive effect, to adapt with what the app already has. When the server cannot tell which repo you have open, pass repo: its absolute path.`;
 
 const REPO = {
   type: 'string',
@@ -200,9 +204,29 @@ export function describeCheck(check: Check, run: RunRecord): string {
         .join(
           ', '
         )}. One the scan is sure of fails the check until it is gone; Product UI and an unsure reading are warnings.`;
+    // The house rules (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T1).
+    case 'house':
+      return describeHouse(check.lifted);
     default:
       return `A check this studio does not know yet (${(check as { kind: string }).kind}); update the studio to read it.`;
   }
+}
+
+/**
+ * The house check in words: the floors, which a scan checks where it can and which fail, the
+ * defaults it sees, which warn, and those the designer's own words lifted.
+ */
+export function describeHouse(lifted: string[]): string {
+  const said = (id: string) => houseRule(id)?.text.replace(/\.$/, '') ?? id;
+  // The critic's own tells are the critic's (lookCritic.ts); the prompt never names them either.
+  const asked = lifted.filter(id => !id.startsWith('critic:'));
+  return [
+    `The house rules. ${FLOORS.length} floors hold whatever the direction and are never lifted, as the prompt's <rules> opens with them; a scan checks that every animation has a reduced-motion path and every translucent surface an opaque version, and each one missing fails the check until it is fixed.`,
+    'The defaults it can see are warnings: a section sized to the window (min-h-screen, h-screen or 100vh), motion over 300 ms, motion tied to scroll, and decorative glass.',
+    asked.length
+      ? `Lifted by the designer's own words, so never a finding from any check: ${asked.map(said).join('; ')}.`
+      : "None is lifted: only the designer's own words in the brief or the run's instructions lift a default."
+  ].join(' ');
 }
 
 /**
@@ -304,7 +328,7 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     name: 'get_checks',
     title: 'Check a Roughbook iteration',
     description:
-      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, app files importing from rough/, a first-screen run's working first screen, and the repo's accessibility audit when rough/environment.md names one (warnings only). Fix what fails, then call finish_run.",
+      "Says what a run's iteration must pass and checks it now, without finishing the run: its entry file, the approved headline, changes from its parent, files changed outside its folder, app files importing from rough/, a first-screen run's working first screen, the house rules (a floor fails, a default warns unless the designer lifted it), and the repo's accessibility audit when rough/environment.md names one (warnings only). Fix what fails, then call finish_run.",
     inputSchema: {
       type: 'object',
       properties: { run: RUN, repo: REPO },
@@ -559,5 +583,34 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     });
   }
 
-  return [listRunsTool, getPrompt, getChecks, finishRun];
+  return [listRunsTool, getPrompt, getChecks, finishRun, techniqueTool];
 }
+
+/**
+ * The technique library (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T2): the list, one entry by name, or the
+ * best entries for a need, answered by the web's own techniqueAnswer, copied from the backend. It
+ * reads code data only, so it needs no repo and no run. A name that matches nothing is an error,
+ * with the list, as on the web.
+ */
+export const techniqueTool: Tool = {
+  name: 'technique',
+  title: 'Find a Roughbook technique',
+  description: `The technique library: ${TECHNIQUES.length} tested recipes for expressive effects (glass, clay, tactile, hard shadow, bento, editorial, 3D, shaders, scroll, view transitions, type, micro-interactions, mesh and grain, video, Rive, Lottie) with code, the packages they need, floors and checks. No input lists them; name returns one; need (free words) returns the best matches. Start from an entry and adapt it to the look and to the app: use its own components, tokens and the libraries it already has, install nothing, and name a missing library when you finish so the designer can add it.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'An entry id or name.' },
+      need: { type: 'string', description: 'What you need, e.g. "glass header over video".' }
+    },
+    additionalProperties: false
+  },
+  annotations: { readOnlyHint: true, openWorldHint: false },
+  async call(args) {
+    const answer = techniqueAnswer({
+      name: text(args.name, 'name'),
+      need: text(args.need, 'need')
+    });
+    if (answer.isError) throw new Error(answer.content);
+    return answer.content;
+  }
+};

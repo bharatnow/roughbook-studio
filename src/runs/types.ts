@@ -28,7 +28,15 @@ export type Check =
    * avoided medium the scan is sure of fails the check until the agent fixes it; Product UI, a
    * less certain reading, and Illustration under the type picture style are warnings.
    */
-  | { kind: 'media-avoided'; media: MediaStance[]; pictureStyle: ImageryStance | null };
+  | { kind: 'media-avoided'; media: MediaStance[]; pictureStyle: ImageryStance | null }
+  /**
+   * The house rules (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T1; the backend's houseChecks.ts, copied into
+   * src/rules/vendor/): a floor a scan can see (a reduced-motion path, an opaque version of a
+   * translucent surface) fails the check until the agent fixes it and is never lifted; a default
+   * it can see is a warning. `lifted`: the default ids the designer's own words lifted, whose
+   * findings from every check are dropped.
+   */
+  | { kind: 'house'; lifted: string[] };
 
 /** `pull`: a web sketch ported into the repo's stack by the agent (F7 of the frameworks plan). */
 export type RunKind = 'generate' | 'fork' | 'refine' | 'pull';

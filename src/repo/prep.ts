@@ -107,6 +107,22 @@ Rules for any agent working here:
   scrolls sideways.
 - Every control has its states: a visible focus ring, hover, selected, and an
   empty and an error state that say in words what happened.
+- Floors hold in every run, whatever the direction, and nothing switches one
+  off: at 390 px nothing scrolls sideways and the main action is reachable;
+  every animation has a reduced-motion version and every translucent surface an
+  opaque one; text a person must read meets contrast against what is really
+  behind it; nothing a person must read starts hidden; every control works by
+  keyboard, with a visible focus ring; and the iteration loads nothing from
+  another site that the app does not already load, and reads no secret.
+- Defaults hold until the designer's own words lift them: the brief, a
+  direction they wrote, or the run's instructions. The run's prompt names each
+  default its designer lifted; nothing else lifts one, and nothing lifts a
+  floor. The motion and first-screen rules below are defaults, and so are no
+  section sized to the window (min-h-screen, h-screen, 100vh) and the model
+  defaults the prompt lists.
+- For an expressive effect, call the technique tool (the roughbook MCP tool)
+  and start from its entry, with what the app already has. Install nothing:
+  name a library it needs that the app lacks when you finish.
 - Motion shows what changed when the way in is used: transform and opacity
   only, for 150 to 300 ms, scaled by the design system's motion level. At the
   level none the change is highlighted instead of moved, and under

@@ -194,6 +194,24 @@ describe('preparing a repo', () => {
       /No first-screen content enters with motion on load\. A frame or a drawing may,\n {2}for at most 300 ms, and never starting from opacity 0\./
     );
     assert.match(agents, /run get_checks \(the roughbook MCP tool\)[^]*fix every failure it names/);
+    // Which rules are floors, never switched off, and which are defaults, lifted only by the
+    // designer's own words (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T1); the technique tool, with
+    // nothing installed (T2).
+    assert.match(
+      agents,
+      /- Floors hold in every run, whatever the direction, and nothing switches one\n {2}off/
+    );
+    assert.match(
+      agents,
+      /every animation has a reduced-motion version and every translucent surface an\n {2}opaque one/
+    );
+    assert.match(
+      agents,
+      /- Defaults hold until the designer's own words lift them: the brief, a\n {2}direction they wrote, or the run's instructions\./
+    );
+    assert.match(agents, /nothing lifts a\n {2}floor\./);
+    assert.match(agents, /section sized to the window \(min-h-screen, h-screen, 100vh\)/);
+    assert.match(agents, /call the technique tool \(the roughbook MCP tool\)[^]*Install nothing/);
     // The real things are said once, and the file holds no project's data.
     assert.equal(agents.match(/never invented ones/g)?.length, 1);
     assert.doesNotMatch(agents, /search-first|list-first|Dishpatch/);

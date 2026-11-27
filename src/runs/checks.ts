@@ -10,7 +10,8 @@ import { fromTheApp, readBase, sameHash, sameText } from './base.js';
 import { craftFloorFindings } from './craftFloor.js';
 import { detectorFindings } from './detector.js';
 import { nativeFloorFindings, unescapeNative } from './nativeFloor.js';
-import { lookScreenFindings, mediaAvoidFindings } from './lookScreen.js';
+import { houseFindings, liftFindings } from '../rules/vendor/houseChecks.js';
+import { lookScreenFindings, mediaAvoidFindings, type ScreenFinding } from './lookScreen.js';
 import { isPlaceholder } from './placeholder.js';
 import type { Check, Finding } from './types.js';
 
@@ -127,21 +128,32 @@ export function applyChecks(checks: Check[], subject: CheckSubject): CheckOutcom
     if (check.kind === 'detector') warnings.push(...detectorFindings(files, check));
     if (check.kind === 'native-floor') warnings.push(...nativeFloorFindings(files, check.family));
   }
-  // The look-screen check last, as the backend runs it, and a section's media check with it (V5).
-  // A finding either marks as blocking fails the check, so the agent fixes it before finishing:
-  // the studio's version of the web sending a sketch back. The first is the failure; the rest
-  // follow the other warnings, so get_checks lists them all at once.
-  const screen = checks.flatMap(check =>
+  // The look-screen check last, as the backend runs it, and a section's media check with it (V5),
+  // then the house rules' scan (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T1). A finding any of them marks
+  // as blocking (the house rules' floors among them) fails the check, so the agent fixes it before
+  // finishing: the studio's version of the web sending a sketch back. The first is the failure;
+  // the rest follow the other warnings, so get_checks lists them all at once.
+  const screen: ScreenFinding[] = checks.flatMap(check =>
     check.kind === 'look-screen'
       ? lookScreenFindings(files, check.screen)
       : check.kind === 'media-avoided'
         ? mediaAvoidFindings(files, check.media, check.pictureStyle)
-        : []
+        : check.kind === 'house'
+          ? houseFindings(files)
+          : []
   );
+  // A default the designer's own words lifted is never a finding, from any check; a floor's
+  // always is (the backend's checkFindings, SP1).
+  const house = checks.find(
+    (check): check is Extract<Check, { kind: 'house' }> => check.kind === 'house'
+  );
+  const kept = <T extends Finding>(items: T[]): T[] =>
+    house ? (liftFindings(items, house.lifted) as T[]) : items;
   const finding = ({ code, message }: Finding): Finding => ({ code, message });
-  const [failure, ...rest] = screen.filter(item => item.blocks).map(finding);
-  const after = [...screen.filter(item => !item.blocks).map(finding), ...rest];
-  return { failure: failure ?? null, warnings: [...warnings, ...after] };
+  const held = kept(screen);
+  const [failure, ...rest] = held.filter(item => item.blocks).map(finding);
+  const after = [...held.filter(item => !item.blocks).map(finding), ...rest];
+  return { failure: failure ?? null, warnings: [...kept(warnings), ...after] };
 }
 
 /** A child starts as a copy of its parent, so "the entry file exists" proves nothing about it. */

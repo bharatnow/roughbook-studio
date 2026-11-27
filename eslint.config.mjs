@@ -17,7 +17,9 @@ export default [
       // A reproduction for an upstream issue, with its own package.json; not the studio's code.
       'conformance/upstream/**',
       // The backend's fact rules, copied verbatim by scripts/sync-facts.mjs; linted there.
-      'src/facts/vendor/**'
+      'src/facts/vendor/**',
+      // The backend's house rules and technique library, copied by scripts/sync-rules.mjs.
+      'src/rules/vendor/**'
     ]
   },
   js.configs.recommended,
