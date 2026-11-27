@@ -889,3 +889,43 @@ describe('outbound requests: a late fact change (U5 of the fact-change plan)', (
     });
   });
 });
+
+describe('outbound requests: an asset from the web (T5 of the parity plan)', () => {
+  it('sends the address and the agent words, and takes the bytes from the backend', async () => {
+    const { assetRun, ASSET } = await import('./assetRun.js');
+    const files = {
+      'rough/home/hero/iteration-03/index.tsx': ITERATION_SOURCE,
+      'src-stray.ts': STRAY_EDIT,
+      'package.json': '{ "name": "client-app-private" }\n'
+    };
+    const { repo, root, backend, fetchAsset } = await assetRun({ files });
+    await fetchAsset({ action: 'list' });
+    await fetchAsset({ action: 'get', asset: ASSET });
+    await fetchAsset({
+      action: 'propose',
+      url: 'https://models.example.org/chair.glb',
+      reason: 'The product in the hero',
+      licence: 'CC0'
+    });
+    assert.deepEqual(
+      backend.requests.map(request => request.body).filter(body => body !== null),
+      [
+        {
+          url: 'https://models.example.org/chair.glb',
+          reason: 'The product in the hero',
+          licence: 'CC0'
+        }
+      ]
+    );
+    // Every request goes to the backend; none to the asset's source.
+    assert.ok(
+      backend.requests.every(request => request.url.startsWith('https://api.example.test/'))
+    );
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 5
+    });
+  });
+});

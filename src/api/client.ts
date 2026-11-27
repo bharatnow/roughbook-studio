@@ -35,6 +35,7 @@ import type {
   StillsRead,
   StoredPicture
 } from './types.js';
+import type { RunWebAssets, WebAssetProposal, WebAssetView } from './webAssets.js';
 
 /** Where the backend serves the studio's routes. */
 export const STUDIO_BASE = '/v1/api/studio';
@@ -423,6 +424,35 @@ export class StudioApi {
     throw await readError(response);
   }
 
+  /**
+   * The project's confirmed web assets, for an open run of this install (parity plan, T5), with
+   * the rules the run is held to.
+   */
+  runWebAssets(orgId: string, runId: string): Promise<RunWebAssets> {
+    return this.request('GET', runAssetsPath(orgId, runId));
+  }
+
+  /**
+   * A run's proposal of a web asset: the address and the agent's words alone. The backend checks
+   * it and fetches nothing until the maker confirms it.
+   */
+  proposeWebAsset(orgId: string, runId: string, body: WebAssetProposal): Promise<WebAssetView> {
+    return this.request('POST', runAssetsPath(orgId, runId), body);
+  }
+
+  /** A confirmed web asset's bytes, from the backend, which fetched them through its guard. */
+  async webAssetFile(orgId: string, runId: string, assetId: string): Promise<Buffer> {
+    const response = await this.send(
+      'GET',
+      `${runAssetsPath(orgId, runId)}/${encodeURIComponent(assetId)}/file`,
+      undefined,
+      {},
+      '*/*'
+    );
+    if (response.ok) return Buffer.from(await response.arrayBuffer());
+    throw await readError(response);
+  }
+
   /** The project's full-height stills: signed links to its web sketches' pictures, with sizes. */
   stills(orgId: string, project: string): Promise<StillsRead> {
     return this.request('GET', `${projectPath(orgId, project)}/stills`);
@@ -657,6 +687,10 @@ function isImage(body: RequestBody | ImageBody | undefined): body is ImageBody {
 
 function projectPath(orgId: string, project: string): string {
   return `/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(project)}`;
+}
+
+function runAssetsPath(orgId: string, runId: string): string {
+  return `/orgs/${encodeURIComponent(orgId)}/runs/${encodeURIComponent(runId)}/web-assets`;
 }
 
 function pagePath(orgId: string, project: string, page: string): string {

@@ -18,7 +18,7 @@ describe('the technique tool', () => {
     const tools = studioTools({} as CommandContext, { devUrl: 'http://localhost:3000' });
     assert.deepEqual(
       tools.map(tool => tool.name),
-      ['list_runs', 'get_prompt', 'get_checks', 'finish_run', 'technique']
+      ['list_runs', 'get_prompt', 'get_checks', 'finish_run', 'technique', 'fetch_asset']
     );
     assert.match(techniqueTool.description, new RegExp(`${TECHNIQUES.length} tested recipes`));
     assert.match(techniqueTool.description, /install nothing/);

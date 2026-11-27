@@ -1,11 +1,15 @@
-// The five tools an agent calls: list_runs, get_prompt, get_checks, finish_run and technique. They
-// read and write local files only, and finish_run reports through the same client and outbox as
-// `roughbook done`, so nothing here sends more than the CLI does. technique answers from the
-// backend's technique library, copied into src/rules/vendor/, as the web's tool answers.
+// The six tools an agent calls: list_runs, get_prompt, get_checks, finish_run, technique and
+// fetch_asset. They read and write local files only, and finish_run reports through the same client
+// and outbox as `roughbook done`, so nothing here sends more than the CLI does. technique answers
+// from the backend's technique library, copied into src/rules/vendor/, as the web's tool answers.
+// fetch_asset sends a web address and the agent's words, never a file, and writes the confirmed
+// bytes the backend fetched into the run's own folder.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ApiError, OfflineError, describeError } from '../api/errors.js';
 import { outboxFor } from '../api/outbox.js';
+import type { WebAssetView } from '../api/webAssets.js';
 import { finishWithScreenshots } from '../commands/done.js';
 import { requireApi, type CommandContext } from '../commands/context.js';
 import { finishPromotionHere } from '../commands/finishPromotion.js';
@@ -25,13 +29,14 @@ import { skeletonName, type LookScreen } from '../runs/lookScreen.js';
 import { unnamedButtonIn } from '../runs/nativeFloor.js';
 import { finishingSection } from '../runs/slots.js';
 import { listRuns, namesRun } from '../runs/store.js';
+import { writeWebAsset } from '../runs/webAsset.js';
 import { FLOORS, houseRule } from '../rules/vendor/houseRules.js';
 import { TECHNIQUES } from '../rules/vendor/techniques/index.js';
 import { techniqueAnswer } from '../rules/vendor/technique.js';
 import type { Check, RunRecord } from '../runs/types.js';
 import type { Tool, ToolCall } from './server.js';
 
-export const INSTRUCTIONS = `Roughbook design iterations, made in the designer's own repo. The designer starts a run with roughbook run or the Roughbook studio; each run has a prompt file under rough/ and one folder to write in. list_runs shows the open runs. get_prompt gives a run's instructions: follow them, writing only inside the run's folder. get_checks says what the iteration must pass and whether it passes now. finish_run finishes the run once it is ready. technique gives a tested recipe for an expressive effect, to adapt with what the app already has. When the server cannot tell which repo you have open, pass repo: its absolute path.`;
+export const INSTRUCTIONS = `Roughbook design iterations, made in the designer's own repo. The designer starts a run with roughbook run or the Roughbook studio; each run has a prompt file under rough/ and one folder to write in. list_runs shows the open runs. get_prompt gives a run's instructions: follow them, writing only inside the run's folder. get_checks says what the iteration must pass and whether it passes now. finish_run finishes the run once it is ready. technique gives a tested recipe for an expressive effect, to adapt with what the app already has. fetch_asset copies a web asset the designer confirmed into the run's folder, or proposes one. When the server cannot tell which repo you have open, pass repo: its absolute path.`;
 
 const REPO = {
   type: 'string',
@@ -583,8 +588,135 @@ export function studioTools(context: CommandContext, options: { devUrl: string }
     });
   }
 
-  return [listRunsTool, getPrompt, getChecks, finishRun, techniqueTool];
+  /**
+   * Assets from the web (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T5): the web's fetch_asset for a run in
+   * this repo. The backend fetches through its own guard once the designer confirms; the studio
+   * copies the confirmed bytes from the backend into the run's folder, never from the source.
+   */
+  const fetchAsset: Tool = {
+    name: 'fetch_asset',
+    title: "Fetch a web asset into a Roughbook run's folder",
+    description: FETCH_ASSET_DESCRIPTION,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'get', 'propose'] },
+        asset: { type: 'string', description: 'get: the asset id from list, or its source URL' },
+        url: { type: 'string', description: 'propose: the https URL of the file itself' },
+        reason: { type: 'string', description: 'propose: what the page uses it for' },
+        licence: { type: 'string', description: 'propose: its licence, e.g. OFL-1.1, CC0' },
+        run: RUN,
+        repo: REPO
+      },
+      required: ['action'],
+      additionalProperties: false
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    },
+    async call(args, call) {
+      const action = text(args.action, 'action');
+      if (action !== 'list' && action !== 'get' && action !== 'propose') {
+        throw new Error(
+          'fetch_asset takes {"action":"list"}, {"action":"get","asset"} or {"action":"propose","url","reason","licence"}.'
+        );
+      }
+      const repos = await reposFor(context, text(args.repo, 'repo'), call);
+      const { repoRoot, run } = await findRun(repos, text(args.run, 'run'));
+      if (run.status !== 'started') {
+        throw new Error(`${label(run)} is finished: assets are copied only into an open run.`);
+      }
+      const api = await requireApi({ ...context, repoRoot });
+      const copy = async (asset: WebAssetView) => {
+        const bytes = await api.webAssetFile(run.orgId, run.runId, asset.id);
+        const written = writeWebAsset(repoRoot, run.targetFolder, asset, bytes);
+        return json({
+          run: run.runId,
+          asset: asset.id,
+          file: written.file,
+          import: written.importPath,
+          contentType: asset.contentType,
+          size: bytes.length,
+          licence: asset.licence,
+          licenceFrom: asset.licenceFrom,
+          source: asset.sourceUrl,
+          attribution: `${asset.fileName}: ${asset.licence}, from ${asset.sourceUrl}`,
+          next: `Use it as ${written.importPath} from the entry file in ${run.targetFolder}, never from ${asset.sourceUrl}. Keep the attribution beside it where the licence asks for credit.`
+        });
+      };
+      try {
+        if (action === 'propose') {
+          const proposal = {
+            url: text(args.url, 'url') ?? '',
+            reason: text(args.reason, 'reason') ?? '',
+            licence: text(args.licence, 'licence') ?? ''
+          };
+          const missing = Object.entries(proposal).filter(([, value]) => !value);
+          if (missing.length) {
+            throw new Error(`propose needs ${missing.map(([name]) => name).join(', ')}.`);
+          }
+          const asset = await api.proposeWebAsset(run.orgId, run.runId, proposal);
+          if (asset.status === 'confirmed') return await copy(asset);
+          return json({
+            run: run.runId,
+            asset: asset.id,
+            status: asset.status,
+            next: 'Proposed to the designer. It is not in the project and cannot be used until they confirm it in Roughbook, which fetches it then; ask them, then call fetch_asset get with this asset, or carry on without it.'
+          });
+        }
+        const { confirmed, rules } = await api.runWebAssets(run.orgId, run.runId);
+        if (action === 'list') {
+          return json({
+            run: run.runId,
+            confirmed: confirmed.map(asset => ({
+              asset: asset.id,
+              file: asset.fileName,
+              contentType: asset.contentType,
+              size: asset.size,
+              licence: asset.licence,
+              source: asset.sourceUrl
+            })),
+            rules,
+            next: confirmed.length
+              ? `Copy one into ${run.targetFolder} with fetch_asset get and its asset id; use only that copy.`
+              : 'The project has no confirmed web assets. propose one, or carry on without it.'
+          });
+        }
+        const named = text(args.asset, 'asset');
+        if (!named) throw new Error('get needs asset: an id from fetch_asset list.');
+        const asset = confirmed.find(
+          item => item.id === named || item.sourceUrl === named || item.fileName === named
+        );
+        if (!asset) {
+          throw new Error(
+            `No confirmed asset matches ${named}. fetch_asset list shows the confirmed ones; a proposal is usable once the designer confirms it.`
+          );
+        }
+        return await copy(asset);
+      } catch (error) {
+        if (error instanceof ApiError || error instanceof OfflineError) {
+          throw new Error(`${describeError(error)} Carry on without it.`);
+        }
+        throw error;
+      }
+    }
+  };
+
+  return [listRunsTool, getPrompt, getChecks, finishRun, techniqueTool, fetchAsset];
 }
+
+/** Said as the web's fetch_asset says it, for a run whose copy lives in its own folder. */
+const FETCH_ASSET_DESCRIPTION =
+  "The project's assets from the web: fonts (woff2), 3D (glb, gltf, hdr, ktx2), images (png, jpg, " +
+  'webp, avif), Rive, Lottie, Spline and video (mp4, webm). `list` gives the confirmed ones with ' +
+  "their id and licence. `get` copies a confirmed one into the run's folder, under assets/, and " +
+  'answers the path to import it by and its attribution; use only that copy, never the source ' +
+  'site. `propose` asks the designer to add one by https URL, with why and its licence; Roughbook ' +
+  'fetches it only once the designer confirms it, so carry on without it until then. No logos or ' +
+  'brand art of other companies; no images of people presented as real.';
 
 /**
  * The technique library (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T2): the list, one entry by name, or the

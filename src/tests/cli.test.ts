@@ -102,7 +102,7 @@ describe('the command line', () => {
     assert.equal(answers[0].result.serverInfo.version, version);
     assert.deepEqual(
       answers[1].result.tools.map((tool: { name: string }) => tool.name),
-      ['list_runs', 'get_prompt', 'get_checks', 'finish_run', 'technique']
+      ['list_runs', 'get_prompt', 'get_checks', 'finish_run', 'technique', 'fetch_asset']
     );
     const listed = JSON.parse(answers[2].result.content[0].text);
     assert.deepEqual(
