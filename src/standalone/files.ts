@@ -34,7 +34,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.wav': 'audio/wav',
   '.pdf': 'application/pdf',
   '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json'
+  '.gltf': 'model/gltf+json',
+  '.wasm': 'application/wasm'
 };
 
 /** The content type a file is served with, or null for a file the server does not hand out. */

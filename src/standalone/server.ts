@@ -35,6 +35,7 @@ import {
   standalonePage,
   variantOf
 } from './page.js';
+import { RUNTIME_PATH, runtimeFile } from './runtimes.js';
 import type { ComposeSection, PageFile } from './types.js';
 
 /** The query parameter that carries the token in a preview's address. */
@@ -386,6 +387,13 @@ export function createStandaloneHandler(options: StandaloneOptions): StandaloneH
     sendFile(response, found.type, fs.readFileSync(found.file), head);
   }
 
+  /** Rive's and dotLottie's WebAssembly, from the repo's own node_modules (runtimes.ts). */
+  function runtime(response: ServerResponse, url: URL, head: boolean): void {
+    const file = runtimeFile(options.repoRoot, url.pathname.slice(RUNTIME_PATH.length));
+    if (!file) return text(response, 404, 'Not found.');
+    sendFile(response, contentType(file)!, fs.readFileSync(file), head);
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (!options.hosts.includes(request.headers.host ?? '')) {
       return text(response, 403, 'Not this host.');
@@ -402,6 +410,7 @@ export function createStandaloneHandler(options: StandaloneOptions): StandaloneH
       );
     }
     const head = request.method === 'HEAD';
+    if (url.pathname.startsWith(RUNTIME_PATH)) return runtime(response, url, head);
     if (url.pathname.startsWith(PREFIX)) return preview(response, url, head);
     publicFile(response, url, head);
   }

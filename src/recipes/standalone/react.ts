@@ -10,6 +10,7 @@ import path from 'node:path';
 import type { BuildFailure, Loader, Message } from 'esbuild';
 import { contentType } from '../../standalone/files.js';
 import { FILES_DIR } from '../../standalone/page.js';
+import { wasmRuntimes } from '../../standalone/runtimes.js';
 import type { ComposeSection, PageFile, StandaloneRenderer } from '../../standalone/types.js';
 import { MARKER_ELEMENT, SECTION_ATTRIBUTE } from '../context.js';
 
@@ -178,6 +179,8 @@ async function bundled(input: {
       target: 'es2020',
       jsx: 'automatic',
       loader: ASSETS,
+      // Rive's and dotLottie's WebAssembly from this server, never their CDN (runtimes.ts).
+      plugins: [wasmRuntimes()],
       define: { 'process.env.NODE_ENV': '"development"' },
       logLevel: 'silent',
       charset: 'utf8'
