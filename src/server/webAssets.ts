@@ -1,6 +1,7 @@
 // The local UI's Assets screen (ROUGHBOOK-STUDIO-PARITY-PLAN.md, after T5): `GET /api/web-assets`
 // reads the project's confirmed files and the runs' proposals waiting for the maker, and
-// `POST /api/web-assets/:id/confirm` or `/reject` answers one. Only the asset's id and the licence
+// `POST /api/web-assets/:id/confirm` or `/reject` answers one; `/remove` takes a confirmed file out
+// of the project. Only the asset's id and the licence
 // the maker typed go to the backend, which fetches the file through its own guard; this machine
 // never opens the source address, and nothing is kept here.
 import type { StudioApi } from '../api/client.js';
@@ -65,6 +66,17 @@ export async function confirmWebAsset(
     asset,
     licence === undefined ? {} : { licence }
   );
+}
+
+/** Remove a confirmed file; the backend's 404 (`WEB_ASSET_NOT_FOUND`) passes on in words. */
+export async function removeWebAsset(
+  { api, link }: WebAssetsSource,
+  id: unknown
+): Promise<{ removed: true }> {
+  if (typeof id !== 'string' || !ASSET_ID.test(id)) {
+    throw new BadRequest('That is not a file in the project.');
+  }
+  return api.removeWebAsset(link.orgId, link.project, id);
 }
 
 /** Decline: nothing is fetched. */

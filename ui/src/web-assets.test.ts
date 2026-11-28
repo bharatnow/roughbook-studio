@@ -14,6 +14,9 @@ import {
   declineAsset,
   licenceText,
   rejectPath,
+  removeAsset,
+  removePath,
+  removeQuestion,
   sizeText,
   type RowAnswer,
   type WebAsset,
@@ -101,6 +104,7 @@ describe("the Assets screen's words", () => {
     assert.deepEqual(confirmBody('   '), {});
     assert.equal(confirmPath(PENDING), `/api/web-assets/${PENDING.id}/confirm`);
     assert.equal(rejectPath({ id: 'a/b' }), '/api/web-assets/a%2Fb/reject');
+    assert.equal(removePath({ id: 'a/b' }), '/api/web-assets/a%2Fb/remove');
   });
 
   it('keeps an answer whose row is gone, and drops one whose row is listed', () => {
@@ -115,6 +119,20 @@ describe("the Assets screen's words", () => {
     assert.deepEqual(answersWithoutRows(answers, { pending: [], confirmed: [CONFIRMED] }), [
       answers[PENDING.id]
     ]);
+  });
+
+  it('keeps a removed file’s answer for its own section', () => {
+    const answers: Record<string, RowAnswer> = {
+      [CONFIRMED.id]: {
+        ok: true,
+        message: 'Removed.',
+        sourceUrl: CONFIRMED.sourceUrl,
+        section: 'project'
+      }
+    };
+    const none = { pending: [], confirmed: [] };
+    assert.deepEqual(answersWithoutRows(answers, none), []);
+    assert.deepEqual(answersWithoutRows(answers, none, 'project'), [answers[CONFIRMED.id]]);
   });
 });
 
@@ -141,6 +159,23 @@ describe('Confirm and Decline through the local server', () => {
       { method: 'POST', url: confirmPath(PENDING), body: { licence: 'CC-BY-4.0' } },
       { method: 'POST', url: rejectPath(PENDING), body: {} }
     ]);
+  });
+
+  it('removes with an empty body and says so, or says the refusal', async () => {
+    const calls = localServer(() => ({ status: 200, json: { ok: true, data: { removed: true } } }));
+    assert.deepEqual(await removeAsset(CONFIRMED), {
+      ok: true,
+      message: 'Removed. inter.woff2 is no longer in the project.'
+    });
+    assert.deepEqual(calls, [{ method: 'POST', url: removePath(CONFIRMED), body: {} }]);
+    localServer(() => ({
+      status: 404,
+      json: { ok: false, error: 'WEB_ASSET_NOT_FOUND', message: 'That file is not in the project.' }
+    }));
+    assert.deepEqual(await removeAsset(CONFIRMED), {
+      ok: false,
+      message: 'That file is not in the project.'
+    });
   });
 
   it('says the refusal in the backend’s words', async () => {
@@ -208,6 +243,57 @@ describe('the Assets lists', () => {
     assert.match(html, /chair\.glb: Declined\. Nothing was fetched\./);
     assert.doesNotMatch(html, /In the project/);
     assert.doesNotMatch(html, />Confirm</);
+  });
+
+  it('offers Remove on confirmed files only', async () => {
+    const html = await render({ assets: { pending: [PENDING], confirmed: [CONFIRMED] } });
+    assert.equal(html.match(/>Remove</g)?.length, 1);
+    assert.ok(html.indexOf('>Remove<') > html.indexOf('In the project'));
+    const waiting = await render({ assets: { pending: [PENDING], confirmed: [] } });
+    assert.doesNotMatch(waiting, />Remove</);
+  });
+
+  it('asks in place before removing, with Remove and Cancel and no Undo', async () => {
+    (globalThis as { React?: typeof React }).React = React;
+    const { ConfirmedFile } = await import('./screens/assets.tsx');
+    const html = renderToStaticMarkup(
+      React.createElement(ConfirmedFile, {
+        asset: CONFIRMED,
+        answer: undefined,
+        onAnswer: async () => {},
+        asking: true
+      })
+    );
+    assert.equal(
+      removeQuestion(CONFIRMED),
+      'Remove inter.woff2? Iterations that use this file will show it missing. Runs can propose it again.'
+    );
+    assert.ok(html.includes(removeQuestion(CONFIRMED)));
+    assert.equal(html.match(/>Remove</g)?.length, 1);
+    assert.match(html, />Cancel</);
+    assert.doesNotMatch(html, /Undo/);
+    assert.equal(
+      removeQuestion({ fileName: null, sourceUrl: 'https://x.example/a.png' }).split('?')[0],
+      'Remove https://x.example/a.png'
+    );
+  });
+
+  it('says a removed file’s answer in its section once the row is gone', async () => {
+    const html = await render({
+      assets: { pending: [], confirmed: [] },
+      answers: {
+        [CONFIRMED.id]: {
+          ok: true,
+          message: 'Removed. inter.woff2 is no longer in the project.',
+          sourceUrl: CONFIRMED.sourceUrl,
+          section: 'project'
+        }
+      }
+    });
+    assert.ok(
+      html.indexOf('In the project') <
+        html.indexOf('Removed. inter.woff2 is no longer in the project.')
+    );
   });
 
   it('shows a row’s refusal beside it', async () => {

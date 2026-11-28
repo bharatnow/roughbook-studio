@@ -12,10 +12,13 @@ import {
   NOTHING_WAITING,
   answersWithoutRows,
   assetFacts,
+  assetName,
   confirmAsset,
   declineAsset,
   licenceText,
   loadWebAssets,
+  removeAsset,
+  removeQuestion,
   type Answer,
   type RowAnswer,
   type WebAsset,
@@ -24,13 +27,15 @@ import {
 
 type Loaded = { assets: WebAssets } | { problem: string } | null;
 
+type Section = NonNullable<RowAnswer['section']>;
+
 const answerLine = (answer: Answer | undefined) =>
   answer ? lineOf(answer.ok ? 'info' : 'error', answer.message) : null;
 
 /**
  * Files from the web for this project (after T5 of ROUGHBOOK-STUDIO-PARITY-PLAN.md): a run's
- * proposals first, each with Confirm and Decline, then the confirmed files. Confirm sends the id
- * and the licence typed here; the backend fetches the file, never this machine.
+ * proposals first, each with Confirm and Decline, then the confirmed files, each with Remove.
+ * Confirm sends the id and the licence typed here; the backend fetches the file, never this machine.
  */
 export function AssetsScreen() {
   const { setCrumbs } = useChrome();
@@ -57,10 +62,10 @@ export function AssetsScreen() {
   }, [reload]);
 
   const answered = useCallback(
-    async (asset: WebAsset, answer: Answer) => {
+    async (asset: WebAsset, answer: Answer, section: Section = 'waiting') => {
       setAnswers(current => ({
         ...current,
-        [asset.id]: { ...answer, sourceUrl: asset.sourceUrl }
+        [asset.id]: { ...answer, sourceUrl: asset.sourceUrl, section }
       }));
       await reload();
     },
@@ -89,10 +94,11 @@ export function AssetLists({
 }: {
   assets: WebAssets;
   answers: Record<string, RowAnswer>;
-  onAnswer: (asset: WebAsset, answer: Answer) => Promise<void>;
+  onAnswer: (asset: WebAsset, answer: Answer, section?: Section) => Promise<void>;
 }) {
   const { pending, confirmed } = assets;
   const gone = answersWithoutRows(answers, assets);
+  const removed = answersWithoutRows(answers, assets, 'project');
   return (
     <div className="flex min-w-0 flex-col gap-8">
       <section aria-labelledby="assets-waiting" className="flex min-w-0 flex-col gap-3">
@@ -122,28 +128,110 @@ export function AssetLists({
           <OutputLine line={infoLine(NOTHING_WAITING)} />
         )}
       </section>
-      {confirmed.length ? (
+      {confirmed.length || removed.length ? (
         <section aria-labelledby="assets-confirmed" className="flex min-w-0 flex-col gap-3">
           <h2 id="assets-confirmed" className="text-pane text-label">
             In the project
           </h2>
-          <ul className="flex min-w-0 flex-col gap-3">
-            {confirmed.map(asset => (
-              <li
-                key={asset.id}
-                className="flex min-w-0 flex-col gap-1 rounded-control border border-separator p-3"
-              >
-                <span className="text-body font-medium break-words text-label">
-                  {asset.fileName ?? asset.sourceUrl}
-                </span>
-                <AssetDetails asset={asset} />
-                <OutputLine line={answerLine(answers[asset.id])} />
-              </li>
-            ))}
-          </ul>
+          {removed.map(answer => (
+            <OutputLine
+              key={answer.sourceUrl}
+              className="break-words"
+              line={lineOf(answer.ok ? 'info' : 'error', answer.message)}
+            />
+          ))}
+          {confirmed.length ? (
+            <ul className="flex min-w-0 flex-col gap-3">
+              {confirmed.map(asset => (
+                <ConfirmedFile
+                  key={asset.id}
+                  asset={asset}
+                  answer={answers[asset.id]}
+                  onAnswer={answer => onAnswer(asset, answer, 'project')}
+                />
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One confirmed file, with Remove. Remove asks in place first (there is no Undo); the answer or
+ * the refusal is said beside the row. `asking` starts it on the question, so a test can draw it.
+ */
+export function ConfirmedFile({
+  asset,
+  answer,
+  onAnswer,
+  asking: askingAtFirst = false
+}: {
+  asset: WebAsset;
+  answer: Answer | undefined;
+  onAnswer: (answer: Answer) => Promise<void>;
+  asking?: boolean;
+}) {
+  const [asking, setAsking] = useState(askingAtFirst);
+  const [busy, setBusy] = useState(false);
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await onAnswer(await removeAsset(asset));
+    } finally {
+      setBusy(false);
+      setAsking(false);
+    }
+  };
+
+  return (
+    <li className="flex min-w-0 flex-col gap-2 rounded-control border border-separator p-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <span className="min-w-0 text-body font-medium break-words text-label">
+          {assetName(asset)}
+        </span>
+        {asking ? null : (
+          <Button type="button" kind="destructive" tier="compact" onClick={() => setAsking(true)}>
+            Remove
+          </Button>
+        )}
+      </div>
+      <AssetDetails asset={asset} />
+      {asking ? (
+        <div
+          role="group"
+          aria-label={`Remove ${assetName(asset)}`}
+          className="flex min-w-0 flex-col gap-2"
+        >
+          <p className="text-body break-words text-label">{removeQuestion(asset)}</p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              kind="destructive"
+              tier="compact"
+              disabled={busy}
+              pending={busy}
+              pendingLabel="Removing…"
+              onClick={() => void remove()}
+            >
+              Remove
+            </Button>
+            <Button
+              type="button"
+              kind="cancel"
+              tier="compact"
+              disabled={busy}
+              onClick={() => setAsking(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <OutputLine line={answerLine(answer)} />
+    </li>
   );
 }
 

@@ -22,6 +22,7 @@ import {
   loadWebAssets,
   parseLicence,
   rejectWebAsset,
+  removeWebAsset,
   type WebAssetsSource
 } from '../server/webAssets.js';
 import { fakeFetch, notFound, ok, recordingIo, refused, tempDir } from './helpers.js';
@@ -80,6 +81,15 @@ function backend() {
     if (request.method === 'GET' && url.pathname === BASE) {
       return ok({ confirmed: state.confirmed, pending: state.pending });
     }
+    const removing = new RegExp(`^${BASE}/([^/]+)$`).exec(url.pathname);
+    if (request.method === 'DELETE' && removing) {
+      const found = state.confirmed.find(item => item.id === removing[1]);
+      if (!found) {
+        return refused('WEB_ASSET_NOT_FOUND', 404, 'That file is not in the project.');
+      }
+      state.confirmed = state.confirmed.filter(item => item !== found);
+      return ok({ removed: true });
+    }
     const match = new RegExp(`^${BASE}/([^/]+)/(confirm|reject)$`).exec(url.pathname);
     if (request.method === 'POST' && match) {
       const found = state.pending.find(item => item.id === match[1]);
@@ -129,12 +139,16 @@ describe('the client’s project web asset routes', () => {
     await fake.api.confirmWebAsset(ORG, 'site', ASSET);
     fake.state.pending = [view()];
     assert.equal((await fake.api.rejectWebAsset(ORG, 'site', ASSET)).status, 'rejected');
+    assert.deepEqual(await fake.api.removeWebAsset(ORG, 'site', CONFIRMED.id), { removed: true });
     assert.deepEqual(sent(fake), [
       ['GET', BASE, null],
       ['POST', `${BASE}/${ASSET}/confirm`, { licence: 'CC-BY-4.0' }],
       ['POST', `${BASE}/${ASSET}/confirm`, {}],
-      ['POST', `${BASE}/${ASSET}/reject`, {}]
+      ['POST', `${BASE}/${ASSET}/reject`, {}],
+      ['DELETE', `${BASE}/${CONFIRMED.id}`, null]
     ]);
+    const removal = fake.requests.at(-1)!;
+    assert.equal(removal.headers['content-type'], undefined, 'Remove sends no body');
     for (const request of fake.requests) {
       assert.equal(request.headers.authorization, 'Bearer rbi_token');
     }
@@ -166,6 +180,8 @@ describe('the local server’s web asset helpers', () => {
     const fake = backend();
     await assert.rejects(confirmWebAsset(fake.source, '../runs/x', {}), BadRequest);
     await assert.rejects(rejectWebAsset(fake.source, ''), BadRequest);
+    await assert.rejects(removeWebAsset(fake.source, 'a/b'), BadRequest);
+    await assert.rejects(removeWebAsset(fake.source, 7), BadRequest);
     await assert.rejects(
       confirmWebAsset(fake.source, ASSET, { licence: 'in /home/dana/app/LICENSE' }),
       BadRequest
@@ -187,6 +203,12 @@ describe('the local server’s web asset helpers', () => {
       assert.ok(error instanceof ApiError);
       assert.equal(error.status, 409);
       assert.match(error.message, /no longer waiting for you/);
+      return true;
+    });
+    await assert.rejects(removeWebAsset(fake.source, ASSET), (error: unknown) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.status, 404);
+      assert.equal(error.code, 'WEB_ASSET_NOT_FOUND');
       return true;
     });
   });
@@ -301,6 +323,14 @@ describe('/api/web-assets on the local server', () => {
         (await local.call('POST', `/api/web-assets/${ASSET}/reject`, {}, elsewhere)).status,
         403
       );
+      assert.equal(
+        (await local.call('POST', `/api/web-assets/${CONFIRMED.id}/remove`, {}, elsewhere)).status,
+        403
+      );
+      assert.equal(
+        (await local.call('POST', `/api/web-assets/${CONFIRMED.id}/remove`, {}, { origin })).status,
+        401
+      );
       assert.deepEqual(assetCalls(fake), []);
     } finally {
       await local.close();
@@ -365,6 +395,36 @@ describe('/api/web-assets on the local server', () => {
       const gone = await local.call('POST', `/api/web-assets/${ASSET}/reject`, {});
       assert.equal(gone.status, 409);
       assert.match(gone.json.message, /That file is no longer waiting for you\./);
+    } finally {
+      await local.close();
+    }
+  });
+
+  it('removes a confirmed file with the id alone, refusing a bad id here and passing on a 404', async () => {
+    const fake = backend();
+    const local = await localServer(fake);
+    try {
+      const badId = await local.call('POST', '/api/web-assets/not%20one/remove', {});
+      assert.equal(badId.status, 400);
+      assert.equal(badId.json.error, 'BAD_REQUEST');
+      assert.deepEqual(assetCalls(fake), []);
+
+      const removed = await local.call('POST', `/api/web-assets/${CONFIRMED.id}/remove`, {
+        path: 'C:\\client-app\\x'
+      });
+      assert.equal(removed.status, 200);
+      assert.deepEqual(removed.json.data, { removed: true });
+      assert.deepEqual(fake.state.confirmed, []);
+
+      const again = await local.call('POST', `/api/web-assets/${CONFIRMED.id}/remove`, {});
+      assert.equal(again.status, 404);
+      assert.equal(again.json.error, 'WEB_ASSET_NOT_FOUND');
+      assert.match(again.json.message, /not in the project/);
+
+      assert.deepEqual(assetCalls(fake), [
+        ['DELETE', `${BASE}/${CONFIRMED.id}`, null],
+        ['DELETE', `${BASE}/${CONFIRMED.id}`, null]
+      ]);
     } finally {
       await local.close();
     }

@@ -933,7 +933,7 @@ describe('outbound requests: an asset from the web (T5 of the parity plan)', () 
 describe('outbound requests: the Assets screen (after T5 of the parity plan)', () => {
   it('sends the asset id and the licence typed, never a line or a path', async () => {
     const { StudioApi } = await import('../api/client.js');
-    const { confirmWebAsset, loadWebAssets, rejectWebAsset } =
+    const { confirmWebAsset, loadWebAssets, rejectWebAsset, removeWebAsset } =
       await import('../server/webAssets.js');
     const root = await tempDir('roughbook-outbound-assets-');
     const repo = path.join(root, 'client-app');
@@ -953,7 +953,9 @@ describe('outbound requests: the Assets screen (after T5 of the parity plan)', (
     const backend = fakeFetch(request =>
       request.method === 'GET'
         ? ok({ confirmed: [], pending: [pending] })
-        : ok({ ...pending, status: request.url.endsWith('/reject') ? 'rejected' : 'confirmed' })
+        : request.method === 'DELETE'
+          ? ok({ removed: true })
+          : ok({ ...pending, status: request.url.endsWith('/reject') ? 'rejected' : 'confirmed' })
     );
     const api = new StudioApi({
       server: 'https://api.example.test',
@@ -970,6 +972,7 @@ describe('outbound requests: the Assets screen (after T5 of the parity plan)', (
     await confirmWebAsset(source, ASSET, { licence: 'CC-BY-4.0', code: ITERATION_SOURCE });
     await confirmWebAsset(source, ASSET, {});
     await rejectWebAsset(source, ASSET);
+    await removeWebAsset(source, ASSET);
     assert.deepEqual(
       backend.requests.map(request => [
         request.method,
@@ -980,7 +983,8 @@ describe('outbound requests: the Assets screen (after T5 of the parity plan)', (
         ['GET', `/v1/api/studio${PROJECT}/web-assets`, null],
         ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/confirm`, { licence: 'CC-BY-4.0' }],
         ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/confirm`, {}],
-        ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/reject`, {}]
+        ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/reject`, {}],
+        ['DELETE', `/v1/api/studio${PROJECT}/web-assets/${ASSET}`, null]
       ]
     );
     // Every request goes to the backend; none to the asset's source.

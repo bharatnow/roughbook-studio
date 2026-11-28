@@ -492,6 +492,17 @@ export class StudioApi {
     );
   }
 
+  /**
+   * The maker's Remove of a confirmed file: the project no longer holds it, and iterations that
+   * use it show it missing. No body; the id is the whole request.
+   */
+  removeWebAsset(orgId: string, project: string, assetId: string): Promise<{ removed: true }> {
+    return this.request(
+      'DELETE',
+      `${projectAssetsPath(orgId, project)}/${encodeURIComponent(assetId)}`
+    );
+  }
+
   /** The project's full-height stills: signed links to its web sketches' pictures, with sizes. */
   stills(orgId: string, project: string): Promise<StillsRead> {
     return this.request('GET', `${projectPath(orgId, project)}/stills`);

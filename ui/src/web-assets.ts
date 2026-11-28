@@ -46,6 +46,20 @@ export function rejectPath(asset: Pick<WebAsset, 'id'>): string {
   return `/api/web-assets/${encodeURIComponent(asset.id)}/reject`;
 }
 
+export function removePath(asset: Pick<WebAsset, 'id'>): string {
+  return `/api/web-assets/${encodeURIComponent(asset.id)}/remove`;
+}
+
+/** A file's name as the screen says it: its file name, or its address when it has none. */
+export function assetName(asset: Pick<WebAsset, 'fileName' | 'sourceUrl'>): string {
+  return asset.fileName || asset.sourceUrl;
+}
+
+/** Asked in place before Remove; there is no Undo. */
+export function removeQuestion(asset: Pick<WebAsset, 'fileName' | 'sourceUrl'>): string {
+  return `Remove ${assetName(asset)}? Iterations that use this file will show it missing. Runs can propose it again.`;
+}
+
 /** Confirm's body: the licence typed, trimmed, or nothing, so the run's licence stays. */
 export function confirmBody(typed: string): { licence?: string } {
   const licence = typed.trim();
@@ -101,19 +115,30 @@ export async function declineAsset(asset: WebAsset): Promise<Answer> {
   return { ok: true, message: 'Declined. Nothing was fetched.' };
 }
 
+export async function removeAsset(asset: WebAsset): Promise<Answer> {
+  try {
+    await post<{ removed: true }>(removePath(asset));
+  } catch (error) {
+    return refusal(error, 'Could not remove it. Try again.');
+  }
+  return { ok: true, message: `Removed. ${assetName(asset)} is no longer in the project.` };
+}
+
 /** A row's answer, with the address it was about, so it can still be said once the row is gone. */
-export type RowAnswer = Answer & { sourceUrl: string };
+export type RowAnswer = Answer & { sourceUrl: string; section?: 'waiting' | 'project' };
 
 /**
- * The answers whose rows are no longer listed (a declined proposal, or one another maker answered
- * first): the screen says these above the list, so no answer disappears with its row.
+ * The answers whose rows are no longer listed (a declined proposal, one another maker answered
+ * first, a removed file): the screen says these above their section's list, so no answer
+ * disappears with its row.
  */
 export function answersWithoutRows(
   answers: Record<string, RowAnswer>,
-  assets: WebAssets
+  assets: WebAssets,
+  section: 'waiting' | 'project' = 'waiting'
 ): RowAnswer[] {
   const listed = new Set([...assets.pending, ...assets.confirmed].map(asset => asset.id));
   return Object.entries(answers)
-    .filter(([id]) => !listed.has(id))
+    .filter(([id, answer]) => !listed.has(id) && (answer.section ?? 'waiting') === section)
     .map(([, answer]) => answer);
 }
