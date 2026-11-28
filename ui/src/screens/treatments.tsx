@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useStudio } from '../data';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { TREATMENTS_HREF } from '../router';
 import { projectTreatments, treatmentsWebHref } from '../treatments';
 
@@ -21,7 +22,13 @@ export function TreatmentsScreen() {
     return () => setCrumbs([]);
   }, [setCrumbs]);
 
-  if (!project) return <Missing>{problem ?? 'Reading the project…'}</Missing>;
+  if (!project) {
+    return problem ? (
+      <Missing>{problem}</Missing>
+    ) : (
+      <ScreenLoading>Reading the project…</ScreenLoading>
+    );
+  }
   const treatments = projectTreatments(project.tree);
   const webHref = state
     ? treatmentsWebHref({ project: state.project.slug, webUrl: state.webUrl })

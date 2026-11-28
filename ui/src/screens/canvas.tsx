@@ -1,6 +1,7 @@
 import {
   ACTION_LINES,
   ActionMenu,
+  ActivityIndicator,
   COMPOSER_AT_REST,
   Canvas,
   Button,
@@ -74,7 +75,7 @@ import { useChrome } from '../parts/chrome';
 import { canCompose, pageVersions } from '../composition';
 import { VersionsSheet, useSaveVersion } from '../parts/versions';
 import { usePromotePlan } from '../parts/promote-plan';
-import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { PROMPT_FIELD, useAppCommands } from '../parts/palette';
 import { StudioPrompt, partsOf } from '../parts/prompt';
 import { RefineSheet } from '../parts/refine';
@@ -155,7 +156,13 @@ function RunButtons({
           }
           className={selectionToolbarItem}
         >
-          {action.id === 'done' && ops.busy === 'done' ? 'Checking' : action.label}
+          {action.id === 'done' && ops.busy === 'done' ? (
+            <Working label="Checking…" />
+          ) : action.id === 'stop' && ops.busy === 'stop' ? (
+            <Working label="Stopping…" />
+          ) : (
+            action.label
+          )}
         </button>
       ))}
       <OutputLine line={ops.line} className="max-w-xs truncate px-2" />
@@ -164,15 +171,21 @@ function RunButtons({
   );
 }
 
+/** A toolbar button's face while its work runs: the indicator before a gerund, as Button's is. */
+function Working({ label }: { label: string }) {
+  return (
+    <>
+      <ActivityIndicator />
+      {label}
+    </>
+  );
+}
+
 /** The studio's home (ROUGHBOOK-QUIET-UI-PLAN.md, U5): the project's canvas, focused by the address. */
 export function CanvasScreen({ focus, session }: { focus: CanvasFocus; session?: string }) {
-  const { project, state } = useStudio();
+  const { project, state, problem } = useStudio();
   if (!project || !state) {
-    return (
-      <div className="px-4 py-8">
-        <Missing>Loading the project…</Missing>
-      </div>
-    );
+    return <ScreenLoading problem={problem}>Loading the project…</ScreenLoading>;
   }
   return <StudioCanvasView project={project} state={state} focus={focus} session={session} />;
 }
@@ -727,11 +740,15 @@ function StudioCanvasView({
         onClick={() => act(action.id, item.key, action.session)}
         className={cn(selectionToolbarItem, pressed && 'bg-control')}
       >
-        {action.id === 'pull' && pulling === item.id
-          ? 'Pulling'
-          : action.id === 'save-version' && saveVersion.saving === item.page
-            ? 'Saving…'
-            : action.label}
+        {action.id === 'pull' && pulling === item.id ? (
+          <Working label="Pulling…" />
+        ) : action.id === 'save-version' && saveVersion.saving === item.page ? (
+          <Working label="Saving…" />
+        ) : busy && verbRunner.verb === action.id ? (
+          <Working label="Starting…" />
+        ) : (
+          action.label
+        )}
       </button>
     );
     return action.keys ? (
@@ -804,10 +821,19 @@ function StudioCanvasView({
         type="button"
         data-verb={action.id}
         disabled={verbBusy === partsOf(item.key).iteration}
+        aria-busy={
+          (verbBusy === partsOf(item.key).iteration && verbRunner.verb === action.id) || undefined
+        }
         onClick={() => act(action.id, item.key, action.session)}
         className={filled}
       >
-        {action.id === 'pick-this' ? 'Keep' : action.label}
+        {verbBusy === partsOf(item.key).iteration && verbRunner.verb === action.id ? (
+          <Working label={action.id === 'pick-this' ? 'Keeping…' : 'Starting…'} />
+        ) : action.id === 'pick-this' ? (
+          'Keep'
+        ) : (
+          action.label
+        )}
       </button>
     );
     return (

@@ -10,6 +10,7 @@ import { composedKey, compositionName, findComposition, sectionItems } from '../
 import { useStudio } from '../data';
 import { CompositionPromote } from '../parts/composition-promote';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine } from '../parts/output-line';
 import { usePromotePlan } from '../parts/promote-plan';
 import { useApp } from './iteration';
@@ -22,11 +23,16 @@ import { useApp } from './iteration';
  * yet, each section is in its own frame, one under another, and the frame says so (decision 54).
  */
 export function CompositionScreen({ page, id }: { page: string; id: string }) {
-  const { state, project, refresh } = useStudio();
+  const { state, project, refresh, problem } = useStudio();
   const { previewSrc } = useUiHost();
   const app = useApp(state?.app ?? null);
   const plan = usePromotePlan({ page, component: 'compositions', iteration: id });
-  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!project || !state)
+    return (
+      <ScreenLoading page problem={problem}>
+        Loading…
+      </ScreenLoading>
+    );
   const view = findComposition(project, page, id);
   const record = project.tree.pages.find(item => item.slug === page);
   if (!view || !record) {

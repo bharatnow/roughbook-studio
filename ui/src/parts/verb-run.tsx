@@ -24,6 +24,8 @@ export function useRunVerb() {
   const undo = useUndo();
   /** The iteration a verb is running on, by id, so its buttons wait. */
   const [busy, setBusy] = useState<string | null>(null);
+  /** Which verb that is, so only its own button shows it is working. */
+  const [verb, setVerb] = useState<VerbId | null>(null);
   /** What the last verb, or its Undo, said. */
   const [line, setLine] = useState<Line | null>(null);
 
@@ -34,6 +36,7 @@ export function useRunVerb() {
   ): Promise<VerbResult | null> {
     if (!actions.runVerb) return null;
     setBusy(target.iteration);
+    setVerb(verb);
     try {
       const result = await actions.runVerb(verb, target, fields);
       setLine(verbLine(result));
@@ -49,12 +52,13 @@ export function useRunVerb() {
       return result;
     } finally {
       setBusy(null);
+      setVerb(null);
     }
   }
 
   const served = (verb: VerbId) => Boolean(actions.runVerb) && (actions.verbs ?? []).includes(verb);
 
-  return { run, busy, served, line };
+  return { run, busy, verb, served, line };
 }
 
 /** Something different's one "How far" control: the four strengths, nearest first. */

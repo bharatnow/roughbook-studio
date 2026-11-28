@@ -45,6 +45,7 @@ import { inPageNote, inPageSrc, lazyImportNotice } from '../in-page';
 import { lineOf, newest, shotsLine, verbLine, type Line } from '../output';
 import { navigate } from '../router';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine, useLine } from '../parts/output-line';
 import { useRatings } from '../parts/ratings';
 import { RefineSheet, useReviews } from '../parts/refine';
@@ -216,7 +217,7 @@ export function IterationScreen({
   iteration: string;
   refine: boolean;
 }) {
-  const { state, project, runs, changes, refresh, refreshState } = useStudio();
+  const { state, project, runs, changes, refresh, refreshState, problem } = useStudio();
   const { previewSrc } = useUiHost();
   /** What the stage's own controls said (the app, the device, a render), beside its actions. */
   const said = useLine();
@@ -261,7 +262,12 @@ export function IterationScreen({
 
   const found = findComponent(project, page, component);
   const iteration = found?.component.iterations.find(item => item.id === id);
-  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!project || !state)
+    return (
+      <ScreenLoading page problem={problem}>
+        Loading…
+      </ScreenLoading>
+    );
   if (!found || !iteration || !project.local.iterations.includes(key)) {
     return <Missing back>{key} is not in this repo.</Missing>;
   }
@@ -508,6 +514,8 @@ export function IterationScreen({
               type="button"
               kind="primary"
               disabled={Boolean(waiting)}
+              pending={verbs.busy === id && verbs.verb === 'pick-this'}
+              pendingLabel="Keeping…"
               data-verb="pick-this"
               onClick={() => void verbs.run('pick-this', verbTarget)}
             >
@@ -555,12 +563,14 @@ export function IterationScreen({
               madeBy: run ? <RunCard run={run} compact /> : null,
               screenshots: (
                 <span className="flex items-center gap-1">
-                  <Button type="button" disabled={shooting} onClick={() => void takeScreenshots()}>
-                    {shooting
-                      ? 'Taking screenshots'
-                      : taken.length
-                        ? 'Take them again'
-                        : 'Take screenshots'}
+                  <Button
+                    type="button"
+                    disabled={shooting}
+                    pending={shooting}
+                    pendingLabel="Taking screenshots…"
+                    onClick={() => void takeScreenshots()}
+                  >
+                    {taken.length ? 'Take them again' : 'Take screenshots'}
                   </Button>
                   <HelpTip label="About screenshots">
                     One at each viewport and variant the environment names, kept in this repo. They

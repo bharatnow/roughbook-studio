@@ -4,8 +4,9 @@ import { StudioDataProvider, useStudio } from './data';
 import { StudioUiHost } from './host';
 import { ChromeProvider } from './parts/chrome';
 import { Missing } from './parts/missing';
+import { NavigationLine } from './parts/navigation-line';
 import { CONTENT_ID, Shell } from './parts/shell';
-import { useDocumentTitle, useRoute } from './router';
+import { useArrival, useDocumentTitle, useRoute } from './router';
 import { CanvasScreen } from './screens/canvas';
 import { CompareScreen } from './screens/compare';
 import { CompositionScreen } from './screens/composition';
@@ -19,6 +20,8 @@ function Screen() {
   const route = useRoute();
   // The tab names the document (A8), from the project as last read.
   useDocumentTitle(route, useStudio().project?.tree);
+  // The navigation line finishes once this screen renders, or its placeholder has its data.
+  useArrival(route);
   switch (route.screen) {
     case 'canvas':
       // One element for every canvas address, so the canvas keeps its state as the address moves.
@@ -117,6 +120,7 @@ export function App() {
       <ChromeProvider>
         <StudioUiHost>
           <SkipLink />
+          <NavigationLine />
           <Screen />
         </StudioUiHost>
       </ChromeProvider>
