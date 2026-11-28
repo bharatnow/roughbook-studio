@@ -146,6 +146,26 @@ export type CopyVersion = {
   primaryAction: string;
 };
 
+/**
+ * A stored line that meets the media, the picture language or the look's structure, as the backend
+ * reads it at edit time (ROUGHBOOK-PICK-WORDS-PLAN.md, W5; backend rules/storedNotices.ts).
+ */
+export type StoredWordNotice = {
+  doc: 'project' | 'page' | 'component';
+  field: string;
+  /** The line's provenance key in its doc: `messages.primary`, `messages.supporting.1`. */
+  key: string;
+  /** Its place in a list field; null for a single value. */
+  index: number | null;
+  text: string;
+  /** `look` when a pick wrote it, `user` when the person did. */
+  source: 'look' | 'user';
+  resolution: string;
+  kinds: string[];
+  /** The words shown beside the field. */
+  message: string;
+};
+
 export type Component = {
   slug: string;
   name: string;
@@ -161,6 +181,8 @@ export type Component = {
   inApp?: boolean;
   /** When it went from the app (B7, decision 58), an ISO date; null or absent while it is there. */
   gone?: string | null;
+  /** The backend's notices on its saved lines (W5), only when there is one; absent on an older backend. */
+  notices?: StoredWordNotice[];
 };
 
 export type Page = { slug: string; name: string; components: Component[]; inApp?: boolean };

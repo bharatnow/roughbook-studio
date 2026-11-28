@@ -1,5 +1,6 @@
-import { Sheet } from '@roughbook/ui';
+import { FieldNotice, Sheet } from '@roughbook/ui';
 import type { Component } from '../types';
+import { noticeTone, primaryMessageNotices } from './brief-notices';
 
 const term = 'text-section text-label-secondary';
 
@@ -31,6 +32,22 @@ export function BriefSheet({
               <div>
                 <dt className={term}>Must say</dt>
                 <dd className="mt-1 text-label">{component.messages.primary}</dd>
+                {primaryMessageNotices(component).map(notice => (
+                  <dd key={notice.message}>
+                    <FieldNotice text={notice.message} tone={noticeTone(notice)} />
+                    {/* Not FieldNotice's link: the host's Link is a screen in the fragment here. */}
+                    {webHref ? (
+                      <a
+                        href={webHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-h-6 items-center text-caption text-accent-text underline-offset-2 hover:underline"
+                      >
+                        Edit on the web
+                      </a>
+                    ) : null}
+                  </dd>
+                ))}
               </div>
             ) : null}
             {component.userQuestion ? (
