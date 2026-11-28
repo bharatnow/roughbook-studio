@@ -647,7 +647,6 @@ export function IterationScreen({
         componentName={record.name}
         selected={selected}
         latestReviewSummary={latestReview}
-        rating={rating?.mine ?? null}
       />
       <RejectDrawer
         open={rejectOpen}
@@ -656,7 +655,6 @@ export function IterationScreen({
         page={page}
         component={component}
         iterationId={id}
-        rating={rating?.mine ?? null}
       />
       <RefineSheet
         open={refineOpen}
