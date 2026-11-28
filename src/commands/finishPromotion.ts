@@ -27,6 +27,7 @@ import {
 } from '../runs/promotion.js';
 import { queued } from '../runs/queue.js';
 import { iterationExists } from '../runs/slots.js';
+import { recipeOf } from '../recipes/index.js';
 import { iterationHash } from '../screenshot/iteration.js';
 import { withPreviews } from '../standalone/server.js';
 import { adoptHere, describeAdoption, pictureAdopted } from './adopt.js';
@@ -265,7 +266,10 @@ export async function finishPromotionHere(
 ): Promise<{ record: PromotionRecord; refreshed: string[] }> {
   const repoRoot = context.repoRoot!;
   const environment = options.environment ?? (await readEnvironment(repoRoot, link));
-  const record = await finishPromotion(repoRoot, api, outbox, environment, promotionId, options);
+  const record = await finishPromotion(repoRoot, api, outbox, environment, promotionId, {
+    importAllowed: recipeOf(environment)?.importAllowed(link) ?? [],
+    ...options
+  });
   const wrote = record.result?.changed.some(item => item.inScope) ?? false;
   if (record.subject === 'page') {
     const refreshed =

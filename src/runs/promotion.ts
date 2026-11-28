@@ -22,6 +22,7 @@ import { lineDiff, type DiffHunk } from '../repo/diff.js';
 import { iterationDir } from '../repo/iterations.js';
 import { ROUGH_DIR, statePath } from '../repo/root.js';
 import { BASE_DIR, inLineEndingsOf, sameText, type BaseRecord } from './base.js';
+import { importsFromRough } from './checks.js';
 import { queued } from './queue.js';
 import {
   compareFiles,
@@ -104,6 +105,11 @@ export type PromotionResult = {
   putBackOnConflict: string[];
   /** Targets whose line endings the studio turned back to the app file's own (decision 39). */
   lineEndings: string[];
+  /**
+   * App files the promote changed that import from rough/, which the app never ships: the promote
+   * fails until they import their own copy (the treatments' among them). Absent when none.
+   */
+  importsRough?: string[];
   build: CommandRun | null;
   checks: CommandRun[];
   buildResult: CheckResult;
@@ -537,6 +543,8 @@ export type FinishPromotionOptions = {
   mine?: string[];
   /** Runs the build and the checks; this machine's shell by default, a stand-in in tests. */
   run?: CommandRunner;
+  /** The recipe's preview setup, the one place allowed to import from rough/ (in development). */
+  importAllowed?: string[];
   now?: Date;
   clock?: () => number;
 };
@@ -688,6 +696,16 @@ async function finishNow(
   const outside = changed.filter(item => !item.inScope).map(item => item.path);
   const mine = outside.filter(file => isMine(file, options.mine ?? []));
   const outOfScope = outside.filter(file => !mine.includes(file));
+  // The app never depends on a design reference: a file the promote changed that imports from
+  // rough/ ships an import the app's build leaves out.
+  const importsRough = conflict
+    ? []
+    : importsFromRough(
+        repoRoot,
+        changed.filter(item => item.status !== 'removed').map(item => item.path),
+        options.importAllowed ?? [],
+        environment.code
+      );
 
   const ran =
     !conflict && options.outcome !== 'failed' && wroteTarget()
@@ -697,7 +715,7 @@ async function finishNow(
   const checksResult = overall(ran.checks);
   const outcome: PromotionOutcome = conflict
     ? 'conflict'
-    : options.outcome === 'failed' || !wroteTarget()
+    : options.outcome === 'failed' || !wroteTarget() || importsRough.length
       ? 'failed'
       : outOfScope.length
         ? 'out-of-scope'
@@ -738,6 +756,7 @@ async function finishNow(
       conflicts,
       putBackOnConflict,
       lineEndings,
+      ...(importsRough.length ? { importsRough } : {}),
       build: ran.build,
       checks: ran.checks,
       buildResult,
@@ -927,6 +946,11 @@ export function describePromotion(record: PromotionRecord): string[] {
       `  ${item.status === 'added' ? '+' : item.status === 'removed' ? '-' : '~'} ${item.path}`
     );
   for (const file of result.lineEndings) lines.push(`  Kept ${file}'s own line endings.`);
+  if (result.importsRough?.length) {
+    lines.push(
+      `  Imports from rough/, which the app never ships, so the promote failed: ${result.importsRough.join(', ')}. Point each import at a file in the app; for rough/look/treatments.css, that is the copy the promote put beside the target.`
+    );
+  }
   if (result.outOfScope.length) {
     lines.push(
       page

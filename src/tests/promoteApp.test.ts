@@ -498,6 +498,50 @@ describe('a new component of a page the map has', () => {
     assert.ok(!fs.existsSync(path.join(plain.repo, ...COPY.split('/'))));
     assert.doesNotMatch(read(plain.repo, untouched.promptFile), /<treatments>/);
   });
+
+  it('fails a promote whose app file still imports from rough/, and passes one that imports the copy', async () => {
+    const NEW = 'rough/pricing/logo-wall/iteration-01/index.tsx';
+    const TARGET = 'components/pricing/logo-wall.tsx';
+    const setup = async () => {
+      const made = await forked();
+      write(made.repo, NEW, "import '../../../look/treatments.css';\nexport default () => null;\n");
+      write(made.repo, 'rough/look/treatments.css', '.rb-t-glass {}\n');
+      await made.promote({ component: 'logo-wall' });
+      return made;
+    };
+
+    const left = await setup();
+    write(
+      left.repo,
+      TARGET,
+      "import '../../rough/look/treatments.css';\nexport default () => null;\n"
+    );
+    const failed = await finishPromotion(
+      left.repo,
+      left.api,
+      left.outbox,
+      environment(),
+      PROMOTION
+    );
+    assert.equal(failed.result!.outcome, 'failed');
+    assert.deepEqual(failed.result!.importsRough, [TARGET]);
+    assert.match(
+      describePromotion(failed).join('\n'),
+      /Imports from rough\/, which the app never ships, so the promote failed: components\/pricing\/logo-wall\.tsx\./
+    );
+
+    const fixed = await setup();
+    write(fixed.repo, TARGET, "import './roughbook-treatments.css';\nexport default () => null;\n");
+    const done = await finishPromotion(
+      fixed.repo,
+      fixed.api,
+      fixed.outbox,
+      environment(),
+      PROMOTION
+    );
+    assert.equal(done.result!.outcome, 'done');
+    assert.equal(done.result!.importsRough, undefined);
+  });
 });
 
 describe('the snapshot and revert', () => {
