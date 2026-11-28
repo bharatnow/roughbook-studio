@@ -87,7 +87,7 @@ const DOTLOTTIE: Record<string, string> = {
     }
   }),
   'node_modules/@lottiefiles/dotlottie-web/dist/index.js':
-    'export class DotLottie { static setWasmUrl(url) { globalThis.wasmUrls.push(["dotlottie-web", url]); } }\n',
+    'export class DotLottie { static setWasmUrl(url) { globalThis.wasmUrls.push(["dotlottie-web", url]); } }\nexport class DotLottieWorker { static setWasmUrl(url) { globalThis.wasmUrls.push(["dotlottie-worker", url]); } }\n',
   'node_modules/@lottiefiles/dotlottie-web/dist/dotlottie-player.wasm': 'dotlottie-bytes-7e2',
   'node_modules/@lottiefiles/dotlottie-react/package.json': JSON.stringify({
     name: '@lottiefiles/dotlottie-react',
@@ -192,7 +192,7 @@ describe('WebAssembly runtimes on the standalone canvas', () => {
         'rive_fallback.wasm': 'rive-fallback-bytes-9d0',
         'dotlottie-player.wasm': 'dotlottie-bytes-7e2'
       };
-      assert.deepEqual(RUNTIME_FILES.sort(), Object.keys(bytes).sort());
+      for (const name of Object.keys(bytes)) assert.ok(RUNTIME_FILES.includes(name), name);
       assert.ok(RUNTIME_PATH.startsWith(STANDALONE_PREVIEW.replace('{key}/', '')));
       for (const [name, body] of Object.entries(bytes)) {
         const answer = await get(`${server.url}${RUNTIME_PATH}${name}`, OWN);
@@ -306,6 +306,81 @@ describe('WebAssembly runtimes on the standalone canvas', () => {
       const canvas = await bundleOf(server, 'home/hero/iteration-04');
       assert.equal(canvas.status, 200, canvas.body);
       assert.deepEqual(wasmUrlsOf(canvas.body, canvas.base), [['rive', `${local}rive.wasm`]]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("serves and points each other renderer at its own runtime: Rive's WebGL2, dotLottie's WebGL and its worker", async () => {
+    const OTHERS: Record<string, string> = {
+      'node_modules/@rive-app/webgl2/package.json': JSON.stringify({
+        name: '@rive-app/webgl2',
+        main: 'rive.js'
+      }),
+      'node_modules/@rive-app/webgl2/rive.js':
+        'const RuntimeLoader = { setWasmUrl(url) { globalThis.wasmUrls.push(["rive-webgl2", url]); }, wasmFallbackURL: null };\nexports.RuntimeLoader = RuntimeLoader;\nexports.Rive = function Rive() {};\n',
+      'node_modules/@rive-app/webgl2/rive.wasm': 'webgl2-bytes-a17',
+      'node_modules/@rive-app/webgl2/rive_fallback.wasm': 'webgl2-fallback-bytes-c30',
+      'node_modules/@rive-app/react-webgl2/package.json': JSON.stringify({
+        name: '@rive-app/react-webgl2',
+        main: 'dist/index.js'
+      }),
+      'node_modules/@rive-app/react-webgl2/dist/index.js':
+        'const { RuntimeLoader } = require("@rive-app/webgl2");\nexports.useRive = function useRive() { return { loader: RuntimeLoader }; };\nexports.default = function Rive() {};\n',
+      'node_modules/@lottiefiles/dotlottie-web/package.json': JSON.stringify({
+        name: '@lottiefiles/dotlottie-web',
+        type: 'module',
+        exports: { '.': './dist/index.js', './webgl': './dist/webgl/index.js' }
+      }),
+      'node_modules/@lottiefiles/dotlottie-web/dist/webgl/index.js':
+        'export class DotLottie { static setWasmUrl(url) { globalThis.wasmUrls.push(["dotlottie-webgl", url]); } }\n',
+      'node_modules/@lottiefiles/dotlottie-web/dist/webgl/dotlottie-player.wasm':
+        'webgl-lottie-bytes-e44',
+      'rough/home/hero/iteration-05/index.tsx':
+        'import Rive, { useRive } from "@rive-app/react-webgl2";\n\nexport default function Hero() {\n  useRive();\n  return <section><Rive /><h1>WebGL2 hero 5d2</h1></section>;\n}\n',
+      'rough/home/hero/iteration-06/index.tsx':
+        'import { DotLottie } from "@lottiefiles/dotlottie-web/webgl";\n\nexport default function Hero() {\n  return <section>{String(DotLottie)}</section>;\n}\n',
+      'rough/home/hero/iteration-07/index.tsx':
+        'import { DotLottieWorker } from "@lottiefiles/dotlottie-web";\n\nexport default function Hero() {\n  return <section>{String(DotLottieWorker)}</section>;\n}\n'
+    };
+    const repo = await repoWith({ ...REACT, ...DOTLOTTIE, ...OTHERS, ...ITERATIONS });
+    const server = await serving(repo);
+    try {
+      const local = `${server.url}${RUNTIME_PATH}`;
+      for (const [name, body] of Object.entries({
+        'rive-webgl2.wasm': 'webgl2-bytes-a17',
+        'rive-webgl2_fallback.wasm': 'webgl2-fallback-bytes-c30',
+        'dotlottie-player-webgl.wasm': 'webgl-lottie-bytes-e44',
+        'dotlottie-player.wasm': 'dotlottie-bytes-7e2'
+      })) {
+        const answer = await get(`${local}${name}`, OWN);
+        assert.equal(answer.status, 200, name);
+        assert.equal(answer.headers['content-type'], 'application/wasm');
+        assert.equal(answer.body, body, name);
+      }
+      // The canvas build's names are not the WebGL2 build's files.
+      assert.equal((await get(`${local}rive.wasm`, OWN)).status, 404);
+
+      const webgl2 = await bundleOf(server, 'home/hero/iteration-05');
+      assert.equal(webgl2.status, 200, webgl2.body);
+      assert.deepEqual(wasmUrlsOf(webgl2.body, webgl2.base), [
+        ['rive-webgl2', `${local}rive-webgl2.wasm`]
+      ]);
+      assert.ok(webgl2.body.includes('wasmFallbackURL = here("rive-webgl2_fallback.wasm")'));
+
+      const webgl = await bundleOf(server, 'home/hero/iteration-06');
+      assert.equal(webgl.status, 200, webgl.body);
+      assert.deepEqual(wasmUrlsOf(webgl.body, webgl.base), [
+        ['dotlottie-webgl', `${local}dotlottie-player-webgl.wasm`]
+      ]);
+
+      // The worker gets the same local runtime as the player, so neither reaches jsdelivr.
+      const worker = await bundleOf(server, 'home/hero/iteration-07');
+      assert.equal(worker.status, 200, worker.body);
+      assert.deepEqual(wasmUrlsOf(worker.body, worker.base), [
+        ['dotlottie-web', `${local}dotlottie-player.wasm`],
+        ['dotlottie-worker', `${local}dotlottie-player.wasm`]
+      ]);
     } finally {
       await server.close();
     }
