@@ -84,7 +84,10 @@ describe('the composed preview on Next.js', () => {
     assert.match(error!.content, /\.has\("roughbook-compose"\) \? "\/composition" : ""/);
     assert.match(notFound!.content, /\.has\("roughbook-compose"\) \? "\/composition" : ""/);
     assert.equal(pick!.file, 'app/rough-preview/[...slug]/pick.tsx');
-    assert.match(pick!.content, /^"use client";\n\/\/ Roughbook preview route\./);
+    assert.match(
+      pick!.content,
+      /^\/\/ @ts-nocheck\n\/\* eslint-disable \*\/\n"use client";\n\/\/ Roughbook preview route\./
+    );
     assert.match(pick!.content, /postMessage\(\{ roughbook: "section", key \}, "\*"\)/);
     // In a canvas it answers as every stack does.
     assert.ok(pick!.content.includes(`const live = ${LIVE_FUNCTION};`));

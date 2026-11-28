@@ -1,4 +1,4 @@
-import { MAX_TREATMENTS, TreatmentList } from '@roughbook/ui';
+import { HelpTip, MAX_TREATMENTS, TreatmentList } from '@roughbook/ui';
 import { useEffect } from 'react';
 import { useStudio } from '../data';
 import { useChrome } from '../parts/chrome';
@@ -28,9 +28,11 @@ export function TreatmentsScreen() {
     : null;
   return (
     <section aria-label="Treatments" className="flex min-w-0 flex-col gap-2">
-      <p className="text-body text-slate">
-        How this look goes beyond its colours and type. Every run of the project uses them.
-      </p>
+      <div className="self-start">
+        <HelpTip label="About treatments">
+          How this look goes beyond its colours and type. Every run of the project uses them.
+        </HelpTip>
+      </div>
       {webHref ? (
         <a
           href={webHref}

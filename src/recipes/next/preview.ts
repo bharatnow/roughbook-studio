@@ -99,7 +99,11 @@ async function composition(registry: Registry, page: string, composed: string) {
 }
 `;
 
-const PICK_FILE = `"use client";
+// The live script is the studio's own untyped JavaScript, shared with every recipe: an app's strict
+// type check and its lint skip this generated, development-only file, so they never fail on it.
+const PICK_FILE = `// @ts-nocheck
+/* eslint-disable */
+"use client";
 // ${MARKER}. Pick on a page's composition: with ?${PICK_PARAM}=1, a click posts { roughbook: "section", key }
 // to the frame, naming the section it fell in, instead of following the page. In a canvas, which runs
 // the page in a frame as tall as itself, it also answers the canvas.

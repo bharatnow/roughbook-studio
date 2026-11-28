@@ -353,6 +353,7 @@ describe('roughbook run, done and revert', () => {
       kind: 'generate',
       directions: [{ direction: 'Quiet editorial' }, { direction: 'Loud poster' }],
       screenshots: true,
+      treatmentsFile: true,
       family: 'react-like',
       entry: 'index.tsx'
     });
@@ -1607,6 +1608,7 @@ describe('roughbook pull', () => {
         kind: 'pull',
         sketch: 'iteration-03',
         screenshots: true,
+        treatmentsFile: true,
         family: 'react-like',
         entry: 'index.tsx',
         skills: undefined

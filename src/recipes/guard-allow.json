@@ -33,5 +33,75 @@
     "file": "src/commands/composition.ts",
     "rule": "another stack by name",
     "reason": "`roughbook compose` is the command B6's contract names for saving a page's composition: the verb, not the Compose stack. Only its name and usage say it."
+  },
+  {
+    "file": "src/facts/vendor/factIndex.ts",
+    "rule": "the \"use client\" directive",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says."
+  },
+  {
+    "file": "src/facts/vendor/factIndex.ts",
+    "rule": "extensions",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says."
+  },
+  {
+    "file": "src/facts/vendor/factPlacement.ts",
+    "rule": "next as an import or dependency",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says. Here \"next\" is a word in a list, not the stack."
+  },
+  {
+    "file": "src/facts/vendor/factSplice.ts",
+    "rule": "next as an import or dependency",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says. Here \"next\" is the replacement text, not the stack."
+  },
+  {
+    "file": "src/rules/vendor/houseChecks.ts",
+    "rule": "another stack by name",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says. The house checks name the template languages they read (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T1)."
+  },
+  {
+    "file": "src/rules/vendor/houseChecks.ts",
+    "rule": "extensions",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says."
+  },
+  {
+    "file": "src/rules/vendor/houseRules.ts",
+    "rule": "extensions",
+    "reason": "A verbatim copy of the backend's own code, made by a sync script and kept in step by its sync test; it is never edited here, so it says what the backend says. A model tell's words name code screenshots, not a stack."
+  },
+  {
+    "file": "src/facts/index.ts",
+    "rule": "next as an import or dependency",
+    "reason": "Fact changes run only on the stacks whose sections the fact finder can read (ROUGHBOOK-FACT-CHANGE-PLAN.md, U5), so the studio lists those recipes by id and says the rest are not there yet."
+  },
+  {
+    "file": "src/facts/index.ts",
+    "rule": "Next.js by name",
+    "reason": "The same: the refusal for another stack names the stacks fact changes do work in."
+  },
+  {
+    "file": "src/facts/index.ts",
+    "rule": "another stack by name",
+    "reason": "The same list of stacks fact changes work in."
+  },
+  {
+    "file": "src/facts/index.ts",
+    "rule": "extensions",
+    "reason": "A JavaScript section file needs an import alias the TypeScript ones do not; the fact finder tells them apart by extension."
+  },
+  {
+    "file": "src/runs/lookScreen.ts",
+    "rule": "extensions",
+    "reason": "The look screen check is a react-like family check, as the craft floor is: it reads code and styles by their extensions (ROUGHBOOK-MEDIA-PLAN.md)."
+  },
+  {
+    "file": "src/runs/mediaScan.ts",
+    "rule": "extensions",
+    "reason": "The media scan reads code, markup and styles by their extensions, as the backend's does (ROUGHBOOK-MEDIA-PLAN.md)."
+  },
+  {
+    "file": "src/runs/promotion.ts",
+    "rule": "another stack by name",
+    "reason": "A promote that bundles fonts may register them where each native family keeps them (pubspec.yaml for Flutter, Info.plist and the Xcode project for SwiftUI, res/font for Compose), so those files are in its scope."
   }
 ]

@@ -44,7 +44,8 @@ function sourceFiles(dir: string): string[] {
     if (entry.isDirectory()) {
       return entry.name === 'recipes' || entry.name === 'tests' ? [] : sourceFiles(full);
     }
-    return entry.name.endsWith('.ts') ? [full] : [];
+    // A test is not the core, wherever it sits (src/facts keeps its own beside its code).
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [full] : [];
   });
 }
 

@@ -3,7 +3,7 @@
 // the date and time, says "Version saved." and offers its Undo on the bar, which deletes it again;
 // the Versions list opens each one and renames it. Only slugs, ids and the typed name reach the
 // local server, which keeps the version in rough/ and on the backend.
-import { Button, Sheet, TextInput, useUiHost, useUndo } from '@roughbook/ui';
+import { Button, HelpTip, Sheet, TextInput, useUiHost, useUndo } from '@roughbook/ui';
 import { useState } from 'react';
 import { post } from '../api';
 import type { StudioCanvas } from '../canvas-input';
@@ -107,10 +107,12 @@ export function VersionsSheet({
 
   return (
     <Sheet open={open} onClose={close} title={`Versions of ${pageName}`}>
-      <p className="mb-3 text-body text-label-secondary">
-        The page is always its components&apos; chosen iterations. A version saves that as it
-        stands, to come back to.
-      </p>
+      <div className="mb-3">
+        <HelpTip label="About versions">
+          The page is always its components&apos; chosen iterations. A version saves that as it
+          stands, to come back to.
+        </HelpTip>
+      </div>
       {versions.length ? (
         <ul className="flex flex-col gap-2">
           {versions.map(version => (
