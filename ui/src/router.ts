@@ -1,5 +1,6 @@
 import { focusForKey, focusFromPath, pathForFocus, type CanvasFocus } from '@roughbook/ui/canvas';
 import { startTransition, useEffect, useState } from 'react';
+import { appNavigation } from './navigation';
 
 // Screens live in the address's fragment, with the web's paths: a component's base is
 // /<page>/<component>, so @roughbook/ui's links (`${base}/iterations`, `${base}/<iteration>`,
@@ -88,7 +89,19 @@ export function addressFor(key: string | null): string {
   return `#/${pathForFocus(focusForKey(key))}`;
 }
 
+/** What the navigation line compares: two addresses with one key show the same screen. */
+export function routeKey(route: Route): string {
+  return JSON.stringify(route);
+}
+
+/** The key of the screen an address (with or without its `#`) opens. */
+export function routeKeyOf(hash: string): string {
+  return routeKey(parseRoute(hash));
+}
+
+/** Opens an address, and starts the navigation line when it is another screen. */
 export function navigate(href: string): void {
+  appNavigation.go(routeKeyOf(href), routeKeyOf(window.location.hash));
   window.location.hash = href;
 }
 
@@ -99,10 +112,13 @@ export function navigate(href: string): void {
 export function routeListener(
   readHash: () => string,
   setRoute: (route: Route) => void,
-  transition: (run: () => void) => void = startTransition
+  transition: (run: () => void) => void = startTransition,
+  /** Told the route first, outside the transition, so the navigation line starts at once. */
+  started: (route: Route) => void = () => {}
 ): () => void {
   return () => {
     const route = parseRoute(readHash());
+    started(route);
     transition(() => setRoute(route));
   };
 }
@@ -110,11 +126,23 @@ export function routeListener(
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash));
   useEffect(() => {
-    const update = routeListener(() => window.location.hash, setRoute);
+    // A back or forward step, or an address typed, starts the line as a link does.
+    const update = routeListener(
+      () => window.location.hash,
+      setRoute,
+      startTransition,
+      route => void appNavigation.go(routeKey(route))
+    );
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
   }, []);
   return route;
+}
+
+/** Tells the navigation line the route's screen rendered, from the shell that draws it. */
+export function useArrival(route: Route): void {
+  const key = routeKey(route);
+  useEffect(() => appNavigation.arrive(key), [key]);
 }
 
 /** The names a tab's title is made from: the project's tree, as the server reads it. */

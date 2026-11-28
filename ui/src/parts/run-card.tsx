@@ -1,6 +1,14 @@
-import { Button, HelpTag, Sheet, formatRelativeTime } from '@roughbook/ui';
+import {
+  ActivityIndicator,
+  Button,
+  HelpTag,
+  Sheet,
+  formatRelativeTime,
+  unavailableWords
+} from '@roughbook/ui';
 import { useState } from 'react';
 import { get, post } from '../api';
+import { runContent, runDoing } from '../content-states';
 import { useStudio } from '../data';
 import { finishedBy, runRunning, runWord } from '../runs';
 import type { RunView } from '../types';
@@ -53,8 +61,9 @@ export function useRunOps(run: RunView) {
     line: said.line,
     review,
     setReview,
+    // Named by the button that asked, so only that one shows it is working.
     finish: (outcome?: 'failed' | 'cancelled') =>
-      act('done', async () => {
+      act(outcome ?? 'done', async () => {
         const { outOfScope } = await get<{ outOfScope: string[] }>(`/api/runs/${run.runId}/checks`);
         if (outOfScope.length) {
           setReview({ files: outOfScope, mine: [], outcome });
@@ -115,6 +124,11 @@ export function RunCard({
   const open = run.status === 'started';
   const running = runRunning(run);
   const by = finishedBy(run);
+  // While its agent works, the indicator and what can truly be said; a run that failed or was
+  // stopped did not make its iteration, and says so as the canvas and the stage do.
+  const doing = runDoing(run);
+  const ended = open ? undefined : runContent({ pending: true, run });
+  const notMade = ended?.kind === 'generation-failed' ? unavailableWords(ended) : null;
   const label = `${run.iteration} · ${run.kind === 'generate' ? 'new direction' : `${run.kind} of ${run.parent}`}`;
 
   return (
@@ -144,17 +158,31 @@ export function RunCard({
             ) : null}
           </span>
         </div>
-        <span
-          className={`inline-flex h-5 items-center rounded-full px-2 font-mono text-caption ${
-            open
-              ? 'bg-control text-label'
-              : run.outcome === 'failed'
-                ? 'bg-danger/10 text-danger'
-                : 'bg-frost text-slate'
-          }`}
-        >
-          {runWord(run)}
-        </span>
+        {doing ? (
+          <span className="inline-flex h-5 items-center gap-1.5 text-caption text-label-secondary">
+            <ActivityIndicator />
+            {doing}
+          </span>
+        ) : notMade ? (
+          <HelpTag text={notMade.sentence}>
+            <span
+              tabIndex={0}
+              className={`inline-flex h-5 items-center rounded-full px-2 text-caption ${
+                run.outcome === 'failed' ? 'bg-danger/10 text-danger' : 'bg-frost text-slate'
+              }`}
+            >
+              {notMade.short}
+            </span>
+          </HelpTag>
+        ) : (
+          <span
+            className={`inline-flex h-5 items-center rounded-full px-2 font-mono text-caption ${
+              open ? 'bg-control text-label' : 'bg-frost text-slate'
+            }`}
+          >
+            {runWord(run)}
+          </span>
+        )}
       </div>
 
       {run.headless?.lines.length ? (
@@ -179,19 +207,33 @@ export function RunCard({
           {run.terminal && terminal ? (
             <Button href={`#/terminals/${run.terminal.id}`}>Terminal</Button>
           ) : null}
-          <Button type="button" disabled={busy !== null} onClick={() => void ops.copyPrompt()}>
+          <Button
+            type="button"
+            disabled={busy !== null}
+            pending={busy === 'copy'}
+            pendingLabel="Copying…"
+            onClick={() => void ops.copyPrompt()}
+          >
             Copy prompt
           </Button>
           <Button
             type="button"
             kind="primary"
             disabled={busy !== null || run.headless?.status === 'running'}
+            pending={busy === 'done'}
+            pendingLabel="Checking…"
             onClick={() => void ops.finish()}
           >
-            {busy === 'done' ? 'Checking' : 'Done'}
+            Done
           </Button>
           {running ? (
-            <Button type="button" disabled={busy !== null} onClick={() => void ops.stop()}>
+            <Button
+              type="button"
+              disabled={busy !== null}
+              pending={busy === 'stop'}
+              pendingLabel="Stopping…"
+              onClick={() => void ops.stop()}
+            >
               Stop
             </Button>
           ) : (
@@ -199,6 +241,8 @@ export function RunCard({
               <Button
                 type="button"
                 disabled={busy !== null}
+                pending={busy === 'failed'}
+                pendingLabel="Checking…"
                 onClick={() => void ops.finish('failed')}
               >
                 It failed
@@ -206,6 +250,8 @@ export function RunCard({
               <Button
                 type="button"
                 disabled={busy !== null}
+                pending={busy === 'cancelled'}
+                pendingLabel="Cancelling…"
                 onClick={() => void ops.finish('cancelled')}
               >
                 Cancel it
@@ -232,6 +278,8 @@ export function RunCard({
                   type="button"
                   tier="compact"
                   disabled={busy !== null}
+                  pending={busy === `revert:${file}`}
+                  pendingLabel="Putting back…"
                   onClick={() => void ops.putBack(file)}
                 >
                   Put it back
@@ -330,8 +378,15 @@ function WhoseChangesPanel({
         ))}
       </ul>
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button type="button" kind="primary" disabled={busy} onClick={onFinish}>
-          {busy ? 'Checking' : 'Finish'}
+        <Button
+          type="button"
+          kind="primary"
+          disabled={busy}
+          pending={busy}
+          pendingLabel="Checking…"
+          onClick={onFinish}
+        >
+          Finish
         </Button>
         <Button type="button" kind="cancel" disabled={busy} onClick={onBack}>
           Back

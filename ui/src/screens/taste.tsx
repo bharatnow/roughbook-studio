@@ -5,6 +5,7 @@ import { useStudio } from '../data';
 import { LEARNED_REFUSED_LINE, learnedRefused, loadLearned, type Learned } from '../memory-api';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { TASTE_HREF } from '../router';
 
 type Loaded = { learned: Learned } | { refused: true } | { problem: string } | null;
@@ -46,7 +47,7 @@ export function TasteScreen() {
     };
   }, []);
 
-  if (!loaded) return <Missing>Reading what Roughbook learned…</Missing>;
+  if (!loaded) return <ScreenLoading>Reading what Roughbook learned…</ScreenLoading>;
   if ('refused' in loaded) return <Missing>{LEARNED_REFUSED_LINE}</Missing>;
   if ('problem' in loaded) {
     return (

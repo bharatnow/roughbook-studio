@@ -154,6 +154,9 @@ describe("the studio's canvas input", () => {
       pullable: false
     });
     assert.equal(canvas.making, true);
+    // Both read as being made, with no stage, since the studio's runs have none.
+    assert.deepEqual(fork.content, { kind: 'generating', stage: null });
+    assert.deepEqual(fresh.content, { kind: 'generating', stage: null });
     // Laid out, the fork sits right after its parent.
     const layout = layoutCanvas(canvas.input);
     const row = layout.items
@@ -167,6 +170,7 @@ describe("the studio's canvas input", () => {
     const first = hero.get('iteration-01')!;
     assert.equal(first.beside, null);
     assert.equal(canvas.cards['iteration:home/hero/iteration-01']!.run, null);
+    assert.equal(first.content, undefined, 'a made card says nothing over its picture');
     const quiet = studioCanvasInput(
       PROJECT.tree,
       RUNS.filter(item => item.status === 'finished'),

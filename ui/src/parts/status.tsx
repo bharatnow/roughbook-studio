@@ -15,10 +15,11 @@ const term = 'text-section text-label-secondary';
  */
 export function useMakeDefault() {
   const { refreshState } = useStudio();
-  const [busy, setBusy] = useState(false);
+  /** The agent being made the default, for its button to show it is working. */
+  const [choosing, setChoosing] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   async function makeDefault(agent: string): Promise<string | null> {
-    setBusy(true);
+    setChoosing(agent);
     try {
       await post('/api/agents/default', { agent });
       await refreshState();
@@ -29,10 +30,10 @@ export function useMakeDefault() {
       setRefusal(words);
       return words;
     } finally {
-      setBusy(false);
+      setChoosing(null);
     }
   }
-  return { makeDefault, busy, refusal };
+  return { makeDefault, busy: choosing !== null, choosing, refusal };
 }
 
 /**
@@ -86,7 +87,7 @@ const APP_WORDS: Record<string, string> = {
 export function StatusButton() {
   const { state, problem, refreshState } = useStudio();
   const { statusOpen: open, setStatusOpen: setOpen } = useChrome();
-  const { makeDefault, busy, refusal: defaultRefusal } = useMakeDefault();
+  const { makeDefault, busy, choosing, refusal: defaultRefusal } = useMakeDefault();
   const [starting, setStarting] = useState(false);
   // What Start the app answered, in words beside it.
   const [startNote, setStartNote] = useState<{ text: string; error: boolean } | null>(null);
@@ -227,6 +228,8 @@ export function StatusButton() {
                     type="button"
                     tier="compact"
                     disabled={starting}
+                    pending={starting}
+                    pendingLabel="Starting…"
                     onClick={() => void startApp()}
                     className="mt-1"
                   >
@@ -282,6 +285,8 @@ export function StatusButton() {
                             type="button"
                             tier="compact"
                             disabled={busy}
+                            pending={choosing === agent.id}
+                            pendingLabel="Saving…"
                             onClick={() => void makeDefault(agent.id)}
                           >
                             Make default

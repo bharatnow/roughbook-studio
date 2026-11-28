@@ -23,6 +23,7 @@ import {
 } from '@roughbook/ui/map-list';
 import type { RatingSummary } from '@roughbook/ui';
 import { iterationPath } from './api.ts';
+import { runContent } from './content-states.ts';
 import type { Iteration, MapView, ProjectView, RunView, StillEntry } from './types.ts';
 
 /** What the toolbar and the palette need to know about a card, by its key. */
@@ -280,7 +281,10 @@ export function studioCanvasInput(
       // The first screenshot is the card's picture: the first viewport in the first variant.
       const shot = web ? null : (local.screenshots[`${where}/${iteration.id}`]?.[0] ?? null);
       const shotAt = local.screenshotsAt?.[`${where}/${iteration.id}`];
+      // Being made, or not made (its run failed or was stopped before its files existed).
+      const content = runContent({ pending, run });
       out.push({
+        ...(content ? { content } : {}),
         id: iteration.id,
         name: iteration.name,
         status: web && status.glyph === 'none' ? { glyph: 'none', word: 'On the web' } : status,
@@ -320,6 +324,7 @@ export function studioCanvasInput(
         pullable: false
       };
       out.push({
+        content: { kind: 'generating', stage: null },
         id: run.iteration,
         name: run.iteration,
         status: { glyph: 'making', word: 'Making' },

@@ -16,6 +16,7 @@ import { useHostLine } from '../host';
 import { newest } from '../output';
 import { useChrome } from '../parts/chrome';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine } from '../parts/output-line';
 import { useAppCommands } from '../parts/palette';
 import { useRatings } from '../parts/ratings';
@@ -54,7 +55,7 @@ export function CompareScreen({
   component: string;
   ids: string[];
 }) {
-  const { project, state, changes } = useStudio();
+  const { project, state, changes, problem } = useStudio();
   const { previewSrc, actions } = useUiHost();
   const verbs = useRunVerb();
   const runApp = useAppCommands();
@@ -117,7 +118,7 @@ export function CompareScreen({
       palette.current = null;
     };
   });
-  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!project || !state) return <ScreenLoading problem={problem}>Loading…</ScreenLoading>;
   if (!found) return <Missing back>There is no {`${page}/${component}`} in this project.</Missing>;
   const here = localIterations(project, page, found.component);
   const candidates = ids

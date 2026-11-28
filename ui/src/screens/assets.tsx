@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Failure } from '../api';
 import { infoLine, lineOf } from '../output';
 import { useChrome } from '../parts/chrome';
-import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine } from '../parts/output-line';
 import { ASSETS_HREF } from '../router';
 import {
@@ -72,7 +72,7 @@ export function AssetsScreen() {
     [reload]
   );
 
-  if (!loaded) return <Missing>Reading the project’s files…</Missing>;
+  if (!loaded) return <ScreenLoading>Reading the project’s files…</ScreenLoading>;
   if ('problem' in loaded) {
     return (
       <p role="alert" className="text-body text-danger">

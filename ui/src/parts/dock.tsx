@@ -109,6 +109,8 @@ export function Dock() {
             type="button"
             tier="compact"
             disabled={busy}
+            pending={busy}
+            pendingLabel="Stopping…"
             onClick={() => void act(`/api/terminals/${active.id}/stop`)}
           >
             Stop
@@ -119,6 +121,8 @@ export function Dock() {
               type="button"
               tier="compact"
               disabled={busy}
+              pending={busy}
+              pendingLabel="Removing…"
               onClick={() => void act(`/api/terminals/${active.id}/remove`)}
             >
               Remove

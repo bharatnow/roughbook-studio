@@ -2,6 +2,7 @@ import { PreviewFrame, termLabel } from '@roughbook/ui';
 import { useStudio } from '../data';
 import { pageViewSrc } from '../in-page';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine } from '../parts/output-line';
 import { useApp } from './iteration';
 
@@ -11,9 +12,14 @@ import { useApp } from './iteration';
  * canvas. Only where the recipe has the in-page view and it is set up.
  */
 export function PageScreen({ page }: { page: string }) {
-  const { state, project } = useStudio();
+  const { state, project, problem } = useStudio();
   const app = useApp(state?.app ?? null);
-  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!project || !state)
+    return (
+      <ScreenLoading page problem={problem}>
+        Loading…
+      </ScreenLoading>
+    );
   const record = project.tree.pages.find(item => item.slug === page);
   const src = pageViewSrc(project.local, state.devUrl, page);
   if (!record || !src) {

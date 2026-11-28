@@ -1,3 +1,4 @@
+import { ActivityIndicator } from '@roughbook/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { useEffect, useRef, useState } from 'react';
@@ -128,20 +129,32 @@ export function TerminalView({
     // Joining again, or the dock's own tabs, leave the keyboard where it is.
   }, [id, attempt]);
 
+  // Join again, while its new socket opens: the row stays, saying so, until it is open or closed.
+  const joining = link === 'connecting' && attempt > 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {link === 'closed' ? (
+      {link === 'closed' || joining ? (
         <div role="status" className="flex items-center gap-3 px-1 pb-2 text-xs text-graphite">
           Not connected.
           <button
             type="button"
+            disabled={joining}
+            aria-busy={joining || undefined}
             onClick={() => {
               setLink('connecting');
               setAttempt(value => value + 1);
             }}
-            className="min-h-6 text-accent-text hover:underline"
+            className="inline-flex min-h-6 items-center gap-1.5 text-accent-text hover:underline disabled:cursor-progress disabled:no-underline"
           >
-            Join again
+            {joining ? (
+              <>
+                <ActivityIndicator />
+                Joining…
+              </>
+            ) : (
+              'Join again'
+            )}
           </button>
         </div>
       ) : null}

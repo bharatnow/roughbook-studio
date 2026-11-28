@@ -9,6 +9,7 @@ import {
 import { HOW_FAR_WORDS } from '../commands';
 import {
   Button,
+  ContentUnavailable,
   GENERATION_STATE_LABELS,
   HelpTip,
   IterationInspector,
@@ -38,6 +39,7 @@ import {
 import { Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { get, iterationPath, post, screenshotUrl } from '../api';
+import { runContent } from '../content-states';
 import { describe, findComponent, useStudio } from '../data';
 import { completeFeaturesOf } from '../features';
 import { useHostLine } from '../host';
@@ -45,6 +47,7 @@ import { inPageNote, inPageSrc, lazyImportNotice } from '../in-page';
 import { lineOf, newest, shotsLine, verbLine, type Line } from '../output';
 import { navigate } from '../router';
 import { Missing } from '../parts/missing';
+import { ScreenLoading } from '../parts/loading';
 import { OutputLine, useLine } from '../parts/output-line';
 import { useRatings } from '../parts/ratings';
 import { RefineSheet, useReviews } from '../parts/refine';
@@ -216,7 +219,7 @@ export function IterationScreen({
   iteration: string;
   refine: boolean;
 }) {
-  const { state, project, runs, changes, refresh, refreshState } = useStudio();
+  const { state, project, runs, changes, refresh, refreshState, problem } = useStudio();
   const { previewSrc } = useUiHost();
   /** What the stage's own controls said (the app, the device, a render), beside its actions. */
   const said = useLine();
@@ -261,7 +264,12 @@ export function IterationScreen({
 
   const found = findComponent(project, page, component);
   const iteration = found?.component.iterations.find(item => item.id === id);
-  if (!project || !state) return <Missing>Loading…</Missing>;
+  if (!project || !state)
+    return (
+      <ScreenLoading page problem={problem}>
+        Loading…
+      </ScreenLoading>
+    );
   if (!found || !iteration || !project.local.iterations.includes(key)) {
     return <Missing back>{key} is not in this repo.</Missing>;
   }
@@ -273,6 +281,12 @@ export function IterationScreen({
     item => item.page === page && item.component === component && item.iteration === id
   );
   const target = { project: project.tree.slug, page, component, iterationId: id };
+  // A run that failed or was stopped before the files existed: not made, which the frame, whose
+  // failures are its own (did not show, with Reload), would otherwise try to show.
+  const content = runContent({
+    pending: iteration.generation.mode === 'pending',
+    run: run ?? null
+  });
   // The plain verbs (A7): the stage's everyday actions. Refine is complete-only, dimmed when off.
   const verbTarget = { project: project.tree.slug, page, component, iteration: id };
   const made = generationStateOf(iteration) === 'completed' && !run;
@@ -508,6 +522,8 @@ export function IterationScreen({
               type="button"
               kind="primary"
               disabled={Boolean(waiting)}
+              pending={verbs.busy === id && verbs.verb === 'pick-this'}
+              pendingLabel="Keeping…"
               data-verb="pick-this"
               onClick={() => void verbs.run('pick-this', verbTarget)}
             >
@@ -555,12 +571,14 @@ export function IterationScreen({
               madeBy: run ? <RunCard run={run} compact /> : null,
               screenshots: (
                 <span className="flex items-center gap-1">
-                  <Button type="button" disabled={shooting} onClick={() => void takeScreenshots()}>
-                    {shooting
-                      ? 'Taking screenshots'
-                      : taken.length
-                        ? 'Take them again'
-                        : 'Take screenshots'}
+                  <Button
+                    type="button"
+                    disabled={shooting}
+                    pending={shooting}
+                    pendingLabel="Taking screenshots…"
+                    onClick={() => void takeScreenshots()}
+                  >
+                    {taken.length ? 'Take them again' : 'Take screenshots'}
                   </Button>
                   <HelpTip label="About screenshots">
                     One at each viewport and variant the environment names, kept in this repo. They
@@ -574,66 +592,80 @@ export function IterationScreen({
           />
         }
       >
-        <PreviewFrame
-          mode={showImages ? 'snapshot' : environment.mode}
-          items={[
-            {
-              key,
-              label: iteration.name,
-              src,
-              images: (viewport, variant) =>
-                images[snapshotImageName(viewport, variant || null, environment.variants)] ?? null,
-              snapshot: snapshot
-                ? { status: snapshot.status, message: snapshot.message }
-                : undefined,
-              fallbackSrc: shot,
-              // In its page, beside Alone, for an adopted component's iteration (B5).
-              inPageSrc: inPageSrc(project.local, state.devUrl, key),
-              making: run?.status === 'started',
-              exists: true
+        {content?.kind === 'generation-failed' ? (
+          <div className="flex min-h-0 flex-1 rounded-card border border-ash bg-canvas">
+            <ContentUnavailable
+              state={content}
+              action={
+                run?.terminal ? (
+                  <Button href={`#/terminals/${run.terminal.id}`}>View what happened</Button>
+                ) : undefined
+              }
+            />
+          </div>
+        ) : (
+          <PreviewFrame
+            mode={showImages ? 'snapshot' : environment.mode}
+            items={[
+              {
+                key,
+                label: iteration.name,
+                src,
+                images: (viewport, variant) =>
+                  images[snapshotImageName(viewport, variant || null, environment.variants)] ??
+                  null,
+                snapshot: snapshot
+                  ? { status: snapshot.status, message: snapshot.message }
+                  : undefined,
+                fallbackSrc: shot,
+                // In its page, beside Alone, for an adopted component's iteration (B5).
+                inPageSrc: inPageSrc(project.local, state.devUrl, key),
+                making: run?.status === 'started',
+                exists: true
+              }
+            ]}
+            pick
+            viewports={environment.viewports}
+            variants={environment.variants}
+            kicker={kicker}
+            app={app.status}
+            devUrl={state.devUrl}
+            progress={app.lastLine}
+            reload={environment.reload}
+            changedKeys={changes.keys}
+            changeSeq={changes.seq}
+            openHref={(_key, variant) => previewAddress(src, variant)}
+            onStartApp={
+              environment.start.command && environment.start.approved && state.terminal.builtin
+                ? () => void startApp()
+                : undefined
             }
-          ]}
-          pick
-          viewports={environment.viewports}
-          variants={environment.variants}
-          kicker={kicker}
-          app={app.status}
-          devUrl={state.devUrl}
-          progress={app.lastLine}
-          reload={environment.reload}
-          changedKeys={changes.keys}
-          changeSeq={changes.seq}
-          openHref={(_key, variant) => previewAddress(src, variant)}
-          onStartApp={
-            environment.start.command && environment.start.approved && state.terminal.builtin
-              ? () => void startApp()
-              : undefined
-          }
-          timeoutMs={environment.timeouts.preview * 1000}
-          onRender={environment.snapshot?.approved ? () => void renderAgain() : undefined}
-          rendering={snapshot?.status === 'rendering'}
-          onOpenDevice={environment.device?.approved ? () => void openOnDevice() : undefined}
-        >
-          {mode !== 'snapshot' && environment.snapshot ? (
-            <HelpTag text="Show the live page, or the images the repo renders for final review">
-              <span className="inline-flex">
-                <Segmented
-                  label="What the frame shows"
-                  options={[
-                    { value: 'live', label: 'Live' },
-                    { value: 'snapshots', label: 'Snapshots' }
-                  ]}
-                  value={finalReview ? 'snapshots' : 'live'}
-                  onChange={value => setFinalReview(value === 'snapshots')}
-                />
-              </span>
-            </HelpTag>
-          ) : null}
-          {/* What In its page covers on this stack, where the recipe says (decision 44). */}
-          {inPageNote(project.local, key) ? (
-            <HelpTip label="About In its page">{inPageNote(project.local, key)}</HelpTip>
-          ) : null}
-        </PreviewFrame>
+            timeoutMs={environment.timeouts.preview * 1000}
+            onRender={environment.snapshot?.approved ? () => void renderAgain() : undefined}
+            rendering={snapshot?.status === 'rendering'}
+            onOpenDevice={environment.device?.approved ? () => void openOnDevice() : undefined}
+          >
+            {mode !== 'snapshot' && environment.snapshot ? (
+              <HelpTag text="Show the live page, or the images the repo renders for final review">
+                <span className="inline-flex">
+                  <Segmented
+                    label="What the frame shows"
+                    options={[
+                      { value: 'live', label: 'Live' },
+                      { value: 'snapshots', label: 'Snapshots' }
+                    ]}
+                    value={finalReview ? 'snapshots' : 'live'}
+                    onChange={value => setFinalReview(value === 'snapshots')}
+                  />
+                </span>
+              </HelpTag>
+            ) : null}
+            {/* What In its page covers on this stack, where the recipe says (decision 44). */}
+            {inPageNote(project.local, key) ? (
+              <HelpTip label="About In its page">{inPageNote(project.local, key)}</HelpTip>
+            ) : null}
+          </PreviewFrame>
+        )}
       </Stage>
 
       <SelectConfirmDrawer

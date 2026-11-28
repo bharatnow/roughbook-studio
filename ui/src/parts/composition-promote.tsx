@@ -161,20 +161,28 @@ export function CompositionPromote({
           type="button"
           kind="primary"
           onClick={() => void promote()}
+          pending={busy}
+          pendingLabel="Preparing…"
           disabled={
             busy || Boolean(plan?.problem) || (branching && Boolean(branchNameProblem(branch)))
           }
         >
           <SquareTerminal className="size-4" strokeWidth={1.5} />
-          {busy ? 'Preparing' : `Promote in ${agentName}`}
+          {`Promote in ${agentName}`}
         </Button>
       </div>
       {result ? <InteractiveResultPanel result={result} /> : null}
       {(result?.ok || open) && actions.finishPromotion && !shownFinish ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1">
-            <Button type="button" onClick={() => void finish()} disabled={finishing}>
-              {finishing ? 'Finishing: running the checks' : 'Finish'}
+            <Button
+              type="button"
+              onClick={() => void finish()}
+              disabled={finishing}
+              pending={finishing}
+              pendingLabel="Running the checks…"
+            >
+              Finish
             </Button>
             <HelpTip label="About Finish">
               When {agentName} is done, Finish shows the diff, names any file changed outside the
