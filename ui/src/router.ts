@@ -23,6 +23,8 @@ export type Route =
   | { screen: 'taste' }
   /** The project's treatments, read-only (T6 of the studio parity plan): `/?view=treatments`. */
   | { screen: 'treatments' }
+  /** The project's files from the web, a run's proposals first: `/?view=assets`. */
+  | { screen: 'assets' }
   | { screen: 'missing' };
 
 /** The taste screen's address. */
@@ -30,6 +32,9 @@ export const TASTE_HREF = '/?view=taste';
 
 /** The treatments screen's address, a query on the project's as Your taste's is. */
 export const TREATMENTS_HREF = '/?view=treatments';
+
+/** The Assets screen's address, a query on the project's as Treatments' is. */
+export const ASSETS_HREF = '/?view=assets';
 
 const ITERATION = /^iteration-\d{2,}$/;
 const COMPOSITION = /^composition-\d{2,}$/;
@@ -47,6 +52,7 @@ export function parseRoute(hash: string): Route {
   const [page, component, third, fourth] = parts;
   if (!parts.length && query.get('view') === 'taste') return { screen: 'taste' };
   if (!parts.length && query.get('view') === 'treatments') return { screen: 'treatments' };
+  if (!parts.length && query.get('view') === 'assets') return { screen: 'assets' };
   if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
   // The composition builder retired (3 November 2026): Save version saves the page as the canvas
   // shows it, so its old links, `/<page>/compose` with or without `?from=`, open the page there.
@@ -142,7 +148,8 @@ type Place =
   | { kind: 'iteration'; page: string; component: string; iteration: string }
   | { kind: 'composition'; page: string; composition: string }
   | { kind: 'taste' }
-  | { kind: 'treatments' };
+  | { kind: 'treatments' }
+  | { kind: 'assets' };
 
 /** A card on the canvas is its component's iterations, as on the web, whose server cannot see it. */
 function placeOf(route: Route): Place | null {
@@ -168,6 +175,8 @@ function placeOf(route: Route): Place | null {
       return { kind: 'taste' };
     case 'treatments':
       return { kind: 'treatments' };
+    case 'assets':
+      return { kind: 'assets' };
     default:
       return null;
   }
@@ -178,6 +187,7 @@ function documentParts(names: TitleNames | null, place: Place): string[] {
   if (place.kind === 'project') return [];
   if (place.kind === 'taste') return ['Your taste'];
   if (place.kind === 'treatments') return ['Treatments'];
+  if (place.kind === 'assets') return ['Assets'];
   const page = names?.pages.find(item => item.slug === place.page);
   const pageName = named(page?.name, place.page);
   switch (place.kind) {

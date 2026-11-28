@@ -207,6 +207,7 @@ describe("the studio's palette", () => {
         ['Generate', { kind: 'generate' }],
         ['Your look', { kind: 'href', href: `${WEB}/design-system`, external: true }],
         ['Treatments', { kind: 'href', href: '/?view=treatments' }],
+        ['Assets', { kind: 'href', href: '/?view=assets' }],
         ['Your taste', { kind: 'href', href: '/?view=taste' }],
         ['Project settings', { kind: 'href', href: `${WEB}/settings`, external: true }],
         ['Strategy', { kind: 'href', href: `${WEB}/strategy`, external: true }],

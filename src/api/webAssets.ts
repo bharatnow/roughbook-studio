@@ -28,5 +28,8 @@ export type RunWebAssets = {
   caps: { fileBytes: number; videoBytes: number; projectBytes: number; proposalsPerRun: number };
 };
 
+/** The project's web assets for the maker: what is confirmed, and what waits for Confirm. */
+export type ProjectWebAssets = { confirmed: WebAssetView[]; pending: WebAssetView[] };
+
 /** A run's proposal: the address and the agent's words, never a file's text or a path. */
 export type WebAssetProposal = { url: string; reason: string; licence: string };
