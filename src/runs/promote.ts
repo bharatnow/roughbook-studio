@@ -4,6 +4,7 @@
 // paths the server never sees, and hands the prompt to the designer's agent. Ported from roughbook
 // src/lib/delivery/promote.ts (v2-local). The studio never edits the app's code itself, and
 // commits only on a branch the designer asked for, on their yes (B4, in promotion.ts).
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StudioApi } from '../api/client.js';
@@ -24,7 +25,7 @@ import type { Recipe } from '../recipes/types.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
 import { pascalCase } from '../repo/names.js';
-import { ROUGH_DIR } from '../repo/root.js';
+import { ROUGH_DIR, TREATMENTS_FILE } from '../repo/root.js';
 import { inPlaceBase, recordChildren } from './base.js';
 import { hasExtension } from './checks.js';
 import {
@@ -218,6 +219,51 @@ export function fillInPrompt(
     if (standIn) prompt = prompt.replaceAll(standIn, () => words[key]);
   }
   return prompt;
+}
+
+/** An import of the treatments' stylesheet the studio writes (parity T3), by any relative path. */
+const TREATMENTS_IMPORT = /look\/treatments\.css['"]/;
+
+/** The treatments' copy beside a promoted component, and whether the studio writes it now. */
+export type TreatmentsCopy = { file: string; write: boolean };
+
+/**
+ * Where the treatments' stylesheet goes when an iteration that imports it is promoted
+ * (ROUGHBOOK-STUDIO-PARITY-PLAN.md, T3): rough/ never ships, so the studio copies it beside the
+ * target. A copy already there with the same text is used as it is; one with other text belongs
+ * to an earlier promote, whose component keeps its look, so this one gets a name of its own.
+ * Null when no source imports it or the studio has not written it.
+ */
+export function treatmentsCopy(
+  repoRoot: string,
+  sources: string[],
+  targetFile: string
+): TreatmentsCopy | null {
+  if (!sources.some(source => TREATMENTS_IMPORT.test(source))) return null;
+  const from = toDisk(repoRoot, TREATMENTS_FILE);
+  if (!fs.existsSync(from)) return null;
+  const text = fs.readFileSync(from, 'utf8');
+  const dir = path.posix.dirname(targetFile);
+  const tag = createHash('sha256').update(text).digest('hex').slice(0, 8);
+  for (const name of ['roughbook-treatments.css', `roughbook-treatments-${tag}.css`]) {
+    const file = dir === '.' ? name : `${dir}/${name}`;
+    const disk = toDisk(repoRoot, file);
+    if (!fs.existsSync(disk)) return { file, write: true };
+    if (fs.readFileSync(disk, 'utf8') === text) return { file, write: false };
+  }
+  // Both names hold other text: the hashed one cannot, short of a collision.
+  throw new Error(`The treatments' copy beside ${targetFile} cannot be named.`);
+}
+
+/** What the promote prompt says of the treatments' copy: the app imports it, never rough/. */
+export function treatmentsSection(copy: TreatmentsCopy, targetFile: string): string {
+  const relative = path.posix.relative(path.posix.dirname(targetFile), copy.file);
+  const from = relative.startsWith('.') ? relative : `./${relative}`;
+  return [
+    '<treatments>',
+    `The iteration imports ${TREATMENTS_FILE}, which the app never ships: rough/ is left out of its build. The studio copied it to ${copy.file}. Import that from ${targetFile} instead (${from}), or move the classes this component uses, with the --look-* variables they read, into the app's own styles and drop the import. Nothing in the app imports from rough/.`,
+    '</treatments>'
+  ].join('\n');
 }
 
 export function promotePromptFile(page: string, component: string, promotionId: string): string {
@@ -494,9 +540,19 @@ export async function preparePromotion(
     })
   );
   if (base) prompt = fillPromoteStandIns(prompt, relative, targets, promotion.placeholders);
+  const treatments = treatmentsCopy(repoRoot, sources, targetFile);
+  if (treatments?.write) {
+    fs.mkdirSync(path.dirname(toDisk(repoRoot, treatments.file)), { recursive: true });
+    fs.copyFileSync(toDisk(repoRoot, TREATMENTS_FILE), toDisk(repoRoot, treatments.file));
+    copied.push(treatments.file);
+  }
   fs.writeFileSync(
     toDisk(repoRoot, promptFile),
-    `${prompt.trimEnd()}\n\n${promoteFinishingSection(promotion.promotionId, how)}`
+    [
+      prompt.trimEnd(),
+      ...(treatments ? [treatmentsSection(treatments, targetFile)] : []),
+      promoteFinishingSection(promotion.promotionId, how)
+    ].join('\n\n')
   );
   // Runs still open did not write these, so their Done does not count them.
   await recordOwnWritesForOpenRuns(repoRoot, [

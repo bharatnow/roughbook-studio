@@ -16,7 +16,7 @@ import type { RepoMap } from '../map/types.js';
 import { recipeOf } from '../recipes/index.js';
 import { iterationDir } from '../repo/iterations.js';
 import type { RepoLink } from '../repo/link.js';
-import { ROUGH_DIR } from '../repo/root.js';
+import { ROUGH_DIR, TREATMENTS_FILE } from '../repo/root.js';
 import { BASE_DIR, sameText } from '../runs/base.js';
 import { hasExtension } from '../runs/checks.js';
 import {
@@ -26,6 +26,8 @@ import {
   promoteWords,
   publicDirFor,
   referencedAssets,
+  treatmentsCopy,
+  treatmentsSection,
   type AssetName
 } from '../runs/promote.js';
 import {
@@ -357,9 +359,20 @@ export async function preparePagePromotion(
     targets,
     promotion.placeholders
   );
+  // The treatments' stylesheet the sections import, beside the page file: rough/ never ships.
+  const treatments = treatmentsCopy(repoRoot, sources, targets[0]!.path);
+  if (treatments?.write) {
+    fs.mkdirSync(path.dirname(toDisk(repoRoot, treatments.file)), { recursive: true });
+    fs.copyFileSync(toDisk(repoRoot, TREATMENTS_FILE), toDisk(repoRoot, treatments.file));
+    copied.push(treatments.file);
+  }
   fs.writeFileSync(
     toDisk(repoRoot, promptFile),
-    `${prompt.trimEnd()}\n\n${promoteFinishingSection(promotion.promotionId, how)}`
+    [
+      prompt.trimEnd(),
+      ...(treatments ? [treatmentsSection(treatments, targets[0]!.path)] : []),
+      promoteFinishingSection(promotion.promotionId, how)
+    ].join('\n\n')
   );
   await recordOwnWritesForOpenRuns(repoRoot, [...copied, ...copies, promptFile]);
   // Last, so a start that fails before here leaves the designer on the branch they were on.

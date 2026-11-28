@@ -456,6 +456,48 @@ describe('a new component of a page the map has', () => {
     );
     assert.equal(taken.requests.length, 0);
   });
+
+  it("copies the treatments' stylesheet beside the target, and the prompt imports that, never rough/ (parity T3)", async () => {
+    const NEW = 'rough/pricing/logo-wall/iteration-01/index.tsx';
+    const TREATED =
+      'import \'../../../look/treatments.css\';\nexport default () => <div className="rb-t-glass" />;\n';
+    const CSS = ':where(:root) { --look-bg: #fff; }\n.rb-t-glass { background: var(--look-bg); }\n';
+    const COPY = 'components/pricing/roughbook-treatments.css';
+
+    const { repo, promote } = await forked();
+    write(repo, NEW, TREATED);
+    write(repo, 'rough/look/treatments.css', CSS);
+    const prepared = await promote({ component: 'logo-wall' });
+    assert.equal(read(repo, COPY), CSS);
+    assert.ok(prepared.copied.includes(COPY));
+    const prompt = read(repo, prepared.promptFile);
+    assert.match(prompt, /<treatments>\nThe iteration imports rough\/look\/treatments\.css/);
+    assert.match(
+      prompt,
+      /copied it to components\/pricing\/roughbook-treatments\.css\. Import that from components\/pricing\/logo-wall\.tsx instead \(\.\/roughbook-treatments\.css\)/
+    );
+    // The section comes before how the promote finishes.
+    assert.ok(prompt.indexOf('</treatments>') < prompt.indexOf('<finishing>'));
+
+    // An earlier promote's copy with other text keeps its look; this one gets a name of its own.
+    const other = await forked();
+    write(other.repo, NEW, TREATED);
+    write(other.repo, 'rough/look/treatments.css', CSS);
+    write(other.repo, COPY, '.rb-t-old {}\n');
+    const second = await other.promote({ component: 'logo-wall' });
+    assert.equal(read(other.repo, COPY), '.rb-t-old {}\n');
+    const named = second.copied.find(file => /roughbook-treatments-[0-9a-f]{8}\.css$/.test(file));
+    assert.ok(named, JSON.stringify(second.copied));
+    assert.equal(read(other.repo, named), CSS);
+
+    // An iteration that does not import it gets no copy and no section.
+    const plain = await forked();
+    write(plain.repo, NEW, 'export default () => null;\n');
+    write(plain.repo, 'rough/look/treatments.css', CSS);
+    const untouched = await plain.promote({ component: 'logo-wall' });
+    assert.ok(!fs.existsSync(path.join(plain.repo, ...COPY.split('/'))));
+    assert.doesNotMatch(read(plain.repo, untouched.promptFile), /<treatments>/);
+  });
 });
 
 describe('the snapshot and revert', () => {

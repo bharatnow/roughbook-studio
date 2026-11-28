@@ -222,6 +222,29 @@ describe("a page composition's promote", () => {
     assertCarriesNoRepoContent(requests, { repo, root: path.dirname(repo), minimumLines: 10 });
   });
 
+  it("copies the treatments' stylesheet a section imports beside the page file (parity T3)", async () => {
+    const { repo, api } = await composed();
+    const css = '.rb-t-glass { background: var(--look-bg); }\n';
+    write(repo, 'rough/look/treatments.css', css);
+    write(
+      repo,
+      'rough/home/customer-logos/iteration-01/index.tsx',
+      'import \'../../../look/treatments.css\';\nexport default function L() { return <div className="rb-t-glass" />; }\n'
+    );
+    const prepared = await preparePagePromotion(repo, api, LINK, TREE_WITH_SECTION, {
+      page: 'home',
+      composition: 'composition-01'
+    });
+    assert.equal(read(repo, 'app/roughbook-treatments.css'), css);
+    assert.ok(prepared.copied.includes('app/roughbook-treatments.css'));
+    const prompt = read(repo, prepared.promptFile);
+    assert.match(
+      prompt,
+      /<treatments>\nThe iteration imports rough\/look\/treatments\.css, which the app never ships[^\n]*copied it to app\/roughbook-treatments\.css\. Import that from app\/page\.tsx instead \(\.\/roughbook-treatments\.css\)/
+    );
+    assert.ok(prompt.indexOf('</treatments>') < prompt.indexOf('<finishing>'));
+  });
+
   it('is a merge when the page changed since the composition was saved', async () => {
     const { repo, api } = await composed();
     write(repo, 'app/page.tsx', HOME_SOURCE.replace('home-page-layout', 'home-page-wide'));
