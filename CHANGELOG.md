@@ -1,6 +1,66 @@
 # Changelog
 
-## 0.3.17 (2026-10-27)
+## 0.3.18 (2026-11-28)
+
+A studio's power in your agent's hands. Runs made in your repo now get what web sketches get: the
+house rules as floors you can never switch off and defaults your own words lift, a library of
+tested techniques, your project's chosen treatments, and files from the web the project confirmed.
+The studio also gains whole-site runs, a change to a fact that reaches every page, one composer for
+every request, and a quieter canvas. It needs `@roughbook/ui` 0.4.4, Node.js 22 or later, and the
+service at this release.
+
+### New
+
+- **Floors and defaults.** A run's prompt opens with the floors that hold whatever the direction
+  (nothing scrolls sideways at 390 px, every animation has a reduced-motion version, every
+  translucent surface an opaque one, text keeps its contrast, nothing readable starts hidden), and
+  the defaults the designer's own words lift. `get_checks` adds the house check: a missing floor
+  fails the run until it is fixed.
+- **The technique library**, as the roughbook MCP tool `technique`: twenty tested recipes (glass,
+  clay, bento, scroll choreography, kinetic type and more), each with its code, its floors and its
+  cost on a phone. Runs adapt them to what the app already has and install nothing.
+- **Treatments.** Each run writes `rough/look/treatments.css` with the project's look and the
+  treatments chosen for it on the web, and the prompt says which class goes where. A new
+  Treatments screen lists them, with Edit on the web. Promoting an iteration that uses them copies
+  the stylesheet beside the component.
+- **Files from the web.** The MCP tool `fetch_asset` proposes a font, model, picture or animation
+  by its address; once the project confirms it on the web, the file is copied into the run's
+  folder with its licence. The service fetches it, never your machine.
+- **Rive and dotLottie on the standalone canvas** load their runtimes from your repo's own
+  packages, for every renderer (canvas, lite, WebGL, WebGL2, WebGPU and dotLottie's worker),
+  never from a CDN.
+- **Whole sites.** `roughbook run --site` draws every section of the project's approved site plan,
+  page by page, and says when the plan's daily sketches cover only part of it. A reference added
+  in the local UI is copied into `rough/references/` and stays on this machine.
+- **Change a fact everywhere.** "Change this everywhere" finds a fact (a price, an address, a
+  count) in every section of the client's own pages and changes each one, with a sheet that shows
+  every place before anything is written.
+- **One composer.** One button opens it from anywhere; it takes the context chip, a local path
+  (which leaves your machine as a stand-in and comes back in your agent's prompt) and @ search, and
+  shows the history the web shares.
+- **The composite canvas.** Each project page is one live page on the canvas, at full height and
+  as tablet stills too, on every stack, with Keep beside each section.
+- **Your taste**: the sentences Roughbook learned about you and this brand, each with Forget.
+- **Save version** is one click, with Undo and Rename.
+- **SwiftUI**: previews per direction, Xcode's MCP bridge, and a Swift map.
+- **The brief sheet** shows the service's notice beside "Must say" when the stored words say
+  something the brief already says otherwise, with Edit on the web.
+
+### Changed
+
+- **A quieter studio.** A selected card keeps to five controls, each action has one home, the
+  project menu is shorter, and the palette starts from recent work.
+- **The local UI's look**: Host Grotesk, the shared tokens, and the system's light or dark
+  appearance.
+- **Checks.** A first-screen run is checked as a web look is (case, placeholders, how it moves), a
+  section's avoided media are sent back, and Product UI written as HTML is read as such.
+- **Ratings are retired.** Review takes words, not ratings or likes and dislikes.
+- **Promote** fails when a file it changed still imports from `rough/`, and a promote that bundles
+  fonts may register them and says which.
+
+### Fixed
+
+- Pictures are deleted only on a real No, and a bad address answers 400.
 
 Roughbook on the UI your app already has. Until now the studio designed new pages and components;
 this release lets it work on the ones an app ships today. The studio maps the app's pages and
