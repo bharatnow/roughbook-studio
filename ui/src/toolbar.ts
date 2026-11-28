@@ -3,7 +3,7 @@
 // trailing. Only what the studio can do: renaming, archiving and deleting a project stay on the
 // web. Pure, so the tests can check that every toolbar and menu item is also a command.
 import type { CommandRun } from './commands.ts';
-import { TASTE_HREF } from './router.ts';
+import { TASTE_HREF, TREATMENTS_HREF } from './router.ts';
 
 /** What the document menu needs from the studio's state. */
 export type DocumentInput = {
@@ -34,13 +34,20 @@ const TASTE: DocumentItem = {
   run: { kind: 'href', href: TASTE_HREF }
 };
 
+/** The project's treatments, read-only on the studio's own screen (T6 of the parity plan). */
+const TREATMENTS: DocumentItem = {
+  id: 'document:treatments',
+  label: 'Treatments',
+  run: { kind: 'href', href: TREATMENTS_HREF }
+};
+
 /**
- * The document menu: Your taste, here; each other item opens the project's page on the web, or
+ * The document menu: Treatments and Your taste, here; each other item opens the project's page on the web, or
  * copies its link.
  */
 export function documentItems(input: DocumentInput): DocumentItem[] {
   const link = projectLink(input);
-  if (!link) return [TASTE];
+  if (!link) return [TREATMENTS, TASTE];
   const web = (href: string) => ({ kind: 'href', href, external: true }) as const;
   const items: DocumentItem[] = [
     {
@@ -49,6 +56,7 @@ export function documentItems(input: DocumentInput): DocumentItem[] {
       run: web(`${link}/design-system`),
       paletteOnly: true
     },
+    TREATMENTS,
     TASTE,
     { id: 'document:settings', label: 'Project settings', run: web(`${link}/settings`) }
   ];

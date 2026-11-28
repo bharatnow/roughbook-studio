@@ -21,10 +21,15 @@ export type Route =
    * project's address, so no page's slug can stand in its way.
    */
   | { screen: 'taste' }
+  /** The project's treatments, read-only (T6 of the studio parity plan): `/?view=treatments`. */
+  | { screen: 'treatments' }
   | { screen: 'missing' };
 
 /** The taste screen's address. */
 export const TASTE_HREF = '/?view=taste';
+
+/** The treatments screen's address, a query on the project's as Your taste's is. */
+export const TREATMENTS_HREF = '/?view=treatments';
 
 const ITERATION = /^iteration-\d{2,}$/;
 const COMPOSITION = /^composition-\d{2,}$/;
@@ -41,6 +46,7 @@ export function parseRoute(hash: string): Route {
   }
   const [page, component, third, fourth] = parts;
   if (!parts.length && query.get('view') === 'taste') return { screen: 'taste' };
+  if (!parts.length && query.get('view') === 'treatments') return { screen: 'treatments' };
   if (page && parts.length === 1 && query.get('view') === 'page') return { screen: 'page', page };
   // The composition builder retired (3 November 2026): Save version saves the page as the canvas
   // shows it, so its old links, `/<page>/compose` with or without `?from=`, open the page there.
@@ -135,7 +141,8 @@ type Place =
   | { kind: 'component' | 'iterations' | 'compare'; page: string; component: string }
   | { kind: 'iteration'; page: string; component: string; iteration: string }
   | { kind: 'composition'; page: string; composition: string }
-  | { kind: 'taste' };
+  | { kind: 'taste' }
+  | { kind: 'treatments' };
 
 /** A card on the canvas is its component's iterations, as on the web, whose server cannot see it. */
 function placeOf(route: Route): Place | null {
@@ -159,6 +166,8 @@ function placeOf(route: Route): Place | null {
       return { kind: 'composition', page: route.page, composition: route.id };
     case 'taste':
       return { kind: 'taste' };
+    case 'treatments':
+      return { kind: 'treatments' };
     default:
       return null;
   }
@@ -168,6 +177,7 @@ function placeOf(route: Route): Place | null {
 function documentParts(names: TitleNames | null, place: Place): string[] {
   if (place.kind === 'project') return [];
   if (place.kind === 'taste') return ['Your taste'];
+  if (place.kind === 'treatments') return ['Treatments'];
   const page = names?.pages.find(item => item.slug === place.page);
   const pageName = named(page?.name, place.page);
   switch (place.kind) {

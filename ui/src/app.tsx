@@ -12,6 +12,7 @@ import { CompositionScreen } from './screens/composition';
 import { IterationScreen } from './screens/iteration';
 import { PageScreen } from './screens/page';
 import { TasteScreen } from './screens/taste';
+import { TreatmentsScreen } from './screens/treatments';
 
 function Screen() {
   const route = useRoute();
@@ -58,6 +59,12 @@ function Screen() {
       return (
         <Shell>
           <TasteScreen />
+        </Shell>
+      );
+    case 'treatments':
+      return (
+        <Shell>
+          <TreatmentsScreen />
         </Shell>
       );
     default:

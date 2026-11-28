@@ -6,23 +6,29 @@ import { TOOLBAR_ITEMS, documentItems, projectLink } from './toolbar.ts';
 const INPUT = { project: 'site', webUrl: 'https://roughbook.example/', complete: false };
 
 describe("the shell's toolbar", () => {
-  it('links the project on the web, and only Your taste when the studio has no web address', () => {
+  it('links the project on the web, and only Treatments and Your taste when the studio has no web address', () => {
     assert.equal(projectLink(INPUT), 'https://roughbook.example/projects/site');
     assert.equal(projectLink({ ...INPUT, webUrl: null }), null);
     assert.deepEqual(documentItems({ ...INPUT, webUrl: null }), [
+      {
+        id: 'document:treatments',
+        label: 'Treatments',
+        run: { kind: 'href', href: '/?view=treatments' }
+      },
       { id: 'document:taste', label: 'Your taste', run: { kind: 'href', href: '/?view=taste' } }
     ]);
   });
 
-  it('offers Your look, Your taste, Project settings and Copy link; Complete features adds three', () => {
+  it('offers Your look, Treatments, Your taste, Project settings and Copy link; Complete features adds three', () => {
     assert.deepEqual(
       documentItems(INPUT).map(item => item.label),
-      ['Your look', 'Your taste', 'Project settings', 'Copy link']
+      ['Your look', 'Treatments', 'Your taste', 'Project settings', 'Copy link']
     );
     assert.deepEqual(
       documentItems({ ...INPUT, complete: true }).map(item => item.label),
       [
         'Your look',
+        'Treatments',
         'Your taste',
         'Project settings',
         'Strategy',
@@ -47,7 +53,7 @@ describe("the shell's toolbar", () => {
     const menu = documentItems({ ...INPUT, complete: true }).filter(item => !item.paletteOnly);
     assert.deepEqual(
       menu.map(item => item.label),
-      ['Your taste', 'Project settings', 'Copy link']
+      ['Treatments', 'Your taste', 'Project settings', 'Copy link']
     );
   });
 
