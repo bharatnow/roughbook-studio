@@ -35,7 +35,12 @@ import type {
   StillsRead,
   StoredPicture
 } from './types.js';
-import type { RunWebAssets, WebAssetProposal, WebAssetView } from './webAssets.js';
+import type {
+  ProjectWebAssets,
+  RunWebAssets,
+  WebAssetProposal,
+  WebAssetView
+} from './webAssets.js';
 
 /** Where the backend serves the studio's routes. */
 export const STUDIO_BASE = '/v1/api/studio';
@@ -453,6 +458,51 @@ export class StudioApi {
     throw await readError(response);
   }
 
+  /**
+   * The project's web assets for the local UI's Assets screen (parity plan): the confirmed files,
+   * and the runs' proposals waiting for the maker.
+   */
+  projectWebAssets(orgId: string, project: string): Promise<ProjectWebAssets> {
+    return this.request('GET', projectAssetsPath(orgId, project));
+  }
+
+  /**
+   * The maker's Confirm: the backend fetches the file through its guard, never this machine. The
+   * body holds the licence the maker typed, when they typed one, and nothing else.
+   */
+  confirmWebAsset(
+    orgId: string,
+    project: string,
+    assetId: string,
+    body: { licence?: string } = {}
+  ): Promise<WebAssetView> {
+    return this.request(
+      'POST',
+      `${projectAssetsPath(orgId, project)}/${encodeURIComponent(assetId)}/confirm`,
+      body.licence === undefined ? {} : { licence: body.licence }
+    );
+  }
+
+  /** The maker's Decline: nothing is fetched, and the run's proposal is turned down. */
+  rejectWebAsset(orgId: string, project: string, assetId: string): Promise<WebAssetView> {
+    return this.request(
+      'POST',
+      `${projectAssetsPath(orgId, project)}/${encodeURIComponent(assetId)}/reject`,
+      {}
+    );
+  }
+
+  /**
+   * The maker's Remove of a confirmed file: the project no longer holds it, and iterations that
+   * use it show it missing. No body; the id is the whole request.
+   */
+  removeWebAsset(orgId: string, project: string, assetId: string): Promise<{ removed: true }> {
+    return this.request(
+      'DELETE',
+      `${projectAssetsPath(orgId, project)}/${encodeURIComponent(assetId)}`
+    );
+  }
+
   /** The project's full-height stills: signed links to its web sketches' pictures, with sizes. */
   stills(orgId: string, project: string): Promise<StillsRead> {
     return this.request('GET', `${projectPath(orgId, project)}/stills`);
@@ -691,6 +741,10 @@ function projectPath(orgId: string, project: string): string {
 
 function runAssetsPath(orgId: string, runId: string): string {
   return `/orgs/${encodeURIComponent(orgId)}/runs/${encodeURIComponent(runId)}/web-assets`;
+}
+
+function projectAssetsPath(orgId: string, project: string): string {
+  return `${projectPath(orgId, project)}/web-assets`;
 }
 
 function pagePath(orgId: string, project: string, page: string): string {

@@ -929,3 +929,73 @@ describe('outbound requests: an asset from the web (T5 of the parity plan)', () 
     });
   });
 });
+
+describe('outbound requests: the Assets screen (after T5 of the parity plan)', () => {
+  it('sends the asset id and the licence typed, never a line or a path', async () => {
+    const { StudioApi } = await import('../api/client.js');
+    const { confirmWebAsset, loadWebAssets, rejectWebAsset, removeWebAsset } =
+      await import('../server/webAssets.js');
+    const root = await tempDir('roughbook-outbound-assets-');
+    const repo = path.join(root, 'client-app');
+    const hero = path.join(repo, 'rough', 'home', 'hero', 'iteration-03');
+    fs.mkdirSync(hero, { recursive: true });
+    fs.writeFileSync(path.join(hero, 'index.tsx'), ITERATION_SOURCE);
+    fs.writeFileSync(path.join(repo, 'src-stray.ts'), STRAY_EDIT);
+    const ASSET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const pending = {
+      id: ASSET,
+      status: 'pending',
+      sourceUrl: 'https://models.example.org/chair.glb',
+      licence: 'CC0',
+      licenceFrom: 'model',
+      reason: 'The product in the hero'
+    };
+    const backend = fakeFetch(request =>
+      request.method === 'GET'
+        ? ok({ confirmed: [], pending: [pending] })
+        : request.method === 'DELETE'
+          ? ok({ removed: true })
+          : ok({ ...pending, status: request.url.endsWith('/reject') ? 'rejected' : 'confirmed' })
+    );
+    const api = new StudioApi({
+      server: 'https://api.example.test',
+      token: TOKEN,
+      userAgent: 'roughbook-studio/test',
+      fetch: backend.fetch
+    });
+    const source = { api, link: { orgId: ORG, project: 'site' } };
+    await loadWebAssets(source);
+    // A page that sent the repo's path as the licence, and more than it should: refused here.
+    await assert.rejects(
+      confirmWebAsset(source, ASSET, { licence: `See ${path.join(repo, 'LICENSE')}` })
+    );
+    await confirmWebAsset(source, ASSET, { licence: 'CC-BY-4.0', code: ITERATION_SOURCE });
+    await confirmWebAsset(source, ASSET, {});
+    await rejectWebAsset(source, ASSET);
+    await removeWebAsset(source, ASSET);
+    assert.deepEqual(
+      backend.requests.map(request => [
+        request.method,
+        new URL(request.url).pathname,
+        request.body
+      ]),
+      [
+        ['GET', `/v1/api/studio${PROJECT}/web-assets`, null],
+        ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/confirm`, { licence: 'CC-BY-4.0' }],
+        ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/confirm`, {}],
+        ['POST', `/v1/api/studio${PROJECT}/web-assets/${ASSET}/reject`, {}],
+        ['DELETE', `/v1/api/studio${PROJECT}/web-assets/${ASSET}`, null]
+      ]
+    );
+    // Every request goes to the backend; none to the asset's source.
+    assert.ok(
+      backend.requests.every(request => request.url.startsWith('https://api.example.test/'))
+    );
+    assertCarriesNoRepoContent(backend.requests, {
+      repo,
+      root,
+      extraLines: [...ITERATION_SOURCE.split('\n'), STRAY_EDIT],
+      minimumLines: 5
+    });
+  });
+});

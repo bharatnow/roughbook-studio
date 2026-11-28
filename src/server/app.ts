@@ -29,6 +29,7 @@ import { snapshotPolicy } from './snapshotPage.js';
 import { capped, MAX_STILL_BYTES, type StillKind } from './stills.js';
 import { understandMessage } from './understand.js';
 import { verbRoutes } from './verbs.js';
+import { confirmWebAsset, loadWebAssets, rejectWebAsset, removeWebAsset } from './webAssets.js';
 import { BadRequest, assetType, parseDecision, type LocalStudio, type RunBody } from './studio.js';
 
 export type LocalServerOptions = {
@@ -309,6 +310,18 @@ export function createLocalServer(options: LocalServerOptions): http.Server {
     route('GET', '/api/learned', () => loadLearned(studio.readingsSource)),
     route('POST', '/api/learned/:scope/:id/forget', (_request, params) =>
       forgetLearned(studio.readingsSource, params.scope, params.id)
+    ),
+    // The Assets screen: the runs' proposals and the confirmed files, and Remove for those. Only the
+    // asset's id and the licence the maker typed go; the backend fetches the file, never this machine.
+    route('GET', '/api/web-assets', () => loadWebAssets(studio.readingsSource)),
+    route('POST', '/api/web-assets/:id/confirm', async (request, params) =>
+      confirmWebAsset(studio.readingsSource, params.id, await readBody(request))
+    ),
+    route('POST', '/api/web-assets/:id/reject', (_request, params) =>
+      rejectWebAsset(studio.readingsSource, params.id)
+    ),
+    route('POST', '/api/web-assets/:id/remove', (_request, params) =>
+      removeWebAsset(studio.readingsSource, params.id)
     ),
     // The local UI's privacy sheet, shown once per install apart from the CLI's.
     route('POST', '/api/privacy-sheet/seen', () => studio.privacySheetSeen()),

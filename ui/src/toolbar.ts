@@ -3,7 +3,7 @@
 // trailing. Only what the studio can do: renaming, archiving and deleting a project stay on the
 // web. Pure, so the tests can check that every toolbar and menu item is also a command.
 import type { CommandRun } from './commands.ts';
-import { TASTE_HREF, TREATMENTS_HREF } from './router.ts';
+import { ASSETS_HREF, TASTE_HREF, TREATMENTS_HREF } from './router.ts';
 
 /** What the document menu needs from the studio's state. */
 export type DocumentInput = {
@@ -41,13 +41,20 @@ const TREATMENTS: DocumentItem = {
   run: { kind: 'href', href: TREATMENTS_HREF }
 };
 
+/** The project's files from the web, a run's proposals first, to Confirm or Decline here. */
+const ASSETS: DocumentItem = {
+  id: 'document:assets',
+  label: 'Assets',
+  run: { kind: 'href', href: ASSETS_HREF }
+};
+
 /**
- * The document menu: Treatments and Your taste, here; each other item opens the project's page on the web, or
+ * The document menu: Treatments, Assets and Your taste, here; each other item opens the project's page on the web, or
  * copies its link.
  */
 export function documentItems(input: DocumentInput): DocumentItem[] {
   const link = projectLink(input);
-  if (!link) return [TREATMENTS, TASTE];
+  if (!link) return [TREATMENTS, ASSETS, TASTE];
   const web = (href: string) => ({ kind: 'href', href, external: true }) as const;
   const items: DocumentItem[] = [
     {
@@ -57,6 +64,7 @@ export function documentItems(input: DocumentInput): DocumentItem[] {
       paletteOnly: true
     },
     TREATMENTS,
+    ASSETS,
     TASTE,
     { id: 'document:settings', label: 'Project settings', run: web(`${link}/settings`) }
   ];
